@@ -1,0 +1,5 @@
+libcamera (0~git20190625+cb21bb3-1) unstable; urgency=medium
+
+  * Initial release (Closes: #930456).
+
+ -- Emmanuel Arias <emmanuelarias30@gmail.com>  Sun, 02 Jun 2019 02:32:46 +0000

@@ -1,0 +1,14 @@
+From: Andrej Shadura <andrewsh@debian.org>
+Date: Tue, 25 Jun 2019 14:28:27 -0500
+Subject: Tell meson to add a version to the SONAME
+
+--- a/src/libcamera/meson.build
++++ b/src/libcamera/meson.build
+@@ -75,6 +75,7 @@
+                            libcamera_sources,
+                            install : true,
+                            include_directories : includes,
++                           version: '0.1.0',
+                            dependencies : libcamera_deps)
+ 
+ libcamera_dep = declare_dependency(sources : [libcamera_api, libcamera_h],
