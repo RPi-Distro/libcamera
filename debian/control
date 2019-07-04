@@ -9,7 +9,9 @@ Build-Depends: debhelper-compat (= 12),
                dh-exec,
                meson (>= 0.40),
                libudev-dev,
-               python3-sphinx
+               python3-sphinx,
+               libjs-jquery,
+               libjs-underscore
 Standards-Version: 4.3.0
 Section: libs
 Homepage: https://libcamera.org/
@@ -21,6 +23,8 @@ Section: libdevel
 Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
+         libjs-jquery,
+         libjs-underscore,
          libcamera0 (= ${binary:Version})
 Multi-Arch: same
 Description: complex camera support library (development files)
