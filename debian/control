@@ -23,7 +23,7 @@ Depends: ${shlibs:Depends},
          ${misc:Depends},
          libcamera0 (= ${binary:Version})
 Multi-Arch: same
-Description: a complex camera support library (development files)
+Description: complex camera support library (development files)
  libcamera is a complex camera support library which handles low-level
  control of the camera devices, providing a unified higher-level
  programming interface to the applications.
@@ -36,7 +36,7 @@ Depends: ${shlibs:Depends},
          ${misc:Depends}
 Pre-Depends: ${misc:Pre-Depends}
 Multi-Arch: same
-Description: a complex camera support library
+Description: complex camera support library
  libcamera is a complex camera support library which handles low-level
  control of the camera devices, providing a unified higher-level
  programming interface to the applications.
@@ -47,7 +47,7 @@ Depends: ${shlibs:Depends},
          ${misc:Depends}
 Pre-Depends: ${misc:Pre-Depends}
 Multi-Arch: foreign
-Description: a complex camera support library (tools)
+Description: complex camera support library (tools)
  libcamera is a complex camera support library which handles low-level
  control of the camera devices, providing a unified higher-level
  .
