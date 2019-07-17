@@ -14,6 +14,7 @@
 #include "event_dispatcher_poll.h"
 #include "log.h"
 #include "pipeline_handler.h"
+#include "thread.h"
 #include "utils.h"
 
 /**
@@ -56,7 +57,7 @@ LOG_DEFINE_CATEGORY(Camera)
  */
 
 CameraManager::CameraManager()
-	: enumerator_(nullptr), dispatcher_(nullptr)
+	: enumerator_(nullptr)
 {
 }
 
@@ -78,6 +79,8 @@ int CameraManager::start()
 {
 	if (enumerator_)
 		return -EBUSY;
+
+	LOG(Camera, Info) << "libcamera " << version_;
 
 	enumerator_ = DeviceEnumerator::create();
 	if (!enumerator_ || enumerator_->enumerate())
@@ -225,6 +228,12 @@ CameraManager *CameraManager::instance()
 }
 
 /**
+ * \fn const std::string &CameraManager::version()
+ * \brief Retrieve the libcamera version string
+ * \return The libcamera version string
+ */
+
+/**
  * \brief Set the event dispatcher
  * \param[in] dispatcher Pointer to the event dispatcher
  *
@@ -239,12 +248,7 @@ CameraManager *CameraManager::instance()
  */
 void CameraManager::setEventDispatcher(std::unique_ptr<EventDispatcher> dispatcher)
 {
-	if (dispatcher_) {
-		LOG(Camera, Warning) << "Event dispatcher is already set";
-		return;
-	}
-
-	dispatcher_ = std::move(dispatcher);
+	Thread::current()->setEventDispatcher(std::move(dispatcher));
 }
 
 /**
@@ -260,10 +264,7 @@ void CameraManager::setEventDispatcher(std::unique_ptr<EventDispatcher> dispatch
  */
 EventDispatcher *CameraManager::eventDispatcher()
 {
-	if (!dispatcher_)
-		dispatcher_ = utils::make_unique<EventDispatcherPoll>();
-
-	return dispatcher_.get();
+	return Thread::current()->eventDispatcher();
 }
 
 } /* namespace libcamera */

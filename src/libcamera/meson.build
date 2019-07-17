@@ -3,6 +3,7 @@ libcamera_sources = files([
     'camera.cpp',
     'camera_manager.cpp',
     'camera_sensor.cpp',
+    'controls.cpp',
     'device_enumerator.cpp',
     'device_enumerator_sysfs.cpp',
     'event_dispatcher.cpp',
@@ -13,14 +14,19 @@ libcamera_sources = files([
     'ipa_interface.cpp',
     'ipa_manager.cpp',
     'ipa_module.cpp',
+    'ipa_proxy.cpp',
+    'ipc_unixsocket.cpp',
     'log.cpp',
     'media_device.cpp',
     'media_object.cpp',
+    'message.cpp',
     'object.cpp',
     'pipeline_handler.cpp',
+    'process.cpp',
     'request.cpp',
     'signal.cpp',
     'stream.cpp',
+    'thread.cpp',
     'timer.cpp',
     'utils.cpp',
     'v4l2_controls.cpp',
@@ -38,10 +44,15 @@ libcamera_headers = files([
     'include/formats.h',
     'include/ipa_manager.h',
     'include/ipa_module.h',
+    'include/ipa_proxy.h',
+    'include/ipc_unixsocket.h',
     'include/log.h',
     'include/media_device.h',
     'include/media_object.h',
+    'include/message.h',
     'include/pipeline_handler.h',
+    'include/process.h',
+    'include/thread.h',
     'include/utils.h',
     'include/v4l2_device.h',
     'include/v4l2_subdevice.h',
@@ -56,6 +67,7 @@ includes = [
 ]
 
 subdir('pipeline')
+subdir('proxy')
 
 libudev = dependency('libudev', required : false)
 
@@ -66,9 +78,29 @@ if libudev.found()
     ])
 endif
 
+gen_controls = files('gen-controls.awk')
+
+control_types_cpp = custom_target('control_types_cpp',
+                                  input : files('controls.cpp'),
+                                  output : 'control_types.cpp',
+                                  depend_files : gen_controls,
+                                  command : [gen_controls, '@INPUT@', '--code', '@OUTPUT@'])
+
+libcamera_sources += control_types_cpp
+
+gen_version = join_paths(meson.source_root(), 'utils', 'gen-version.sh')
+
+version_cpp = vcs_tag(command : [gen_version, meson.build_root()],
+                      input : 'version.cpp.in',
+                      output : 'version.cpp',
+                      fallback : meson.project_version())
+
+libcamera_sources += version_cpp
+
 libcamera_deps = [
     cc.find_library('dl'),
     libudev,
+    dependency('threads'),
 ]
 
 libcamera = shared_library('camera',
@@ -80,3 +112,5 @@ libcamera = shared_library('camera',
 libcamera_dep = declare_dependency(sources : [libcamera_api, libcamera_h],
                                    include_directories : libcamera_includes,
                                    link_with : libcamera)
+
+subdir('proxy/worker')

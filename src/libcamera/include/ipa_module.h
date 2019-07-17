@@ -26,6 +26,7 @@ public:
 	bool isValid() const;
 
 	const struct IPAModuleInfo &info() const;
+	const std::string &path() const;
 
 	bool load();
 
@@ -33,6 +34,8 @@ public:
 
 	bool match(PipelineHandler *pipe,
 		   uint32_t minVersion, uint32_t maxVersion) const;
+
+	bool isOpenSource() const;
 
 private:
 	struct IPAModuleInfo info_;

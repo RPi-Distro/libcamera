@@ -69,8 +69,9 @@ public:
 	int configureOutput(ImgUOutput *output,
 			    const StreamConfiguration &cfg);
 
-	int importBuffers(BufferPool *pool);
-	int exportBuffers(ImgUOutput *output, BufferPool *pool);
+	int importInputBuffers(BufferPool *pool);
+	int importOutputBuffers(ImgUOutput *output, BufferPool *pool);
+	int exportOutputBuffers(ImgUOutput *output, BufferPool *pool);
 	void freeBuffers();
 
 	int start();
@@ -121,7 +122,7 @@ public:
 	BufferPool *exportBuffers();
 	void freeBuffers();
 
-	int start();
+	int start(std::vector<std::unique_ptr<Buffer>> *buffer);
 	int stop();
 
 	static int mediaBusToFormat(unsigned int code);
@@ -163,6 +164,8 @@ public:
 
 	IPU3Stream outStream_;
 	IPU3Stream vfStream_;
+
+	std::vector<std::unique_ptr<Buffer>> rawBuffers_;
 };
 
 class IPU3CameraConfiguration : public CameraConfiguration
@@ -400,6 +403,8 @@ CameraConfiguration *PipelineHandlerIPU3::generateConfiguration(Camera *camera,
 		StreamConfiguration cfg = {};
 		IPU3Stream *stream = nullptr;
 
+		cfg.pixelFormat = V4L2_PIX_FMT_NV12;
+
 		switch (role) {
 		case StreamRole::StillCapture:
 			/*
@@ -493,6 +498,37 @@ int PipelineHandlerIPU3::configure(Camera *camera, CameraConfiguration *c)
 	CIO2Device *cio2 = &data->cio2_;
 	ImgUDevice *imgu = data->imgu_;
 	int ret;
+
+	/*
+	 * FIXME: enabled links in one ImgU pipe interfere with capture
+	 * operations on the other one. This can be easily triggered by
+	 * capturing from one camera and then trying to capture from the other
+	 * one right after, without disabling media links on the first used
+	 * pipe.
+	 *
+	 * The tricky part here is where to disable links on the ImgU instance
+	 * which is currently not in use:
+	 * 1) Link enable/disable cannot be done at start()/stop() time as video
+	 * devices needs to be linked first before format can be configured on
+	 * them.
+	 * 2) As link enable has to be done at the least in configure(),
+	 * before configuring formats, the only place where to disable links
+	 * would be 'stop()', but the Camera class state machine allows
+	 * start()<->stop() sequences without any configure() in between.
+	 *
+	 * As of now, disable all links in the ImgU media graph before
+	 * configuring the device, to allow alternate the usage of the two
+	 * ImgU pipes.
+	 *
+	 * As a consequence, a Camera using an ImgU shall be configured before
+	 * any start()/stop() sequence. An application that wants to
+	 * pre-configure all the camera and then start/stop them alternatively
+	 * without going through any re-configuration (a sequence that is
+	 * allowed by the Camera state machine) would now fail on the IPU3.
+	 */
+	ret = imguMediaDev_->disableLinks();
+	if (ret)
+		return ret;
 
 	/*
 	 * \todo: Enable links selectively based on the requested streams.
@@ -604,7 +640,7 @@ int PipelineHandlerIPU3::allocateBuffers(Camera *camera,
 	if (!pool)
 		return -ENOMEM;
 
-	ret = imgu->importBuffers(pool);
+	ret = imgu->importInputBuffers(pool);
 	if (ret)
 		goto error;
 
@@ -615,7 +651,7 @@ int PipelineHandlerIPU3::allocateBuffers(Camera *camera,
 	 */
 	bufferCount = pool->count();
 	imgu->stat_.pool->createBuffers(bufferCount);
-	ret = imgu->exportBuffers(&imgu->stat_, imgu->stat_.pool);
+	ret = imgu->exportOutputBuffers(&imgu->stat_, imgu->stat_.pool);
 	if (ret)
 		goto error;
 
@@ -624,7 +660,10 @@ int PipelineHandlerIPU3::allocateBuffers(Camera *camera,
 		IPU3Stream *stream = static_cast<IPU3Stream *>(s);
 		ImgUDevice::ImgUOutput *dev = stream->device_;
 
-		ret = imgu->exportBuffers(dev, &stream->bufferPool());
+		if (stream->memoryType() == InternalMemory)
+			ret = imgu->exportOutputBuffers(dev, &stream->bufferPool());
+		else
+			ret = imgu->importOutputBuffers(dev, &stream->bufferPool());
 		if (ret)
 			goto error;
 	}
@@ -634,19 +673,19 @@ int PipelineHandlerIPU3::allocateBuffers(Camera *camera,
 	 * of buffers as the active ones.
 	 */
 	if (!outStream->active_) {
-		bufferCount = vfStream->bufferPool().count();
+		bufferCount = vfStream->configuration().bufferCount;
 		outStream->device_->pool->createBuffers(bufferCount);
-		ret = imgu->exportBuffers(outStream->device_,
-					  outStream->device_->pool);
+		ret = imgu->exportOutputBuffers(outStream->device_,
+						outStream->device_->pool);
 		if (ret)
 			goto error;
 	}
 
 	if (!vfStream->active_) {
-		bufferCount = outStream->bufferPool().count();
+		bufferCount = outStream->configuration().bufferCount;
 		vfStream->device_->pool->createBuffers(bufferCount);
-		ret = imgu->exportBuffers(vfStream->device_,
-					  vfStream->device_->pool);
+		ret = imgu->exportOutputBuffers(vfStream->device_,
+						vfStream->device_->pool);
 		if (ret)
 			goto error;
 	}
@@ -681,7 +720,7 @@ int PipelineHandlerIPU3::start(Camera *camera)
 	 * Start the ImgU video devices, buffers will be queued to the
 	 * ImgU output and viewfinder when requests will be queued.
 	 */
-	ret = cio2->start();
+	ret = cio2->start(&data->rawBuffers_);
 	if (ret)
 		goto error;
 
@@ -697,6 +736,7 @@ int PipelineHandlerIPU3::start(Camera *camera)
 error:
 	LOG(IPU3, Error) << "Failed to start camera " << camera->name();
 
+	data->rawBuffers_.clear();
 	return ret;
 }
 
@@ -711,7 +751,7 @@ void PipelineHandlerIPU3::stop(Camera *camera)
 		LOG(IPU3, Warning) << "Failed to stop camera "
 				   << camera->name();
 
-	PipelineHandler::stop(camera);
+	data->rawBuffers_.clear();
 }
 
 int PipelineHandlerIPU3::queueRequest(Camera *camera, Request *request)
@@ -775,29 +815,6 @@ bool PipelineHandlerIPU3::match(DeviceEnumerator *enumerator)
 	if (cio2MediaDev_->disableLinks())
 		return false;
 
-	/*
-	 * FIXME: enabled links in one ImgU instance interfere with capture
-	 * operations on the other one. This can be easily triggered by
-	 * capturing from one camera and then trying to capture from the other
-	 * one right after, without disabling media links in the media graph
-	 * first.
-	 *
-	 * The tricky part here is where to disable links on the ImgU instance
-	 * which is currently not in use:
-	 * 1) Link enable/disable cannot be done at start/stop time as video
-	 * devices needs to be linked first before format can be configured on
-	 * them.
-	 * 2) As link enable has to be done at the least in configure(),
-	 * before configuring formats, the only place where to disable links
-	 * would be 'stop()', but the Camera class state machine allows
-	 * start()<->stop() sequences without any configure() in between.
-	 *
-	 * As of now, disable all links in the media graph at 'match()' time,
-	 * to allow testing different cameras in different test applications
-	 * runs. A test application that would use two distinct cameras without
-	 * going through a library teardown->match() sequence would fail
-	 * at the moment.
-	 */
 	ret = imguMediaDev_->disableLinks();
 	if (ret)
 		return ret;
@@ -910,6 +927,10 @@ int PipelineHandlerIPU3::registerCameras()
  */
 void IPU3CameraData::imguInputBufferReady(Buffer *buffer)
 {
+	/* \todo Handle buffer failures when state is set to BufferError. */
+	if (buffer->status() == Buffer::BufferCancelled)
+		return;
+
 	cio2_.output_->queueBuffer(buffer);
 }
 
@@ -927,14 +948,8 @@ void IPU3CameraData::imguOutputBufferReady(Buffer *buffer)
 		/* Request not completed yet, return here. */
 		return;
 
-	/* Complete the pending requests in queueing order. */
-	while (1) {
-		request = queuedRequests_.front();
-		if (request->hasPendingBuffers())
-			break;
-
-		pipe_->completeRequest(camera_, request);
-	}
+	/* Mark the request as complete. */
+	pipe_->completeRequest(camera_, request);
 }
 
 /**
@@ -946,6 +961,10 @@ void IPU3CameraData::imguOutputBufferReady(Buffer *buffer)
  */
 void IPU3CameraData::cio2BufferReady(Buffer *buffer)
 {
+	/* \todo Handle buffer failures when state is set to BufferError. */
+	if (buffer->status() == Buffer::BufferCancelled)
+		return;
+
 	imgu_->input_->queueBuffer(buffer);
 }
 
@@ -1120,7 +1139,7 @@ int ImgUDevice::configureOutput(ImgUOutput *output,
  * \param[in] pool The buffer pool to import
  * \return 0 on success or a negative error code otherwise
  */
-int ImgUDevice::importBuffers(BufferPool *pool)
+int ImgUDevice::importInputBuffers(BufferPool *pool)
 {
 	int ret = input_->importBuffers(pool);
 	if (ret) {
@@ -1141,12 +1160,35 @@ int ImgUDevice::importBuffers(BufferPool *pool)
  *
  * \return 0 on success or a negative error code otherwise
  */
-int ImgUDevice::exportBuffers(ImgUOutput *output, BufferPool *pool)
+int ImgUDevice::exportOutputBuffers(ImgUOutput *output, BufferPool *pool)
 {
 	int ret = output->dev->exportBuffers(pool);
 	if (ret) {
 		LOG(IPU3, Error) << "Failed to export ImgU "
 				 << output->name << " buffers";
+		return ret;
+	}
+
+	return 0;
+}
+
+/**
+ * \brief Reserve buffers in \a output from the provided \a pool
+ * \param[in] output The ImgU output device
+ * \param[in] pool The buffer pool used to reserve buffers in \a output
+ *
+ * Reserve a number of buffers equal to the number of buffers in \a pool
+ * in the \a output device.
+ *
+ * \return 0 on success or a negative error code otherwise
+ */
+int ImgUDevice::importOutputBuffers(ImgUOutput *output, BufferPool *pool)
+{
+	int ret = output->dev->importBuffers(pool);
+	if (ret) {
+		LOG(IPU3, Error)
+			<< "Failed to import buffer in " << output->name
+			<< " ImgU device";
 		return ret;
 	}
 
@@ -1432,21 +1474,13 @@ void CIO2Device::freeBuffers()
 		LOG(IPU3, Error) << "Failed to release CIO2 buffers";
 }
 
-int CIO2Device::start()
+int CIO2Device::start(std::vector<std::unique_ptr<Buffer>> *buffers)
 {
-	int ret;
+	*buffers = output_->queueAllBuffers();
+	if (buffers->empty())
+		return -EINVAL;
 
-	for (Buffer &buffer : pool_.buffers()) {
-		ret = output_->queueBuffer(&buffer);
-		if (ret)
-			return ret;
-	}
-
-	ret = output_->streamOn();
-	if (ret)
-		return ret;
-
-	return 0;
+	return output_->streamOn();
 }
 
 int CIO2Device::stop()

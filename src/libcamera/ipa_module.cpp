@@ -7,6 +7,8 @@
 
 #include "ipa_module.h"
 
+#include <algorithm>
+#include <array>
 #include <dlfcn.h>
 #include <elf.h>
 #include <errno.h>
@@ -15,10 +17,12 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <tuple>
 #include <unistd.h>
 
 #include "log.h"
 #include "pipeline_handler.h"
+#include "utils.h"
 
 /**
  * \file ipa_module.h
@@ -81,18 +85,27 @@ int elfVerifyIdent(void *map, size_t soSize)
 	return 0;
 }
 
+/**
+ * \brief Retrieve address and size of a symbol from an mmap'ed ELF file
+ * \param[in] map Address of mmap'ed ELF file
+ * \param[in] soSize Size of mmap'ed ELF file (in bytes)
+ * \param[in] symbol Symbol name
+ *
+ * \return zero or error code, address or nullptr, size of symbol or zero,
+ * respectively
+ */
 template<class ElfHeader, class SecHeader, class SymHeader>
-int elfLoadSymbol(void *dst, size_t size, void *map, size_t soSize,
-			  const char *symbol)
+std::tuple<void *, size_t>
+elfLoadSymbol(void *map, size_t soSize, const char *symbol)
 {
 	ElfHeader *eHdr = elfPointer<ElfHeader>(map, 0, soSize);
 	if (!eHdr)
-		return -ENOEXEC;
+		return std::make_tuple(nullptr, 0);
 
 	off_t offset = eHdr->e_shoff + eHdr->e_shentsize * eHdr->e_shstrndx;
 	SecHeader *sHdr = elfPointer<SecHeader>(map, offset, soSize);
 	if (!sHdr)
-		return -ENOEXEC;
+		return std::make_tuple(nullptr, 0);
 	off_t shnameoff = sHdr->sh_offset;
 
 	/* Locate .dynsym section header. */
@@ -101,12 +114,12 @@ int elfLoadSymbol(void *dst, size_t size, void *map, size_t soSize,
 		offset = eHdr->e_shoff + eHdr->e_shentsize * i;
 		sHdr = elfPointer<SecHeader>(map, offset, soSize);
 		if (!sHdr)
-			return -ENOEXEC;
+			return std::make_tuple(nullptr, 0);
 
 		offset = shnameoff + sHdr->sh_name;
 		char *name = elfPointer<char[8]>(map, offset, soSize);
 		if (!name)
-			return -ENOEXEC;
+			return std::make_tuple(nullptr, 0);
 
 		if (sHdr->sh_type == SHT_DYNSYM && !strcmp(name, ".dynsym")) {
 			dynsym = sHdr;
@@ -116,13 +129,13 @@ int elfLoadSymbol(void *dst, size_t size, void *map, size_t soSize,
 
 	if (dynsym == nullptr) {
 		LOG(IPAModule, Error) << "ELF has no .dynsym section";
-		return -ENOEXEC;
+		return std::make_tuple(nullptr, 0);
 	}
 
 	offset = eHdr->e_shoff + eHdr->e_shentsize * dynsym->sh_link;
 	sHdr = elfPointer<SecHeader>(map, offset, soSize);
 	if (!sHdr)
-		return -ENOEXEC;
+		return std::make_tuple(nullptr, 0);
 	off_t dynsym_nameoff = sHdr->sh_offset;
 
 	/* Locate symbol in the .dynsym section. */
@@ -132,16 +145,16 @@ int elfLoadSymbol(void *dst, size_t size, void *map, size_t soSize,
 		offset = dynsym->sh_offset + dynsym->sh_entsize * i;
 		SymHeader *sym = elfPointer<SymHeader>(map, offset, soSize);
 		if (!sym)
-			return -ENOEXEC;
+			return std::make_tuple(nullptr, 0);
 
 		offset = dynsym_nameoff + sym->st_name;
 		char *name = elfPointer<char>(map, offset, soSize,
 					      strlen(symbol) + 1);
 		if (!name)
-			return -ENOEXEC;
+			return std::make_tuple(nullptr, 0);
 
 		if (!strcmp(name, symbol) &&
-		    sym->st_info & STB_GLOBAL && sym->st_size == size) {
+		    sym->st_info & STB_GLOBAL) {
 			targetSymbol = sym;
 			break;
 		}
@@ -149,24 +162,22 @@ int elfLoadSymbol(void *dst, size_t size, void *map, size_t soSize,
 
 	if (targetSymbol == nullptr) {
 		LOG(IPAModule, Error) << "Symbol " << symbol << " not found";
-		return -ENOEXEC;
+		return std::make_tuple(nullptr, 0);
 	}
 
 	/* Locate and return data of symbol. */
 	if (targetSymbol->st_shndx >= eHdr->e_shnum)
-		return -ENOEXEC;
+		return std::make_tuple(nullptr, 0);
 	offset = eHdr->e_shoff + targetSymbol->st_shndx * eHdr->e_shentsize;
 	sHdr = elfPointer<SecHeader>(map, offset, soSize);
 	if (!sHdr)
-		return -ENOEXEC;
+		return std::make_tuple(nullptr, 0);
 	offset = sHdr->sh_offset + (targetSymbol->st_value - sHdr->sh_addr);
-	char *data = elfPointer<char>(map, offset, soSize, size);
+	char *data = elfPointer<char>(map, offset, soSize, targetSymbol->st_size);
 	if (!data)
-		return -ENOEXEC;
+		return std::make_tuple(nullptr, 0);
 
-	memcpy(dst, data, size);
-
-	return 0;
+	return std::make_tuple(data, targetSymbol->st_size);
 }
 
 } /* namespace */
@@ -206,6 +217,29 @@ int elfLoadSymbol(void *dst, size_t size, void *map, size_t soSize,
  *
  * \var IPAModuleInfo::name
  * \brief The name of the IPA module
+ *
+ * \var IPAModuleInfo::license
+ * \brief License of the IPA module
+ *
+ * This license is used to determine whether to force isolation of the IPA in
+ * a separate process. If the license is "Proprietary", then the IPA will
+ * be isolated. If the license is open-source, then the IPA will be allowed to
+ * run without isolation if the user enables it. The license should be an
+ * SPDX license string. The following licenses are currently available to
+ * allow the IPA to run unisolated:
+ *
+ * - GPL-2.0-only
+ * - GPL-2.0-or-later
+ * - GPL-3.0-only
+ * - GPL-3.0-or-later
+ * - LGPL-2.1-only
+ * - LGPL-2.1-or-later
+ * - LGPL-3.0-only
+ * - LGPL-3.0-or-later
+ *
+ * Any other license will cause the IPA to be run isolated.
+ *
+ * \todo Allow user to choose to isolate open source IPAs
  */
 
 /**
@@ -257,8 +291,10 @@ int IPAModule::loadIPAModuleInfo()
 		return ret;
 	}
 
-	size_t soSize;
+	void *data;
+	size_t dataSize;
 	void *map;
+	size_t soSize;
 	struct stat st;
 	int ret = fstat(fd, &st);
 	if (ret < 0)
@@ -275,11 +311,19 @@ int IPAModule::loadIPAModuleInfo()
 		goto unmap;
 
 	if (sizeof(unsigned long) == 4)
-		ret = elfLoadSymbol<Elf32_Ehdr, Elf32_Shdr, Elf32_Sym>
-				   (&info_, sizeof(info_), map, soSize, "ipaModuleInfo");
+		std::tie(data, dataSize) =
+			elfLoadSymbol<Elf32_Ehdr, Elf32_Shdr, Elf32_Sym>
+				     (map, soSize, "ipaModuleInfo");
 	else
-		ret = elfLoadSymbol<Elf64_Ehdr, Elf64_Shdr, Elf64_Sym>
-				   (&info_, sizeof(info_), map, soSize, "ipaModuleInfo");
+		std::tie(data, dataSize) =
+			elfLoadSymbol<Elf64_Ehdr, Elf64_Shdr, Elf64_Sym>
+				     (map, soSize, "ipaModuleInfo");
+
+	if (data && dataSize == sizeof(info_))
+		memcpy(&info_, data, dataSize);
+
+	if (!data)
+		goto unmap;
 
 	if (info_.moduleAPIVersion != IPA_MODULE_API_VERSION) {
 		LOG(IPAModule, Error) << "IPA module API version mismatch";
@@ -289,6 +333,10 @@ int IPAModule::loadIPAModuleInfo()
 unmap:
 	munmap(map, soSize);
 close:
+	if (ret || !data)
+		LOG(IPAModule, Error)
+			<< "Error loading IPA module info for " << libPath_;
+
 	close(fd);
 	return ret;
 }
@@ -300,7 +348,7 @@ close:
  * the IPA module information it contains was successfully retrieved and
  * validated.
  *
- * \return true if the the IPAModule is valid, false otherwise
+ * \return True if the IPAModule is valid, false otherwise
  */
 bool IPAModule::isValid() const
 {
@@ -319,6 +367,19 @@ bool IPAModule::isValid() const
 const struct IPAModuleInfo &IPAModule::info() const
 {
 	return info_;
+}
+
+/**
+ * \brief Retrieve the IPA module path
+ *
+ * The IPA module path is the file name and path of the IPA module shared
+ * object from which the IPA module was created.
+ *
+ * \return The IPA module path
+ */
+const std::string &IPAModule::path() const
+{
+	return libPath_;
 }
 
 /**
@@ -409,6 +470,31 @@ bool IPAModule::match(PipelineHandler *pipe,
 	return info_.pipelineVersion >= minVersion &&
 	       info_.pipelineVersion <= maxVersion &&
 	       !strcmp(info_.pipelineName, pipe->name());
+}
+
+/**
+ * \brief Verify if the IPA module is open source
+ *
+ * \sa IPAModuleInfo::license
+ */
+bool IPAModule::isOpenSource() const
+{
+	static const char *osLicenses[] = {
+		"GPL-2.0-only",
+		"GPL-2.0-or-later",
+		"GPL-3.0-only",
+		"GPL-3.0-or-later",
+		"LGPL-2.1-only",
+		"LGPL-2.1-or-later",
+		"LGPL-3.0-only",
+		"LGPL-3.0-or-later",
+	};
+
+	for (unsigned int i = 0; i < ARRAY_SIZE(osLicenses); i++)
+		if (!strcmp(osLicenses[i], info_.license))
+			return true;
+
+	return false;
 }
 
 } /* namespace libcamera */

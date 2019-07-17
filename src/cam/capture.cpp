@@ -74,10 +74,8 @@ int Capture::capture(EventLoop *loop)
 
 	/* Identify the stream with the least number of buffers. */
 	unsigned int nbuffers = UINT_MAX;
-	for (StreamConfiguration &cfg : *config_) {
-		Stream *stream = cfg.stream();
-		nbuffers = std::min(nbuffers, stream->bufferPool().count());
-	}
+	for (StreamConfiguration &cfg : *config_)
+		nbuffers = std::min(nbuffers, cfg.bufferCount);
 
 	/*
 	 * TODO: make cam tool smarter to support still capture by for
@@ -95,13 +93,14 @@ int Capture::capture(EventLoop *loop)
 		std::map<Stream *, Buffer *> map;
 		for (StreamConfiguration &cfg : *config_) {
 			Stream *stream = cfg.stream();
-			map[stream] = &stream->bufferPool().buffers()[i];
-		}
+			std::unique_ptr<Buffer> buffer = stream->createBuffer(i);
 
-		ret = request->setBuffers(map);
-		if (ret < 0) {
-			std::cerr << "Can't set buffers for request" << std::endl;
-			return ret;
+			ret = request->addBuffer(std::move(buffer));
+			if (ret < 0) {
+				std::cerr << "Can't set buffer for request"
+					  << std::endl;
+				return ret;
+			}
 		}
 
 		requests.push_back(request);
@@ -117,6 +116,7 @@ int Capture::capture(EventLoop *loop)
 		ret = camera_->queueRequest(request);
 		if (ret < 0) {
 			std::cerr << "Can't queue request" << std::endl;
+			camera_->stop();
 			return ret;
 		}
 	}
@@ -167,12 +167,29 @@ void Capture::requestComplete(Request *request, const std::map<Stream *, Buffer 
 
 	std::cout << info.str() << std::endl;
 
+	/*
+	 * Create a new request and populate it with one buffer for each
+	 * stream.
+	 */
 	request = camera_->createRequest();
 	if (!request) {
 		std::cerr << "Can't create request" << std::endl;
 		return;
 	}
 
-	request->setBuffers(buffers);
+	for (auto it = buffers.begin(); it != buffers.end(); ++it) {
+		Stream *stream = it->first;
+		Buffer *buffer = it->second;
+		unsigned int index = buffer->index();
+
+		std::unique_ptr<Buffer> newBuffer = stream->createBuffer(index);
+		if (!newBuffer) {
+			std::cerr << "Can't create buffer " << index << std::endl;
+			return;
+		}
+
+		request->addBuffer(std::move(newBuffer));
+	}
+
 	camera_->queueRequest(request);
 }

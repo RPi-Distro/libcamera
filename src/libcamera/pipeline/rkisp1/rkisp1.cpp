@@ -319,7 +319,11 @@ int PipelineHandlerRkISP1::allocateBuffers(Camera *camera,
 					   const std::set<Stream *> &streams)
 {
 	Stream *stream = *streams.begin();
-	return video_->exportBuffers(&stream->bufferPool());
+
+	if (stream->memoryType() == InternalMemory)
+		return video_->exportBuffers(&stream->bufferPool());
+	else
+		return video_->importBuffers(&stream->bufferPool());
 }
 
 int PipelineHandlerRkISP1::freeBuffers(Camera *camera,
@@ -353,8 +357,6 @@ void PipelineHandlerRkISP1::stop(Camera *camera)
 	if (ret)
 		LOG(RkISP1, Warning)
 			<< "Failed to stop camera " << camera->name();
-
-	PipelineHandler::stop(camera);
 
 	activeCamera_ = nullptr;
 }
@@ -491,9 +493,7 @@ bool PipelineHandlerRkISP1::match(DeviceEnumerator *enumerator)
 void PipelineHandlerRkISP1::bufferReady(Buffer *buffer)
 {
 	ASSERT(activeCamera_);
-
-	RkISP1CameraData *data = cameraData(activeCamera_);
-	Request *request = data->queuedRequests_.front();
+	Request *request = buffer->request();
 
 	completeBuffer(activeCamera_, request, buffer);
 	completeRequest(activeCamera_, request);

@@ -30,7 +30,7 @@ LOG_DEFINE_CATEGORY(V4L2)
  *
  * The V4L2Device class groups together the methods and fields common to
  * both the V4L2VideoDevice and V4L2Subdevice classes, and provides a base
- * class whith methods to open and close the device node associated with the
+ * class with methods to open and close the device node associated with the
  * device and to perform IOCTL system calls on it.
  *
  * The V4L2Device class cannot be instantiated directly, as its constructor
@@ -111,19 +111,10 @@ void V4L2Device::close()
  */
 
 /**
- * \brief Retrieve information about a control
- * \param[in] id The control ID
- * \return A pointer to the V4L2ControlInfo for control \a id, or nullptr
- * if the device doesn't have such a control
+ * \fn V4L2Device::controls()
+ * \brief Retrieve the supported V4L2 controls and their information
+ * \return A map of the V4L2 controls supported by the device
  */
-const V4L2ControlInfo *V4L2Device::getControlInfo(unsigned int id) const
-{
-	auto it = controls_.find(id);
-	if (it == controls_.end())
-		return nullptr;
-
-	return &it->second;
-}
 
 /**
  * \brief Read controls from the device
@@ -152,17 +143,20 @@ int V4L2Device::getControls(V4L2ControlList *ctrls)
 	if (count == 0)
 		return 0;
 
-	const V4L2ControlInfo *controlInfo[count] = {};
-	struct v4l2_ext_control v4l2Ctrls[count] = {};
+	const V4L2ControlInfo *controlInfo[count];
+	struct v4l2_ext_control v4l2Ctrls[count];
+	memset(v4l2Ctrls, 0, sizeof(v4l2Ctrls));
+
 	for (unsigned int i = 0; i < count; ++i) {
 		const V4L2Control *ctrl = ctrls->getByIndex(i);
-		const V4L2ControlInfo *info = getControlInfo(ctrl->id());
-		if (!info) {
+		const auto iter = controls_.find(ctrl->id());
+		if (iter == controls_.end()) {
 			LOG(V4L2, Error)
 				<< "Control '" << ctrl->id() << "' not found";
 			return -EINVAL;
 		}
 
+		const V4L2ControlInfo *info = &iter->second;
 		controlInfo[i] = info;
 		v4l2Ctrls[i].id = info->id();
 	}
@@ -224,18 +218,20 @@ int V4L2Device::setControls(V4L2ControlList *ctrls)
 	if (count == 0)
 		return 0;
 
-	const V4L2ControlInfo *controlInfo[count] = {};
-	struct v4l2_ext_control v4l2Ctrls[count] = {};
+	const V4L2ControlInfo *controlInfo[count];
+	struct v4l2_ext_control v4l2Ctrls[count];
+	memset(v4l2Ctrls, 0, sizeof(v4l2Ctrls));
 
 	for (unsigned int i = 0; i < count; ++i) {
 		const V4L2Control *ctrl = ctrls->getByIndex(i);
-		const V4L2ControlInfo *info = getControlInfo(ctrl->id());
-		if (!info) {
+		const auto iter = controls_.find(ctrl->id());
+		if (iter == controls_.end()) {
 			LOG(V4L2, Error)
 				<< "Control '" << ctrl->id() << "' not found";
 			return -EINVAL;
 		}
 
+		const V4L2ControlInfo *info = &iter->second;
 		controlInfo[i] = info;
 		v4l2Ctrls[i].id = info->id();
 
@@ -321,13 +317,14 @@ void V4L2Device::listControls()
 	struct v4l2_query_ext_ctrl ctrl = {};
 
 	/* \todo Add support for menu and compound controls. */
-	ctrl.id = V4L2_CTRL_FLAG_NEXT_CTRL;
-	while (ioctl(VIDIOC_QUERY_EXT_CTRL, &ctrl) == 0) {
+	while (1) {
+		ctrl.id |= V4L2_CTRL_FLAG_NEXT_CTRL;
+		if (ioctl(VIDIOC_QUERY_EXT_CTRL, &ctrl))
+			break;
+
 		if (ctrl.type == V4L2_CTRL_TYPE_CTRL_CLASS ||
-		    ctrl.flags & V4L2_CTRL_FLAG_DISABLED) {
-			ctrl.id |= V4L2_CTRL_FLAG_NEXT_CTRL;
+		    ctrl.flags & V4L2_CTRL_FLAG_DISABLED)
 			continue;
-		}
 
 		V4L2ControlInfo info(ctrl);
 		switch (info.type()) {
@@ -341,13 +338,12 @@ void V4L2Device::listControls()
 			break;
 		/* \todo Support compound controls. */
 		default:
-			LOG(V4L2, Error) << "Control type '" << info.type()
+			LOG(V4L2, Debug) << "Control type '" << info.type()
 					 << "' not supported";
 			continue;
 		}
 
 		controls_.emplace(ctrl.id, info);
-		ctrl.id |= V4L2_CTRL_FLAG_NEXT_CTRL;
 	}
 }
 

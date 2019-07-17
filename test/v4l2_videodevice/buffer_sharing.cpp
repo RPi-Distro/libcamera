@@ -58,6 +58,15 @@ protected:
 			return TestFail;
 		}
 
+		format.size.width = 320;
+		format.size.height = 180;
+
+		ret = capture_->setFormat(&format);
+		if (ret) {
+			std::cout << "Failed to set capture format" << std::endl;
+			return TestFail;
+		}
+
 		ret = output_->setFormat(&format);
 		if (ret) {
 			std::cout << "Failed to set output format" << std::endl;
@@ -86,6 +95,9 @@ protected:
 		std::cout << "Received capture buffer: " << buffer->index()
 			  << " sequence " << buffer->sequence() << std::endl;
 
+		if (buffer->status() != Buffer::BufferSuccess)
+			return;
+
 		output_->queueBuffer(buffer);
 		framesCaptured_++;
 	}
@@ -94,6 +106,9 @@ protected:
 	{
 		std::cout << "Received output buffer: " << buffer->index()
 			  << " sequence " << buffer->sequence() << std::endl;
+
+		if (buffer->status() != Buffer::BufferSuccess)
+			return;
 
 		capture_->queueBuffer(buffer);
 		framesOutput_++;
@@ -108,11 +123,10 @@ protected:
 		capture_->bufferReady.connect(this, &BufferSharingTest::captureBufferReady);
 		output_->bufferReady.connect(this, &BufferSharingTest::outputBufferReady);
 
-		/* Queue all the buffers to the capture device. */
-		for (Buffer &buffer : pool_.buffers()) {
-			if (capture_->queueBuffer(&buffer))
-				return TestFail;
-		}
+		std::vector<std::unique_ptr<Buffer>> buffers;
+		buffers = capture_->queueAllBuffers();
+		if (buffers.empty())
+			return TestFail;
 
 		ret = capture_->streamOn();
 		if (ret) {

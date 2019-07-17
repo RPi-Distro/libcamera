@@ -268,8 +268,7 @@ const std::string V4L2DeviceFormat::toString() const
  * \param[in] deviceNode The file-system path to the video device node
  */
 V4L2VideoDevice::V4L2VideoDevice(const std::string &deviceNode)
-	: V4L2Device(deviceNode), bufferPool_(nullptr),
-	  queuedBuffersCount_(0), fdEvent_(nullptr)
+	: V4L2Device(deviceNode), bufferPool_(nullptr), fdEvent_(nullptr)
 {
 	/*
 	 * We default to an MMAP based CAPTURE video device, however this will
@@ -627,133 +626,6 @@ ImageFormats V4L2VideoDevice::formats()
 	return formats;
 }
 
-int V4L2VideoDevice::requestBuffers(unsigned int count)
-{
-	struct v4l2_requestbuffers rb = {};
-	int ret;
-
-	rb.count = count;
-	rb.type = bufferType_;
-	rb.memory = memoryType_;
-
-	ret = ioctl(VIDIOC_REQBUFS, &rb);
-	if (ret < 0) {
-		LOG(V4L2, Error)
-			<< "Unable to request " << count << " buffers: "
-			<< strerror(-ret);
-		return ret;
-	}
-
-	LOG(V4L2, Debug) << rb.count << " buffers requested.";
-
-	return rb.count;
-}
-
-/**
- * \brief Request buffers to be allocated from the video device and stored in
- * the buffer pool provided.
- * \param[out] pool BufferPool to populate with buffers
- * \return 0 on success or a negative error code otherwise
- */
-int V4L2VideoDevice::exportBuffers(BufferPool *pool)
-{
-	unsigned int allocatedBuffers;
-	unsigned int i;
-	int ret;
-
-	memoryType_ = V4L2_MEMORY_MMAP;
-
-	ret = requestBuffers(pool->count());
-	if (ret < 0)
-		return ret;
-
-	allocatedBuffers = ret;
-	if (allocatedBuffers < pool->count()) {
-		LOG(V4L2, Error)
-			<< "Not enough buffers provided by V4L2VideoDevice";
-		requestBuffers(0);
-		return -ENOMEM;
-	}
-
-	/* Map the buffers. */
-	for (i = 0; i < pool->count(); ++i) {
-		struct v4l2_plane planes[VIDEO_MAX_PLANES] = {};
-		struct v4l2_buffer buf = {};
-		Buffer &buffer = pool->buffers()[i];
-
-		buf.index = i;
-		buf.type = bufferType_;
-		buf.memory = memoryType_;
-		buf.length = VIDEO_MAX_PLANES;
-		buf.m.planes = planes;
-
-		ret = ioctl(VIDIOC_QUERYBUF, &buf);
-		if (ret < 0) {
-			LOG(V4L2, Error)
-				<< "Unable to query buffer " << i << ": "
-				<< strerror(-ret);
-			break;
-		}
-
-		if (V4L2_TYPE_IS_MULTIPLANAR(buf.type)) {
-			for (unsigned int p = 0; p < buf.length; ++p) {
-				ret = createPlane(&buffer, p,
-						  buf.m.planes[p].length);
-				if (ret)
-					break;
-			}
-		} else {
-			ret = createPlane(&buffer, 0, buf.length);
-		}
-
-		if (ret) {
-			LOG(V4L2, Error) << "Failed to create plane";
-			break;
-		}
-	}
-
-	if (ret) {
-		requestBuffers(0);
-		pool->destroyBuffers();
-		return ret;
-	}
-
-	bufferPool_ = pool;
-
-	return 0;
-}
-
-int V4L2VideoDevice::createPlane(Buffer *buffer, unsigned int planeIndex,
-				 unsigned int length)
-{
-	struct v4l2_exportbuffer expbuf = {};
-	int ret;
-
-	LOG(V4L2, Debug)
-		<< "Buffer " << buffer->index()
-		<< " plane " << planeIndex
-		<< ": length=" << length;
-
-	expbuf.type = bufferType_;
-	expbuf.index = buffer->index();
-	expbuf.plane = planeIndex;
-	expbuf.flags = O_RDWR;
-
-	ret = ioctl(VIDIOC_EXPBUF, &expbuf);
-	if (ret < 0) {
-		LOG(V4L2, Error)
-			<< "Failed to export buffer: " << strerror(-ret);
-		return ret;
-	}
-
-	buffer->planes().emplace_back();
-	Plane &plane = buffer->planes().back();
-	plane.setDmabuf(expbuf.fd, length);
-	::close(expbuf.fd);
-
-	return 0;
-}
-
 std::vector<unsigned int> V4L2VideoDevice::enumPixelformats()
 {
 	std::vector<unsigned int> formats;
@@ -839,6 +711,133 @@ std::vector<SizeRange> V4L2VideoDevice::enumSizes(unsigned int pixelFormat)
 	return sizes;
 }
 
+int V4L2VideoDevice::requestBuffers(unsigned int count)
+{
+	struct v4l2_requestbuffers rb = {};
+	int ret;
+
+	rb.count = count;
+	rb.type = bufferType_;
+	rb.memory = memoryType_;
+
+	ret = ioctl(VIDIOC_REQBUFS, &rb);
+	if (ret < 0) {
+		LOG(V4L2, Error)
+			<< "Unable to request " << count << " buffers: "
+			<< strerror(-ret);
+		return ret;
+	}
+
+	LOG(V4L2, Debug) << rb.count << " buffers requested.";
+
+	return rb.count;
+}
+
+/**
+ * \brief Request buffers to be allocated from the video device and stored in
+ * the buffer pool provided.
+ * \param[out] pool BufferPool to populate with buffers
+ * \return 0 on success or a negative error code otherwise
+ */
+int V4L2VideoDevice::exportBuffers(BufferPool *pool)
+{
+	unsigned int allocatedBuffers;
+	unsigned int i;
+	int ret;
+
+	memoryType_ = V4L2_MEMORY_MMAP;
+
+	ret = requestBuffers(pool->count());
+	if (ret < 0)
+		return ret;
+
+	allocatedBuffers = ret;
+	if (allocatedBuffers < pool->count()) {
+		LOG(V4L2, Error)
+			<< "Not enough buffers provided by V4L2VideoDevice";
+		requestBuffers(0);
+		return -ENOMEM;
+	}
+
+	/* Map the buffers. */
+	for (i = 0; i < pool->count(); ++i) {
+		struct v4l2_plane planes[VIDEO_MAX_PLANES] = {};
+		struct v4l2_buffer buf = {};
+		BufferMemory &buffer = pool->buffers()[i];
+
+		buf.index = i;
+		buf.type = bufferType_;
+		buf.memory = memoryType_;
+		buf.length = VIDEO_MAX_PLANES;
+		buf.m.planes = planes;
+
+		ret = ioctl(VIDIOC_QUERYBUF, &buf);
+		if (ret < 0) {
+			LOG(V4L2, Error)
+				<< "Unable to query buffer " << i << ": "
+				<< strerror(-ret);
+			break;
+		}
+
+		if (V4L2_TYPE_IS_MULTIPLANAR(buf.type)) {
+			for (unsigned int p = 0; p < buf.length; ++p) {
+				ret = createPlane(&buffer, i, p,
+						  buf.m.planes[p].length);
+				if (ret)
+					break;
+			}
+		} else {
+			ret = createPlane(&buffer, i, 0, buf.length);
+		}
+
+		if (ret) {
+			LOG(V4L2, Error) << "Failed to create plane";
+			break;
+		}
+	}
+
+	if (ret) {
+		requestBuffers(0);
+		pool->destroyBuffers();
+		return ret;
+	}
+
+	bufferPool_ = pool;
+
+	return 0;
+}
+
+int V4L2VideoDevice::createPlane(BufferMemory *buffer, unsigned int index,
+				 unsigned int planeIndex, unsigned int length)
+{
+	struct v4l2_exportbuffer expbuf = {};
+	int ret;
+
+	LOG(V4L2, Debug)
+		<< "Buffer " << index
+		<< " plane " << planeIndex
+		<< ": length=" << length;
+
+	expbuf.type = bufferType_;
+	expbuf.index = index;
+	expbuf.plane = planeIndex;
+	expbuf.flags = O_RDWR;
+
+	ret = ioctl(VIDIOC_EXPBUF, &expbuf);
+	if (ret < 0) {
+		LOG(V4L2, Error)
+			<< "Failed to export buffer: " << strerror(-ret);
+		return ret;
+	}
+
+	buffer->planes().emplace_back();
+	Plane &plane = buffer->planes().back();
+	plane.setDmabuf(expbuf.fd, length);
+	::close(expbuf.fd);
+
+	return 0;
+}
+
 /**
  * \brief Import the externally allocated \a pool of buffers
  * \param[in] pool BufferPool of buffers to import
@@ -894,8 +893,8 @@ int V4L2VideoDevice::releaseBuffers()
  */
 int V4L2VideoDevice::queueBuffer(Buffer *buffer)
 {
+	struct v4l2_plane v4l2Planes[VIDEO_MAX_PLANES] = {};
 	struct v4l2_buffer buf = {};
-	struct v4l2_plane planes[VIDEO_MAX_PLANES] = {};
 	int ret;
 
 	buf.index = buffer->index();
@@ -904,21 +903,21 @@ int V4L2VideoDevice::queueBuffer(Buffer *buffer)
 	buf.field = V4L2_FIELD_NONE;
 
 	bool multiPlanar = V4L2_TYPE_IS_MULTIPLANAR(buf.type);
+	BufferMemory *mem = &bufferPool_->buffers()[buf.index];
+	const std::vector<Plane> &planes = mem->planes();
 
 	if (buf.memory == V4L2_MEMORY_DMABUF) {
 		if (multiPlanar) {
-			for (unsigned int p = 0;
-			     p < buffer->planes().size();
-			     p++)
-				planes[p].m.fd = buffer->planes()[p].dmabuf();
+			for (unsigned int p = 0; p < planes.size(); ++p)
+				v4l2Planes[p].m.fd = planes[p].dmabuf();
 		} else {
-			buf.m.fd = buffer->planes()[0].dmabuf();
+			buf.m.fd = planes[0].dmabuf();
 		}
 	}
 
 	if (multiPlanar) {
-		buf.length = buffer->planes().size();
-		buf.m.planes = planes;
+		buf.length = planes.size();
+		buf.m.planes = v4l2Planes;
 	}
 
 	if (V4L2_TYPE_IS_OUTPUT(bufferType_)) {
@@ -938,10 +937,58 @@ int V4L2VideoDevice::queueBuffer(Buffer *buffer)
 		return ret;
 	}
 
-	if (queuedBuffersCount_++ == 0)
+	if (queuedBuffers_.empty())
 		fdEvent_->setEnabled(true);
 
+	queuedBuffers_[buf.index] = buffer;
+
 	return 0;
+}
+
+/**
+ * \brief Queue all buffers into the video device
+ *
+ * When starting video capture users of the video device often need to queue
+ * all allocated buffers to the device. This helper method simplifies the
+ * implementation of the user by queuing all buffers and returning a vector of
+ * Buffer instances for each queued buffer.
+ *
+ * This method is meant to be used with video capture devices internal to a
+ * pipeline handler, such as ISP statistics capture devices, or raw CSI-2
+ * receivers. For video capture devices facing applications, buffers shall
+ * instead be queued when requests are received, and for video output devices,
+ * buffers shall be queued when frames are ready to be output.
+ *
+ * The caller shall ensure that the returned buffers vector remains valid until
+ * all the queued buffers are dequeued, either during capture, or by stopping
+ * the video device.
+ *
+ * Calling this method on an output device or on a device that has buffers
+ * already queued is an error and will return an empty vector.
+ *
+ * \return A vector of queued buffers, which will be empty if an error occurs
+ */
+std::vector<std::unique_ptr<Buffer>> V4L2VideoDevice::queueAllBuffers()
+{
+	int ret;
+
+	if (!queuedBuffers_.empty())
+		return {};
+
+	if (V4L2_TYPE_IS_OUTPUT(bufferType_))
+		return {};
+
+	std::vector<std::unique_ptr<Buffer>> buffers;
+
+	for (unsigned int i = 0; i < bufferPool_->count(); ++i) {
+		Buffer *buffer = new Buffer(i);
+		buffers.emplace_back(buffer);
+		ret = queueBuffer(buffer);
+		if (ret)
+			return {};
+	}
+
+	return buffers;
 }
 
 /**
@@ -975,11 +1022,14 @@ Buffer *V4L2VideoDevice::dequeueBuffer()
 
 	ASSERT(buf.index < bufferPool_->count());
 
-	if (--queuedBuffersCount_ == 0)
+	auto it = queuedBuffers_.find(buf.index);
+	Buffer *buffer = it->second;
+	queuedBuffers_.erase(it);
+
+	if (queuedBuffers_.empty())
 		fdEvent_->setEnabled(false);
 
-	Buffer *buffer = &bufferPool_->buffers()[buf.index];
-
+	buffer->index_ = buf.index;
 	buffer->bytesused_ = buf.bytesused;
 	buffer->timestamp_ = buf.timestamp.tv_sec * 1000000000ULL
 			   + buf.timestamp.tv_usec * 1000ULL;
@@ -1039,7 +1089,9 @@ int V4L2VideoDevice::streamOn()
  * \brief Stop the video stream
  *
  * Buffers that are still queued when the video stream is stopped are
- * implicitly dequeued, but no bufferReady signal is emitted for them.
+ * immediately dequeued with their status set to Buffer::BufferError,
+ * and the bufferReady signal is emitted for them. The order in which those
+ * buffers are dequeued is not specified.
  *
  * \return 0 on success or a negative error code otherwise
  */
@@ -1054,7 +1106,17 @@ int V4L2VideoDevice::streamOff()
 		return ret;
 	}
 
-	queuedBuffersCount_ = 0;
+	/* Send back all queued buffers. */
+	for (auto it : queuedBuffers_) {
+		unsigned int index = it.first;
+		Buffer *buffer = it.second;
+
+		buffer->index_ = index;
+		buffer->cancel();
+		bufferReady.emit(buffer);
+	}
+
+	queuedBuffers_.clear();
 	fdEvent_->setEnabled(false);
 
 	return 0;

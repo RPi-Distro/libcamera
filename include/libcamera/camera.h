@@ -10,8 +10,10 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <stdint.h>
 #include <string>
 
+#include <libcamera/controls.h>
 #include <libcamera/request.h>
 #include <libcamera/signal.h>
 #include <libcamera/stream.h>
@@ -83,6 +85,8 @@ public:
 	int acquire();
 	int release();
 
+	const ControlInfoMap &controls();
+
 	const std::set<Stream *> &streams() const;
 	std::unique_ptr<CameraConfiguration> generateConfiguration(const StreamRoles &roles);
 	int configure(CameraConfiguration *config);
@@ -90,7 +94,7 @@ public:
 	int allocateBuffers();
 	int freeBuffers();
 
-	Request *createRequest();
+	Request *createRequest(uint64_t cookie = 0);
 	int queueRequest(Request *request);
 
 	int start();
