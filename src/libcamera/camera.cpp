@@ -549,6 +549,18 @@ int Camera::release()
 }
 
 /**
+ * \brief Retrieve the list of controls supported by the camera
+ *
+ * Camera controls remain constant through the lifetime of the camera.
+ *
+ * \return A ControlInfoMap listing the controls supported by the camera
+ */
+const ControlInfoMap &Camera::controls()
+{
+	return pipe_->controls(this);
+}
+
+/**
  * \brief Retrieve all the camera's stream information
  *
  * Retrieve all of the camera's static stream information. The static
@@ -671,7 +683,7 @@ int Camera::configure(CameraConfiguration *config)
 		 * Allocate buffer objects in the pool.
 		 * Memory will be allocated and assigned later.
 		 */
-		stream->bufferPool().createBuffers(cfg.bufferCount);
+		stream->createBuffers(cfg.memoryType, cfg.bufferCount);
 	}
 
 	state_ = CameraConfigured;
@@ -728,14 +740,11 @@ int Camera::freeBuffers()
 		return -EACCES;
 
 	for (Stream *stream : activeStreams_) {
-		if (!stream->bufferPool().count())
-			continue;
-
 		/*
 		 * All mappings must be destroyed before buffers can be freed
 		 * by the V4L2 device that has allocated them.
 		 */
-		stream->bufferPool().destroyBuffers();
+		stream->destroyBuffers();
 	}
 
 	state_ = CameraConfigured;
@@ -745,9 +754,15 @@ int Camera::freeBuffers()
 
 /**
  * \brief Create a request object for the camera
+ * \param[in] cookie Opaque cookie for application use
  *
  * This method creates an empty request for the application to fill with
- * buffers and paramaters, and queue for capture.
+ * buffers and parameters, and queue for capture.
+ *
+ * The \a cookie is stored in the request and is accessible through the
+ * Request::cookie() method at any time. It is typically used by applications
+ * to map the request to an external resource in the request completion
+ * handler, and is completely opaque to libcamera.
  *
  * The ownership of the returned request is passed to the caller, which is
  * responsible for either queueing the request or deleting it.
@@ -757,12 +772,12 @@ int Camera::freeBuffers()
  *
  * \return A pointer to the newly created request, or nullptr on error
  */
-Request *Camera::createRequest()
+Request *Camera::createRequest(uint64_t cookie)
 {
 	if (disconnected_ || !stateBetween(CameraPrepared, CameraRunning))
 		return nullptr;
 
-	return new Request(this);
+	return new Request(this, cookie);
 }
 
 /**
@@ -785,6 +800,7 @@ Request *Camera::createRequest()
  * \retval -ENODEV The camera has been disconnected from the system
  * \retval -EACCES The camera is not running so requests can't be queued
  * \retval -EINVAL The request is invalid
+ * \retval -ENOMEM No buffer memory was available to handle the request
  */
 int Camera::queueRequest(Request *request)
 {
@@ -796,10 +812,24 @@ int Camera::queueRequest(Request *request)
 
 	for (auto const &it : request->buffers()) {
 		Stream *stream = it.first;
+		Buffer *buffer = it.second;
+
 		if (activeStreams_.find(stream) == activeStreams_.end()) {
 			LOG(Camera, Error) << "Invalid request";
 			return -EINVAL;
 		}
+
+		if (stream->memoryType() == ExternalMemory) {
+			int index = stream->mapBuffer(buffer);
+			if (index < 0) {
+				LOG(Camera, Error) << "No buffer memory available";
+				return -ENOMEM;
+			}
+
+			buffer->index_ = index;
+		}
+
+		buffer->mem_ = &stream->buffers()[buffer->index_];
 	}
 
 	int ret = request->prepare();
@@ -882,8 +912,14 @@ int Camera::stop()
  */
 void Camera::requestComplete(Request *request)
 {
-	std::map<Stream *, Buffer *> buffers(std::move(request->bufferMap_));
-	requestCompleted.emit(request, buffers);
+	for (auto it : request->buffers()) {
+		Stream *stream = it.first;
+		Buffer *buffer = it.second;
+		if (stream->memoryType() == ExternalMemory)
+			stream->unmapBuffer(buffer);
+	}
+
+	requestCompleted.emit(request, request->buffers());
 	delete request;
 }
 

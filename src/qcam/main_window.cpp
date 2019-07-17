@@ -14,6 +14,7 @@
 #include <QTimer>
 
 #include <libcamera/camera_manager.h>
+#include <libcamera/version.h>
 
 #include "main_window.h"
 #include "viewfinder.h"
@@ -24,6 +25,10 @@ MainWindow::MainWindow(const OptionsParser::Options &options)
 	: options_(options), isCapturing_(false)
 {
 	int ret;
+
+	title_ = "QCam " + QString::fromStdString(CameraManager::version());
+	setWindowTitle(title_);
+	connect(&titleTimer_, SIGNAL(timeout()), this, SLOT(updateTitle()));
 
 	viewfinder_ = new ViewFinder(this);
 	setCentralWidget(viewfinder_);
@@ -48,6 +53,19 @@ MainWindow::~MainWindow()
 	}
 
 	CameraManager::instance()->stop();
+}
+
+void MainWindow::updateTitle()
+{
+	unsigned int duration = frameRateInterval_.elapsed();
+	unsigned int frames = framesCaptured_ - previousFrames_;
+	double fps = frames * 1000.0 / duration;
+
+	/* Restart counters. */
+	frameRateInterval_.start();
+	previousFrames_ = framesCaptured_;
+
+	setWindowTitle(title_ + " : " + QString::number(fps, 'f', 2) + " fps");
 }
 
 int MainWindow::openCamera()
@@ -98,13 +116,41 @@ int MainWindow::startCapture()
 	int ret;
 
 	config_ = camera_->generateConfiguration({ StreamRole::VideoRecording });
+
+	StreamConfiguration &cfg = config_->at(0);
+	if (options_.isSet(OptSize)) {
+		const std::vector<OptionValue> &sizeOptions =
+			options_[OptSize].toArray();
+
+		/* Set desired stream size if requested. */
+		for (const auto &value : sizeOptions) {
+			KeyValueParser::Options opt = value.toKeyValues();
+
+			if (opt.isSet("width"))
+				cfg.size.width = opt["width"];
+
+			if (opt.isSet("height"))
+				cfg.size.height = opt["height"];
+		}
+	}
+
+	CameraConfiguration::Status validation = config_->validate();
+	if (validation == CameraConfiguration::Invalid) {
+		std::cerr << "Failed to create valid camera configuration";
+		return -EINVAL;
+	}
+
+	if (validation == CameraConfiguration::Adjusted) {
+		std::cout << "Stream size adjusted to "
+			  << cfg.size.toString() << std::endl;
+	}
+
 	ret = camera_->configure(config_.get());
 	if (ret < 0) {
 		std::cout << "Failed to configure camera" << std::endl;
 		return ret;
 	}
 
-	const StreamConfiguration &cfg = config_->at(0);
 	Stream *stream = cfg.stream();
 	ret = viewfinder_->setFormat(cfg.pixelFormat, cfg.size.width,
 				     cfg.size.height);
@@ -122,10 +168,8 @@ int MainWindow::startCapture()
 		return ret;
 	}
 
-	BufferPool &pool = stream->bufferPool();
 	std::vector<Request *> requests;
-
-	for (Buffer &buffer : pool.buffers()) {
+	for (unsigned int i = 0; i < cfg.bufferCount; ++i) {
 		Request *request = camera_->createRequest();
 		if (!request) {
 			std::cerr << "Can't create request" << std::endl;
@@ -133,16 +177,26 @@ int MainWindow::startCapture()
 			goto error;
 		}
 
-		std::map<Stream *, Buffer *> map;
-		map[stream] = &buffer;
-		ret = request->setBuffers(map);
+		std::unique_ptr<Buffer> buffer = stream->createBuffer(i);
+		if (!buffer) {
+			std::cerr << "Can't create buffer " << i << std::endl;
+			goto error;
+		}
+
+		ret = request->addBuffer(std::move(buffer));
 		if (ret < 0) {
-			std::cerr << "Can't set buffers for request" << std::endl;
+			std::cerr << "Can't set buffer for request" << std::endl;
 			goto error;
 		}
 
 		requests.push_back(request);
 	}
+
+	titleTimer_.start(2000);
+	frameRateInterval_.start();
+	previousFrames_ = 0;
+	framesCaptured_ = 0;
+	lastBufferTime_ = 0;
 
 	ret = camera_->start();
 	if (ret) {
@@ -182,21 +236,24 @@ void MainWindow::stopCapture()
 	isCapturing_ = false;
 
 	config_.reset();
+
+	titleTimer_.stop();
+	setWindowTitle(title_);
 }
 
 void MainWindow::requestComplete(Request *request,
 				 const std::map<Stream *, Buffer *> &buffers)
 {
-	static uint64_t last = 0;
-
 	if (request->status() == Request::RequestCancelled)
 		return;
 
+	framesCaptured_++;
+
 	Buffer *buffer = buffers.begin()->second;
 
-	double fps = buffer->timestamp() - last;
-	fps = last && fps ? 1000000000.0 / fps : 0.0;
-	last = buffer->timestamp();
+	double fps = buffer->timestamp() - lastBufferTime_;
+	fps = lastBufferTime_ && fps ? 1000000000.0 / fps : 0.0;
+	lastBufferTime_ = buffer->timestamp();
 
 	std::cout << "seq: " << std::setw(6) << std::setfill('0') << buffer->sequence()
 		  << " buf: " << buffer->index()
@@ -213,16 +270,30 @@ void MainWindow::requestComplete(Request *request,
 		return;
 	}
 
-	request->setBuffers(buffers);
+	for (auto it = buffers.begin(); it != buffers.end(); ++it) {
+		Stream *stream = it->first;
+		Buffer *buffer = it->second;
+		unsigned int index = buffer->index();
+
+		std::unique_ptr<Buffer> newBuffer = stream->createBuffer(index);
+		if (!newBuffer) {
+			std::cerr << "Can't create buffer " << index << std::endl;
+			return;
+		}
+
+		request->addBuffer(std::move(newBuffer));
+	}
+
 	camera_->queueRequest(request);
 }
 
 int MainWindow::display(Buffer *buffer)
 {
-	if (buffer->planes().size() != 1)
+	BufferMemory *mem = buffer->mem();
+	if (mem->planes().size() != 1)
 		return -EINVAL;
 
-	Plane &plane = buffer->planes().front();
+	Plane &plane = mem->planes().front();
 	unsigned char *raw = static_cast<unsigned char *>(plane.mem());
 	viewfinder_->display(raw, buffer->bytesused());
 

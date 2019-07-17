@@ -89,6 +89,14 @@ LOG_DEFINE_CATEGORY(Pipeline)
  */
 
 /**
+ * \var CameraData::controlInfo_
+ * \brief The set of controls supported by the camera
+ *
+ * The control information shall be initialised by the pipeline handler when
+ * creating the camera, and shall not be modified afterwards.
+ */
+
+/**
  * \class PipelineHandler
  * \brief Create and manage cameras based on a set of media devices
  *
@@ -141,7 +149,7 @@ PipelineHandler::~PipelineHandler()
  * return false.
  *
  * If multiple instances of a pipeline are available in the system, the
- * PipelineHandler class will be instanciated once per instance, and its match()
+ * PipelineHandler class will be instantiated once per instance, and its match()
  * function called for every instance. Each call shall acquire media devices for
  * one pipeline instance, until all compatible media devices are exhausted.
  *
@@ -215,6 +223,17 @@ void PipelineHandler::unlock()
 {
 	for (std::shared_ptr<MediaDevice> &media : mediaDevices_)
 		media->unlock();
+}
+
+/**
+ * \brief Retrieve the list of controls for a camera
+ * \param[in] camera The camera
+ * \return A ControlInfoMap listing the controls support by \a camera
+ */
+const ControlInfoMap &PipelineHandler::controls(Camera *camera)
+{
+	CameraData *data = cameraData(camera);
+	return data->controlInfo_;
 }
 
 /**
@@ -309,31 +328,7 @@ void PipelineHandler::unlock()
  *
  * This method stops capturing and processing requests immediately. All pending
  * requests are cancelled and complete immediately in an error state.
- *
- * Pipeline handlers shall override this method to stop the pipeline, ensure
- * that all pending request completion signaled through completeRequest() have
- * returned, and call the base implementation of the stop() method as the last
- * step of their implementation. The base implementation cancels all requests
- * queued but not yet complete.
  */
-void PipelineHandler::stop(Camera *camera)
-{
-	CameraData *data = cameraData(camera);
-
-	while (!data->queuedRequests_.empty()) {
-		Request *request = data->queuedRequests_.front();
-		data->queuedRequests_.pop_front();
-
-		while (!request->pending_.empty()) {
-			Buffer *buffer = *request->pending_.begin();
-			buffer->cancel();
-			completeBuffer(camera, request, buffer);
-		}
-
-		request->complete(Request::RequestCancelled);
-		camera->requestComplete(request);
-	}
-}
 
 /**
  * \fn PipelineHandler::queueRequest()
@@ -372,8 +367,9 @@ int PipelineHandler::queueRequest(Camera *camera, Request *request)
  * This method shall be called by pipeline handlers to signal completion of the
  * \a buffer part of the \a request. It notifies applications of buffer
  * completion and updates the request's internal buffer tracking. The request
- * is not completed automatically when the last buffer completes, pipeline
- * handlers shall complete requests explicitly with completeRequest().
+ * is not completed automatically when the last buffer completes to give
+ * pipeline handlers a chance to perform any operation that may still be
+ * needed. They shall complete requests explicitly with completeRequest().
  *
  * \return True if all buffers contained in the request have completed, false
  * otherwise
@@ -394,17 +390,25 @@ bool PipelineHandler::completeBuffer(Camera *camera, Request *request,
  * request has completed. The request is deleted and shall not be accessed once
  * this method returns.
  *
- * The pipeline handler shall ensure that requests complete in the same order
- * they are submitted.
+ * This method ensures that requests will be returned to the application in
+ * submission order, the pipeline handler may call it on any complete request
+ * without any ordering constraint.
  */
 void PipelineHandler::completeRequest(Camera *camera, Request *request)
 {
-	CameraData *data = cameraData(camera);
-	ASSERT(request == data->queuedRequests_.front());
-	data->queuedRequests_.pop_front();
+	request->complete();
 
-	request->complete(Request::RequestComplete);
-	camera->requestComplete(request);
+	CameraData *data = cameraData(camera);
+
+	while (!data->queuedRequests_.empty()) {
+		request = data->queuedRequests_.front();
+		if (request->status() == Request::RequestPending)
+			break;
+
+		ASSERT(!request->hasPendingBuffers());
+		data->queuedRequests_.pop_front();
+		camera->requestComplete(request);
+	}
 }
 
 /**

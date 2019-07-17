@@ -8,8 +8,11 @@
 #define __LIBCAMERA_REQUEST_H__
 
 #include <map>
+#include <memory>
+#include <stdint.h>
 #include <unordered_set>
 
+#include <libcamera/controls.h>
 #include <libcamera/signal.h>
 
 namespace libcamera {
@@ -28,14 +31,17 @@ public:
 		RequestCancelled,
 	};
 
-	explicit Request(Camera *camera);
+	Request(Camera *camera, uint64_t cookie = 0);
 	Request(const Request &) = delete;
 	Request &operator=(const Request &) = delete;
+	~Request();
 
+	ControlList &controls() { return controls_; }
 	const std::map<Stream *, Buffer *> &buffers() const { return bufferMap_; }
-	int setBuffers(const std::map<Stream *, Buffer *> &streamMap);
+	int addBuffer(std::unique_ptr<Buffer> buffer);
 	Buffer *findBuffer(Stream *stream) const;
 
+	uint64_t cookie() const { return cookie_; }
 	Status status() const { return status_; }
 
 	bool hasPendingBuffers() const { return !pending_.empty(); }
@@ -45,15 +51,18 @@ private:
 	friend class PipelineHandler;
 
 	int prepare();
-	void complete(Status status);
+	void complete();
 
 	bool completeBuffer(Buffer *buffer);
 
 	Camera *camera_;
+	ControlList controls_;
 	std::map<Stream *, Buffer *> bufferMap_;
 	std::unordered_set<Buffer *> pending_;
 
+	const uint64_t cookie_;
 	Status status_;
+	bool cancelled_;
 };
 
 } /* namespace libcamera */

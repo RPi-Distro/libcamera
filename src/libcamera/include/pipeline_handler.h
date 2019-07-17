@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include <libcamera/controls.h>
 #include <libcamera/stream.h>
 
 namespace libcamera {
@@ -41,6 +42,7 @@ public:
 	Camera *camera_;
 	PipelineHandler *pipe_;
 	std::list<Request *> queuedRequests_;
+	ControlInfoMap controlInfo_;
 
 private:
 	CameraData(const CameraData &) = delete;
@@ -60,6 +62,8 @@ public:
 	bool lock();
 	void unlock();
 
+	const ControlInfoMap &controls(Camera *camera);
+
 	virtual CameraConfiguration *generateConfiguration(Camera *camera,
 		const StreamRoles &roles) = 0;
 	virtual int configure(Camera *camera, CameraConfiguration *config) = 0;
@@ -70,7 +74,7 @@ public:
 				const std::set<Stream *> &streams) = 0;
 
 	virtual int start(Camera *camera) = 0;
-	virtual void stop(Camera *camera);
+	virtual void stop(Camera *camera) = 0;
 
 	virtual int queueRequest(Camera *camera, Request *request);
 

@@ -11,27 +11,20 @@
 
 #define IPA_MODULE_API_VERSION 1
 
-#ifdef __cplusplus
 namespace libcamera {
-#endif
 
 struct IPAModuleInfo {
 	int moduleAPIVersion;
 	uint32_t pipelineVersion;
 	char pipelineName[256];
 	char name[256];
+	char license[64];
 } __attribute__((packed));
 
-#ifdef __cplusplus
 extern "C" {
-#endif
 extern const struct IPAModuleInfo ipaModuleInfo;
-#ifdef __cplusplus
 };
-#endif
 
-#ifdef __cplusplus
 }; /* namespace libcamera */
-#endif
 
 #endif /* __LIBCAMERA_IPA_MODULE_INFO_H__ */

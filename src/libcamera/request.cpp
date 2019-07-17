@@ -46,11 +46,43 @@ LOG_DEFINE_CATEGORY(Request)
 /**
  * \brief Create a capture request for a camera
  * \param[in] camera The camera that creates the request
+ * \param[in] cookie Opaque cookie for application use
+ *
+ * The \a cookie is stored in the request and is accessible through the
+ * cookie() method at any time. It is typically used by applications to map the
+ * request to an external resource in the request completion handler, and is
+ * completely opaque to libcamera.
+ *
  */
-Request::Request(Camera *camera)
-	: camera_(camera), status_(RequestPending)
+Request::Request(Camera *camera, uint64_t cookie)
+	: camera_(camera), controls_(camera), cookie_(cookie),
+	  status_(RequestPending), cancelled_(false)
 {
 }
+
+Request::~Request()
+{
+	for (auto it : bufferMap_) {
+		Buffer *buffer = it.second;
+		delete buffer;
+	}
+}
+
+/**
+ * \fn Request::controls()
+ * \brief Retrieve the request's ControlList
+ *
+ * Requests store a list of controls to be applied to all frames captured for
+ * the request. They are created with an empty list of controls that can be
+ * accessed through this method and updated with ControlList::operator[]() or
+ * ControlList::update().
+ *
+ * Only controls supported by the camera to which this request will be
+ * submitted shall be included in the controls list. Attempting to add an
+ * unsupported control causes undefined behaviour.
+ *
+ * \return A reference to the ControlList in this request
+ */
 
 /**
  * \fn Request::buffers()
@@ -63,19 +95,35 @@ Request::Request(Camera *camera)
  */
 
 /**
- * \brief Set the streams to capture with associated buffers
- * \param[in] streamMap The map of streams to buffers
+ * \brief Store a Buffer with its associated Stream in the Request
+ * \param[in] buffer The Buffer to store in the request
+ *
+ * Ownership of the buffer is passed to the request. It will be deleted when
+ * the request is destroyed after completing.
+ *
+ * A request can only contain one buffer per stream. If a buffer has already
+ * been added to the request for the same stream, this method returns -EEXIST.
+ *
  * \return 0 on success or a negative error code otherwise
- * \retval -EBUSY Buffers have already been set
+ * \retval -EEXIST The request already contains a buffer for the stream
+ * \retval -EINVAL The buffer does not reference a valid Stream
  */
-int Request::setBuffers(const std::map<Stream *, Buffer *> &streamMap)
+int Request::addBuffer(std::unique_ptr<Buffer> buffer)
 {
-	if (!bufferMap_.empty()) {
-		LOG(Request, Error) << "Buffers already set";
-		return -EBUSY;
+	Stream *stream = buffer->stream();
+	if (!stream) {
+		LOG(Request, Error) << "Invalid stream reference";
+		return -EINVAL;
 	}
 
-	bufferMap_ = streamMap;
+	auto it = bufferMap_.find(stream);
+	if (it != bufferMap_.end()) {
+		LOG(Request, Error) << "Buffer already set for stream";
+		return -EEXIST;
+	}
+
+	bufferMap_[stream] = buffer.release();
+
 	return 0;
 }
 
@@ -102,6 +150,12 @@ Buffer *Request::findBuffer(Stream *stream) const
 
 	return it->second;
 }
+
+/**
+ * \fn Request::cookie()
+ * \brief Retrieve the cookie set when the request was created
+ * \return The request cookie
+ */
 
 /**
  * \fn Request::status()
@@ -150,14 +204,15 @@ int Request::prepare()
 
 /**
  * \brief Complete a queued request
- * \param[in] status The request completion status
  *
- * Mark the request as complete by updating its status to \a status.
+ * Mark the request as complete by updating its status to RequestComplete,
+ * unless buffers have been cancelled in which case the status is set to
+ * RequestCancelled.
  */
-void Request::complete(Status status)
+void Request::complete()
 {
 	ASSERT(!hasPendingBuffers());
-	status_ = status;
+	status_ = cancelled_ ? RequestCancelled : RequestComplete;
 }
 
 /**
@@ -179,6 +234,9 @@ bool Request::completeBuffer(Buffer *buffer)
 	ASSERT(ret == 1);
 
 	buffer->setRequest(nullptr);
+
+	if (buffer->status() == Buffer::BufferCancelled)
+		cancelled_ = true;
 
 	return !hasPendingBuffers();
 }

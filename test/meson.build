@@ -1,9 +1,13 @@
 subdir('libtest')
 
 subdir('camera')
+subdir('controls')
 subdir('ipa')
+subdir('ipc')
+subdir('log')
 subdir('media_device')
 subdir('pipeline')
+subdir('process')
 subdir('stream')
 subdir('v4l2_subdevice')
 subdir('v4l2_videodevice')
@@ -19,6 +23,9 @@ public_tests = [
 
 internal_tests = [
     ['camera-sensor',                   'camera-sensor.cpp'],
+    ['message',                         'message.cpp'],
+    ['signal-threads',                  'signal-threads.cpp'],
+    ['threads',                         'threads.cpp'],
 ]
 
 foreach t : public_tests

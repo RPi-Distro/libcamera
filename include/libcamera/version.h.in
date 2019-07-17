@@ -1,0 +1,16 @@
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
+/*
+ * Copyright (C) 2019, Google Inc.
+ *
+ * version.h - Library version information
+ *
+ * This file is auto-generated. Do not edit.
+ */
+#ifndef __LIBCAMERA_VERSION_H__
+#define __LIBCAMERA_VERSION_H__
+
+#define LIBCAMERA_VERSION_MAJOR		@LIBCAMERA_VERSION_MAJOR@
+#define LIBCAMERA_VERSION_MINOR		@LIBCAMERA_VERSION_MINOR@
+#define LIBCAMERA_VERSION_PATCH		@LIBCAMERA_VERSION_PATCH@
+
+#endif /* __LIBCAMERA_VERSION_H__ */
