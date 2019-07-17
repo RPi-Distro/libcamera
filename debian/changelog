@@ -1,5 +1,13 @@
+libcamera (0~git20190717+36d6229-1) experimental; urgency=medium
+
+  * New upstream version 0~git20190717+36d6229
+  * Prepare package to experimental (Closes: #930456).
+
+
+ -- Emmanuel Arias <emmanuelarias30@gmail.com>  Wed, 17 Jul 2019 19:14:08 +0000
+
 libcamera (0~git20190625+cb21bb3-1) unstable; urgency=medium
 
-  * Initial release (Closes: #930456).
+  * Initial release.
 
  -- Emmanuel Arias <emmanuelarias30@gmail.com>  Sun, 02 Jun 2019 02:32:46 +0000
