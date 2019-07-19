@@ -12,7 +12,7 @@ Build-Depends: debhelper-compat (= 12),
                python3-sphinx,
                libjs-jquery,
                libjs-underscore
-Standards-Version: 4.3.0
+Standards-Version: 4.4.0
 Section: libs
 Homepage: https://libcamera.org/
 Vcs-Browser: https://salsa.debian.org/multimedia-team/libcamera
