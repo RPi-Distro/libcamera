@@ -1,7 +1,22 @@
 #!/usr/bin/make -f
 
+# export DH_VERBOSE = 1
+
+export CXXFLAGS= -fdebug-prefix-map=~/libcamera/libcamera=.
+export CFLAGS= -fdebug-prefix-map=~/libcamera/libcamera=.
+
 %:
 	dh $@
+
+override_dh_missing:
+	# pass
+
+override_dh_dwz:
+	# pass
+
+override_dh_auto_clean:
+	dh_auto_clean
+	rm -rf debian/debhelper/ debian/debhelper-build-stamp  debian/files debian/libcamera-dev.substvars debian/libcamera-dev/ debian/libcamera-tools.substvars debian/libcamera-tools/ debian/libcamera0.substvars debian/libcamera0/ debian/tmp/ obj-x86_64-linux-gnu/
 
 override_dh_auto_test:
 
