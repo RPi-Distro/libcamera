@@ -1,6 +1,21 @@
+.. contents::
+   :local:
+
 *************
 Documentation
 *************
+
+.. toctree::
+   :hidden:
+
+   API <api-html/index>
+
+API
+===
+
+The libcamera API is extensively documented using Doxygen. The :ref:`API
+nightly build <api>` contains the most up-to-date API documentation, built from
+the latest master branch.
 
 Feature Requirements
 ====================

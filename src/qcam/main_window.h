@@ -7,7 +7,6 @@
 #ifndef __QCAM_MAIN_WINDOW_H__
 #define __QCAM_MAIN_WINDOW_H__
 
-#include <map>
 #include <memory>
 
 #include <QElapsedTimer>
@@ -15,7 +14,10 @@
 #include <QObject>
 #include <QTimer>
 
+#include <libcamera/buffer.h>
 #include <libcamera/camera.h>
+#include <libcamera/camera_manager.h>
+#include <libcamera/framebuffer_allocator.h>
 #include <libcamera/stream.h>
 
 #include "../cam/options.h"
@@ -35,21 +37,21 @@ class MainWindow : public QMainWindow
 	Q_OBJECT
 
 public:
-	MainWindow(const OptionsParser::Options &options);
+	MainWindow(CameraManager *cm, const OptionsParser::Options &options);
 	~MainWindow();
 
 private Q_SLOTS:
 	void updateTitle();
 
 private:
-	int openCamera();
+	std::string chooseCamera(CameraManager *cm);
+	int openCamera(CameraManager *cm);
 
 	int startCapture();
 	void stopCapture();
 
-	void requestComplete(Request *request,
-			     const std::map<Stream *, Buffer *> &buffers);
-	int display(Buffer *buffer);
+	void requestComplete(Request *request);
+	int display(FrameBuffer *buffer);
 
 	QString title_;
 	QTimer titleTimer_;
@@ -57,6 +59,8 @@ private:
 	const OptionsParser::Options &options_;
 
 	std::shared_ptr<Camera> camera_;
+	FrameBufferAllocator *allocator_;
+
 	bool isCapturing_;
 	std::unique_ptr<CameraConfiguration> config_;
 
@@ -67,6 +71,7 @@ private:
 	uint32_t framesCaptured_;
 
 	ViewFinder *viewfinder_;
+	std::map<int, std::pair<void *, unsigned int>> mappedBuffers_;
 };
 
 #endif /* __QCAM_MAIN_WINDOW__ */

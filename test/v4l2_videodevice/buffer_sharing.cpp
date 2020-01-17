@@ -13,10 +13,10 @@
 #include <iostream>
 
 #include <libcamera/buffer.h>
-#include <libcamera/camera_manager.h>
 #include <libcamera/event_dispatcher.h>
 #include <libcamera/timer.h>
 
+#include "thread.h"
 #include "v4l2_videodevice_test.h"
 
 class BufferSharingTest : public V4L2VideoDeviceTest
@@ -73,16 +73,14 @@ protected:
 			return TestFail;
 		}
 
-		pool_.createBuffers(bufferCount);
-
-		ret = capture_->exportBuffers(&pool_);
-		if (ret) {
-			std::cout << "Failed to export buffers" << std::endl;
+		ret = capture_->exportBuffers(bufferCount, &buffers_);
+		if (ret < 0) {
+			std::cout << "Failed to allocate buffers" << std::endl;
 			return TestFail;
 		}
 
-		ret = output_->importBuffers(&pool_);
-		if (ret) {
+		ret = output_->importBuffers(bufferCount);
+		if (ret < 0) {
 			std::cout << "Failed to import buffers" << std::endl;
 			return TestFail;
 		}
@@ -90,24 +88,26 @@ protected:
 		return 0;
 	}
 
-	void captureBufferReady(Buffer *buffer)
+	void captureBufferReady(FrameBuffer *buffer)
 	{
-		std::cout << "Received capture buffer: " << buffer->index()
-			  << " sequence " << buffer->sequence() << std::endl;
+		const FrameMetadata &metadata = buffer->metadata();
 
-		if (buffer->status() != Buffer::BufferSuccess)
+		std::cout << "Received capture buffer" << std::endl;
+
+		if (metadata.status != FrameMetadata::FrameSuccess)
 			return;
 
 		output_->queueBuffer(buffer);
 		framesCaptured_++;
 	}
 
-	void outputBufferReady(Buffer *buffer)
+	void outputBufferReady(FrameBuffer *buffer)
 	{
-		std::cout << "Received output buffer: " << buffer->index()
-			  << " sequence " << buffer->sequence() << std::endl;
+		const FrameMetadata &metadata = buffer->metadata();
 
-		if (buffer->status() != Buffer::BufferSuccess)
+		std::cout << "Received output buffer" << std::endl;
+
+		if (metadata.status != FrameMetadata::FrameSuccess)
 			return;
 
 		capture_->queueBuffer(buffer);
@@ -116,17 +116,19 @@ protected:
 
 	int run()
 	{
-		EventDispatcher *dispatcher = CameraManager::instance()->eventDispatcher();
+		EventDispatcher *dispatcher = Thread::current()->eventDispatcher();
 		Timer timeout;
 		int ret;
 
 		capture_->bufferReady.connect(this, &BufferSharingTest::captureBufferReady);
 		output_->bufferReady.connect(this, &BufferSharingTest::outputBufferReady);
 
-		std::vector<std::unique_ptr<Buffer>> buffers;
-		buffers = capture_->queueAllBuffers();
-		if (buffers.empty())
-			return TestFail;
+		for (const std::unique_ptr<FrameBuffer> &buffer : buffers_) {
+			if (capture_->queueBuffer(buffer.get())) {
+				std::cout << "Failed to queue buffer" << std::endl;
+				return TestFail;
+			}
+		}
 
 		ret = capture_->streamOn();
 		if (ret) {

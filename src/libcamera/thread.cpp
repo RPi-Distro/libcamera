@@ -212,10 +212,8 @@ int Thread::exec()
 
 	locker.unlock();
 
-	while (!data_->exit_.load(std::memory_order_acquire)) {
-		dispatchMessages();
+	while (!data_->exit_.load(std::memory_order_acquire))
 		dispatcher->processEvents();
-	}
 
 	locker.lock();
 
@@ -441,16 +439,16 @@ void Thread::dispatchMessages()
 		Object *receiver = msg->receiver_;
 		ASSERT(data_ == receiver->thread()->data_);
 
+		receiver->pendingMessages_--;
+
 		locker.unlock();
 		receiver->message(msg.get());
 		locker.lock();
-
-		receiver->pendingMessages_--;
 	}
 }
 
 /**
- * \brief Move an \a object to the thread
+ * \brief Move an \a object and all its children to the thread
  * \param[in] object The object
  */
 void Thread::moveObject(Object *object)
@@ -458,12 +456,20 @@ void Thread::moveObject(Object *object)
 	ThreadData *currentData = object->thread_->data_;
 	ThreadData *targetData = data_;
 
-	MutexLocker lockerFrom(currentData->mutex_, std::defer_lock);
-	MutexLocker lockerTo(targetData->mutex_, std::defer_lock);
+	MutexLocker lockerFrom(currentData->messages_.mutex_, std::defer_lock);
+	MutexLocker lockerTo(targetData->messages_.mutex_, std::defer_lock);
 	std::lock(lockerFrom, lockerTo);
 
+	moveObject(object, currentData, targetData);
+}
+
+void Thread::moveObject(Object *object, ThreadData *currentData,
+			ThreadData *targetData)
+{
 	/* Move pending messages to the message queue of the new thread. */
 	if (object->pendingMessages_) {
+		unsigned int movedMessages = 0;
+
 		for (std::unique_ptr<Message> &msg : currentData->messages_.list_) {
 			if (!msg)
 				continue;
@@ -471,10 +477,22 @@ void Thread::moveObject(Object *object)
 				continue;
 
 			targetData->messages_.list_.push_back(std::move(msg));
+			movedMessages++;
+		}
+
+		if (movedMessages) {
+			EventDispatcher *dispatcher =
+				targetData->dispatcher_.load(std::memory_order_acquire);
+			if (dispatcher)
+				dispatcher->interrupt();
 		}
 	}
 
 	object->thread_ = this;
+
+	/* Move all children. */
+	for (auto child : object->children_)
+		moveObject(child, currentData, targetData);
 }
 
-}; /* namespace libcamera */
+} /* namespace libcamera */

@@ -8,24 +8,25 @@
 #include <iostream>
 
 #include "camera_test.h"
+#include "test.h"
 
 using namespace std;
 
 namespace {
 
-class Statemachine : public CameraTest
+class Statemachine : public CameraTest, public Test
 {
+public:
+	Statemachine()
+		: CameraTest("VIMC Sensor B")
+	{
+	}
+
 protected:
 	int testAvailable()
 	{
 		/* Test operations which should fail. */
 		if (camera_->configure(defconf_.get()) != -EACCES)
-			return TestFail;
-
-		if (camera_->allocateBuffers() != -EACCES)
-			return TestFail;
-
-		if (camera_->freeBuffers() != -EACCES)
 			return TestFail;
 
 		if (camera_->createRequest())
@@ -56,12 +57,6 @@ protected:
 	{
 		/* Test operations which should fail. */
 		if (camera_->acquire() != -EBUSY)
-			return TestFail;
-
-		if (camera_->allocateBuffers() != -EACCES)
-			return TestFail;
-
-		if (camera_->freeBuffers() != -EACCES)
 			return TestFail;
 
 		if (camera_->createRequest())
@@ -96,57 +91,6 @@ protected:
 		if (camera_->acquire() != -EBUSY)
 			return TestFail;
 
-		if (camera_->freeBuffers() != -EACCES)
-			return TestFail;
-
-		if (camera_->createRequest())
-			return TestFail;
-
-		Request request(camera_.get());
-		if (camera_->queueRequest(&request) != -EACCES)
-			return TestFail;
-
-		if (camera_->start() != -EACCES)
-			return TestFail;
-
-		if (camera_->stop() != -EACCES)
-			return TestFail;
-
-		/* Test operations which should pass. */
-		if (camera_->configure(defconf_.get()))
-			return TestFail;
-
-		/* Test valid state transitions, end in Prepared state. */
-		if (camera_->release())
-			return TestFail;
-
-		if (camera_->acquire())
-			return TestFail;
-
-		if (camera_->configure(defconf_.get()))
-			return TestFail;
-
-		if (camera_->allocateBuffers())
-			return TestFail;
-
-		return TestPass;
-	}
-
-	int testPrepared()
-	{
-		/* Test operations which should fail. */
-		if (camera_->acquire() != -EBUSY)
-			return TestFail;
-
-		if (camera_->release() != -EBUSY)
-			return TestFail;
-
-		if (camera_->configure(defconf_.get()) != -EACCES)
-			return TestFail;
-
-		if (camera_->allocateBuffers() != -EACCES)
-			return TestFail;
-
 		Request request1(camera_.get());
 		if (camera_->queueRequest(&request1) != -EACCES)
 			return TestFail;
@@ -163,9 +107,6 @@ protected:
 		delete request2;
 
 		/* Test valid state transitions, end in Running state. */
-		if (camera_->freeBuffers())
-			return TestFail;
-
 		if (camera_->release())
 			return TestFail;
 
@@ -175,7 +116,10 @@ protected:
 		if (camera_->configure(defconf_.get()))
 			return TestFail;
 
-		if (camera_->allocateBuffers())
+		/* Use internally allocated buffers. */
+		allocator_ = FrameBufferAllocator::create(camera_);
+		Stream *stream = *camera_->streams().begin();
+		if (allocator_->allocate(stream) < 0)
 			return TestFail;
 
 		if (camera_->start())
@@ -196,12 +140,6 @@ protected:
 		if (camera_->configure(defconf_.get()) != -EACCES)
 			return TestFail;
 
-		if (camera_->allocateBuffers() != -EACCES)
-			return TestFail;
-
-		if (camera_->freeBuffers() != -EACCES)
-			return TestFail;
-
 		if (camera_->start() != -EACCES)
 			return TestFail;
 
@@ -211,8 +149,7 @@ protected:
 			return TestFail;
 
 		Stream *stream = *camera_->streams().begin();
-		std::unique_ptr<Buffer> buffer = stream->createBuffer(0);
-		if (request->addBuffer(std::move(buffer)))
+		if (request->addBuffer(stream, allocator_->buffers(stream)[0].get()))
 			return TestFail;
 
 		if (camera_->queueRequest(request))
@@ -222,8 +159,7 @@ protected:
 		if (camera_->stop())
 			return TestFail;
 
-		if (camera_->freeBuffers())
-			return TestFail;
+		delete allocator_;
 
 		if (camera_->release())
 			return TestFail;
@@ -233,14 +169,12 @@ protected:
 
 	int init() override
 	{
-		int ret = CameraTest::init();
-		if (ret)
-			return ret;
+		if (status_ != TestPass)
+			return status_;
 
 		defconf_ = camera_->generateConfiguration({ StreamRole::VideoRecording });
 		if (!defconf_) {
 			cout << "Failed to generate default configuration" << endl;
-			CameraTest::cleanup();
 			return TestFail;
 		}
 
@@ -264,11 +198,6 @@ protected:
 			return TestFail;
 		}
 
-		if (testPrepared() != TestPass) {
-			cout << "State machine in Prepared state failed" << endl;
-			return TestFail;
-		}
-
 		if (testRuning() != TestPass) {
 			cout << "State machine in Running state failed" << endl;
 			return TestFail;
@@ -278,6 +207,7 @@ protected:
 	}
 
 	std::unique_ptr<CameraConfiguration> defconf_;
+	FrameBufferAllocator *allocator_;
 };
 
 } /* namespace */

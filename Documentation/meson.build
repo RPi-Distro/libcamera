@@ -21,8 +21,11 @@ if doxygen.found()
                   input : [
                       doxyfile,
                       libcamera_api,
+                      libcamera_ipa_api,
                       libcamera_headers,
                       libcamera_sources,
+                      libipa_headers,
+                      libipa_sources,
                   ],
                   output : 'api-html',
                   command : [doxygen, doxyfile],
@@ -41,6 +44,7 @@ endif
 
 if sphinx.found()
     docs_sources = [
+       '../README.rst',
         'coding-style.rst',
         'conf.py',
         'contributing.rst',

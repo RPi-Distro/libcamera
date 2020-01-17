@@ -5,9 +5,10 @@
  * capture.cpp - Cam capture
  */
 
-#include <climits>
+#include <chrono>
 #include <iomanip>
 #include <iostream>
+#include <limits.h>
 #include <sstream>
 
 #include "capture.h"
@@ -15,8 +16,8 @@
 
 using namespace libcamera;
 
-Capture::Capture(Camera *camera, CameraConfiguration *config)
-	: camera_(camera), config_(config), writer_(nullptr), last_(0)
+Capture::Capture(std::shared_ptr<Camera> camera, CameraConfiguration *config)
+	: camera_(camera), config_(config), writer_(nullptr)
 {
 }
 
@@ -41,12 +42,6 @@ int Capture::run(EventLoop *loop, const OptionsParser::Options &options)
 		return ret;
 	}
 
-	ret = camera_->allocateBuffers();
-	if (ret) {
-		std::cerr << "Failed to allocate buffers" << std::endl;
-		return ret;
-	}
-
 	camera_->requestCompleted.connect(this, &Capture::requestComplete);
 
 	if (options.isSet(OptFile)) {
@@ -56,26 +51,37 @@ int Capture::run(EventLoop *loop, const OptionsParser::Options &options)
 			writer_ = new BufferWriter();
 	}
 
-	ret = capture(loop);
+
+	FrameBufferAllocator *allocator = FrameBufferAllocator::create(camera_);
+
+	ret = capture(loop, allocator);
 
 	if (options.isSet(OptFile)) {
 		delete writer_;
 		writer_ = nullptr;
 	}
 
-	camera_->freeBuffers();
+	delete allocator;
 
 	return ret;
 }
 
-int Capture::capture(EventLoop *loop)
+int Capture::capture(EventLoop *loop, FrameBufferAllocator *allocator)
 {
 	int ret;
 
 	/* Identify the stream with the least number of buffers. */
 	unsigned int nbuffers = UINT_MAX;
-	for (StreamConfiguration &cfg : *config_)
-		nbuffers = std::min(nbuffers, cfg.bufferCount);
+	for (StreamConfiguration &cfg : *config_) {
+		ret = allocator->allocate(cfg.stream());
+		if (ret < 0) {
+			std::cerr << "Can't allocate buffers" << std::endl;
+			return -ENOMEM;
+		}
+
+		unsigned int allocated = allocator->buffers(cfg.stream()).size();
+		nbuffers = std::min(nbuffers, allocated);
+	}
 
 	/*
 	 * TODO: make cam tool smarter to support still capture by for
@@ -90,17 +96,21 @@ int Capture::capture(EventLoop *loop)
 			return -ENOMEM;
 		}
 
-		std::map<Stream *, Buffer *> map;
 		for (StreamConfiguration &cfg : *config_) {
 			Stream *stream = cfg.stream();
-			std::unique_ptr<Buffer> buffer = stream->createBuffer(i);
+			const std::vector<std::unique_ptr<FrameBuffer>> &buffers =
+				allocator->buffers(stream);
+			const std::unique_ptr<FrameBuffer> &buffer = buffers[i];
 
-			ret = request->addBuffer(std::move(buffer));
+			ret = request->addBuffer(stream, buffer.get());
 			if (ret < 0) {
 				std::cerr << "Can't set buffer for request"
 					  << std::endl;
 				return ret;
 			}
+
+			if (writer_)
+				writer_->mapBuffer(buffer.get());
 		}
 
 		requests.push_back(request);
@@ -133,19 +143,17 @@ int Capture::capture(EventLoop *loop)
 	return ret;
 }
 
-void Capture::requestComplete(Request *request, const std::map<Stream *, Buffer *> &buffers)
+void Capture::requestComplete(Request *request)
 {
-	double fps = 0.0;
-	uint64_t now;
-
 	if (request->status() == Request::RequestCancelled)
 		return;
 
-	struct timespec time;
-	clock_gettime(CLOCK_MONOTONIC, &time);
-	now = time.tv_sec * 1000 + time.tv_nsec / 1000000;
-	fps = now - last_;
-	fps = last_ && fps ? 1000.0 / fps : 0.0;
+	const std::map<Stream *, FrameBuffer *> &buffers = request->buffers();
+
+	std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+	double fps = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_).count();
+	fps = last_ != std::chrono::steady_clock::time_point() && fps
+	    ? 1000.0 / fps : 0.0;
 	last_ = now;
 
 	std::stringstream info;
@@ -153,13 +161,21 @@ void Capture::requestComplete(Request *request, const std::map<Stream *, Buffer 
 
 	for (auto it = buffers.begin(); it != buffers.end(); ++it) {
 		Stream *stream = it->first;
-		Buffer *buffer = it->second;
+		FrameBuffer *buffer = it->second;
 		const std::string &name = streamName_[stream];
 
+		const FrameMetadata &metadata = buffer->metadata();
+
 		info << " " << name
-		     << " (" << buffer->index() << ")"
-		     << " seq: " << std::setw(6) << std::setfill('0') << buffer->sequence()
-		     << " bytesused: " << buffer->bytesused();
+		     << " seq: " << std::setw(6) << std::setfill('0') << metadata.sequence
+		     << " bytesused: ";
+
+		unsigned int nplane = 0;
+		for (const FrameMetadata::Plane &plane : metadata.planes) {
+			info << plane.bytesused;
+			if (++nplane < metadata.planes.size())
+				info << "/";
+		}
 
 		if (writer_)
 			writer_->write(buffer, name);
@@ -179,16 +195,9 @@ void Capture::requestComplete(Request *request, const std::map<Stream *, Buffer 
 
 	for (auto it = buffers.begin(); it != buffers.end(); ++it) {
 		Stream *stream = it->first;
-		Buffer *buffer = it->second;
-		unsigned int index = buffer->index();
+		FrameBuffer *buffer = it->second;
 
-		std::unique_ptr<Buffer> newBuffer = stream->createBuffer(index);
-		if (!newBuffer) {
-			std::cerr << "Can't create buffer " << index << std::endl;
-			return;
-		}
-
-		request->addBuffer(std::move(newBuffer));
+		request->addBuffer(stream, buffer);
 	}
 
 	camera_->queueRequest(request);

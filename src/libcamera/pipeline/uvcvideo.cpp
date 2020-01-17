@@ -7,9 +7,11 @@
 
 #include <algorithm>
 #include <iomanip>
+#include <sys/sysmacros.h>
 #include <tuple>
 
 #include <libcamera/camera.h>
+#include <libcamera/control_ids.h>
 #include <libcamera/controls.h>
 #include <libcamera/request.h>
 #include <libcamera/stream.h>
@@ -40,7 +42,7 @@ public:
 	}
 
 	int init(MediaEntity *entity);
-	void bufferReady(Buffer *buffer);
+	void bufferReady(FrameBuffer *buffer);
 
 	V4L2VideoDevice *video_;
 	Stream stream_;
@@ -63,15 +65,15 @@ public:
 		const StreamRoles &roles) override;
 	int configure(Camera *camera, CameraConfiguration *config) override;
 
-	int allocateBuffers(Camera *camera,
-			    const std::set<Stream *> &streams) override;
-	int freeBuffers(Camera *camera,
-			const std::set<Stream *> &streams) override;
+	int exportFrameBuffers(Camera *camera, Stream *stream,
+			       std::vector<std::unique_ptr<FrameBuffer>> *buffers) override;
+	int importFrameBuffers(Camera *camera, Stream *stream) override;
+	void freeFrameBuffers(Camera *camera, Stream *stream) override;
 
 	int start(Camera *camera) override;
 	void stop(Camera *camera) override;
 
-	int queueRequest(Camera *camera, Request *request) override;
+	int queueRequestDevice(Camera *camera, Request *request) override;
 
 	bool match(DeviceEnumerator *enumerator) override;
 
@@ -175,7 +177,7 @@ int PipelineHandlerUVC::configure(Camera *camera, CameraConfiguration *config)
 	int ret;
 
 	V4L2DeviceFormat format = {};
-	format.fourcc = cfg.pixelFormat;
+	format.fourcc = data->video_->toV4L2Fourcc(cfg.pixelFormat);
 	format.size = cfg.size;
 
 	ret = data->video_->setFormat(&format);
@@ -183,7 +185,7 @@ int PipelineHandlerUVC::configure(Camera *camera, CameraConfiguration *config)
 		return ret;
 
 	if (format.size != cfg.size ||
-	    format.fourcc != cfg.pixelFormat)
+	    format.fourcc != data->video_->toV4L2Fourcc(cfg.pixelFormat))
 		return -EINVAL;
 
 	cfg.setStream(&data->stream_);
@@ -191,26 +193,28 @@ int PipelineHandlerUVC::configure(Camera *camera, CameraConfiguration *config)
 	return 0;
 }
 
-int PipelineHandlerUVC::allocateBuffers(Camera *camera,
-					const std::set<Stream *> &streams)
+int PipelineHandlerUVC::exportFrameBuffers(Camera *camera, Stream *stream,
+					   std::vector<std::unique_ptr<FrameBuffer>> *buffers)
 {
 	UVCCameraData *data = cameraData(camera);
-	Stream *stream = *streams.begin();
-	const StreamConfiguration &cfg = stream->configuration();
+	unsigned int count = stream->configuration().bufferCount;
 
-	LOG(UVC, Debug) << "Requesting " << cfg.bufferCount << " buffers";
-
-	if (stream->memoryType() == InternalMemory)
-		return data->video_->exportBuffers(&stream->bufferPool());
-	else
-		return data->video_->importBuffers(&stream->bufferPool());
+	return data->video_->exportBuffers(count, buffers);
 }
 
-int PipelineHandlerUVC::freeBuffers(Camera *camera,
-				    const std::set<Stream *> &streams)
+int PipelineHandlerUVC::importFrameBuffers(Camera *camera, Stream *stream)
 {
 	UVCCameraData *data = cameraData(camera);
-	return data->video_->releaseBuffers();
+	unsigned int count = stream->configuration().bufferCount;
+
+	return data->video_->importBuffers(count);
+}
+
+void PipelineHandlerUVC::freeFrameBuffers(Camera *camera, Stream *stream)
+{
+	UVCCameraData *data = cameraData(camera);
+
+	data->video_->releaseBuffers();
 }
 
 int PipelineHandlerUVC::start(Camera *camera)
@@ -227,44 +231,30 @@ void PipelineHandlerUVC::stop(Camera *camera)
 
 int PipelineHandlerUVC::processControls(UVCCameraData *data, Request *request)
 {
-	V4L2ControlList controls;
+	ControlList controls(data->video_->controls());
 
 	for (auto it : request->controls()) {
-		const ControlInfo *ci = it.first;
+		unsigned int id = it.first;
 		ControlValue &value = it.second;
 
-		switch (ci->id()) {
-		case Brightness:
-			controls.add(V4L2_CID_BRIGHTNESS, value.getInt());
-			break;
-
-		case Contrast:
-			controls.add(V4L2_CID_CONTRAST, value.getInt());
-			break;
-
-		case Saturation:
-			controls.add(V4L2_CID_SATURATION, value.getInt());
-			break;
-
-		case ManualExposure:
-			controls.add(V4L2_CID_EXPOSURE_AUTO, 1);
-			controls.add(V4L2_CID_EXPOSURE_ABSOLUTE, value.getInt());
-			break;
-
-		case ManualGain:
-			controls.add(V4L2_CID_GAIN, value.getInt());
-			break;
-
-		default:
-			break;
+		if (id == controls::Brightness) {
+			controls.set(V4L2_CID_BRIGHTNESS, value);
+		} else if (id == controls::Contrast) {
+			controls.set(V4L2_CID_CONTRAST, value);
+		} else if (id == controls::Saturation) {
+			controls.set(V4L2_CID_SATURATION, value);
+		} else if (id == controls::ManualExposure) {
+			controls.set(V4L2_CID_EXPOSURE_AUTO, static_cast<int32_t>(1));
+			controls.set(V4L2_CID_EXPOSURE_ABSOLUTE, value);
+		} else if (id == controls::ManualGain) {
+			controls.set(V4L2_CID_GAIN, value);
 		}
 	}
 
-	for (const V4L2Control &ctrl : controls)
+	for (const auto &ctrl : controls)
 		LOG(UVC, Debug)
-			<< "Setting control 0x"
-			<< std::hex << std::setw(8) << ctrl.id() << std::dec
-			<< " to " << ctrl.value();
+			<< "Setting control " << utils::hex(ctrl.first)
+			<< " to " << ctrl.second.toString();
 
 	int ret = data->video_->setControls(&controls);
 	if (ret) {
@@ -275,10 +265,10 @@ int PipelineHandlerUVC::processControls(UVCCameraData *data, Request *request)
 	return ret;
 }
 
-int PipelineHandlerUVC::queueRequest(Camera *camera, Request *request)
+int PipelineHandlerUVC::queueRequestDevice(Camera *camera, Request *request)
 {
 	UVCCameraData *data = cameraData(camera);
-	Buffer *buffer = request->findBuffer(&data->stream_);
+	FrameBuffer *buffer = request->findBuffer(&data->stream_);
 	if (!buffer) {
 		LOG(UVC, Error)
 			<< "Attempt to queue request with invalid stream";
@@ -294,8 +284,6 @@ int PipelineHandlerUVC::queueRequest(Camera *camera, Request *request)
 	if (ret < 0)
 		return ret;
 
-	PipelineHandler::queueRequest(camera, request);
-
 	return 0;
 }
 
@@ -308,26 +296,28 @@ bool PipelineHandlerUVC::match(DeviceEnumerator *enumerator)
 	if (!media)
 		return false;
 
-	std::unique_ptr<UVCCameraData> data = utils::make_unique<UVCCameraData>(this);
+	std::unique_ptr<UVCCameraData> data = std::make_unique<UVCCameraData>(this);
 
 	/* Locate and initialise the camera data with the default video node. */
-	for (MediaEntity *entity : media->entities()) {
-		if (entity->flags() & MEDIA_ENT_FL_DEFAULT) {
-			if (data->init(entity))
-				return false;
-			break;
-		}
-	}
-
-	if (!data) {
+	const std::vector<MediaEntity *> &entities = media->entities();
+	auto entity = std::find_if(entities.begin(), entities.end(),
+				   [](MediaEntity *entity) {
+					   return entity->flags() & MEDIA_ENT_FL_DEFAULT;
+				   });
+	if (entity == entities.end()) {
 		LOG(UVC, Error) << "Could not find a default video device";
 		return false;
 	}
 
+	if (data->init(*entity))
+		return false;
+
+	dev_t devnum = makedev((*entity)->deviceMajor(), (*entity)->deviceMinor());
+
 	/* Create and register the camera. */
 	std::set<Stream *> streams{ &data->stream_ };
 	std::shared_ptr<Camera> camera = Camera::create(this, media->model(), streams);
-	registerCamera(std::move(camera), std::move(data));
+	registerCamera(std::move(camera), std::move(data), devnum);
 
 	/* Enable hot-unplug notifications. */
 	hotplugMediaDevice(media);
@@ -348,41 +338,42 @@ int UVCCameraData::init(MediaEntity *entity)
 	video_->bufferReady.connect(this, &UVCCameraData::bufferReady);
 
 	/* Initialise the supported controls. */
-	const V4L2ControlInfoMap &controls = video_->controls();
-	for (const auto &ctrl : controls) {
-		unsigned int v4l2Id = ctrl.first;
-		const V4L2ControlInfo &info = ctrl.second;
-		ControlId id;
+	const ControlInfoMap &controls = video_->controls();
+	ControlInfoMap::Map ctrls;
 
-		switch (v4l2Id) {
+	for (const auto &ctrl : controls) {
+		const ControlRange &range = ctrl.second;
+		const ControlId *id;
+
+		switch (ctrl.first->id()) {
 		case V4L2_CID_BRIGHTNESS:
-			id = Brightness;
+			id = &controls::Brightness;
 			break;
 		case V4L2_CID_CONTRAST:
-			id = Contrast;
+			id = &controls::Contrast;
 			break;
 		case V4L2_CID_SATURATION:
-			id = Saturation;
+			id = &controls::Saturation;
 			break;
 		case V4L2_CID_EXPOSURE_ABSOLUTE:
-			id = ManualExposure;
+			id = &controls::ManualExposure;
 			break;
 		case V4L2_CID_GAIN:
-			id = ManualGain;
+			id = &controls::ManualGain;
 			break;
 		default:
 			continue;
 		}
 
-		controlInfo_.emplace(std::piecewise_construct,
-				     std::forward_as_tuple(id),
-				     std::forward_as_tuple(id, info.min(), info.max()));
+		ctrls.emplace(id, range);
 	}
+
+	controlInfo_ = std::move(ctrls);
 
 	return 0;
 }
 
-void UVCCameraData::bufferReady(Buffer *buffer)
+void UVCCameraData::bufferReady(FrameBuffer *buffer)
 {
 	Request *request = buffer->request();
 

@@ -7,8 +7,8 @@
 
 #include <vector>
 
-#include <libcamera/ipa/ipa_interface.h>
-#include <libcamera/ipa/ipa_module_info.h>
+#include <ipa/ipa_interface.h>
+#include <ipa/ipa_module_info.h>
 
 #include "ipa_module.h"
 #include "ipa_proxy.h"
@@ -26,7 +26,12 @@ public:
 	IPAProxyLinux(IPAModule *ipam);
 	~IPAProxyLinux();
 
-	int init();
+	int init() override { return 0; }
+	void configure(const std::map<unsigned int, IPAStream> &streamConfig,
+		       const std::map<unsigned int, const ControlInfoMap &> &entityControls) override {}
+	void mapBuffers(const std::vector<IPABuffer> &buffers) override {}
+	void unmapBuffers(const std::vector<unsigned int> &ids) override {}
+	void processEvent(const IPAOperationData &event) override {}
 
 private:
 	void readyRead(IPCUnixSocket *ipc);
@@ -36,14 +41,8 @@ private:
 	IPCUnixSocket *socket_;
 };
 
-int IPAProxyLinux::init()
-{
-	LOG(IPAProxy, Debug) << "initializing IPA via dummy proxy!";
-
-	return 0;
-}
-
 IPAProxyLinux::IPAProxyLinux(IPAModule *ipam)
+	: proc_(nullptr), socket_(nullptr)
 {
 	LOG(IPAProxy, Debug)
 		<< "initializing dummy proxy: loading IPA from "
@@ -93,4 +92,4 @@ void IPAProxyLinux::readyRead(IPCUnixSocket *ipc)
 
 REGISTER_IPA_PROXY(IPAProxyLinux)
 
-}; /* namespace libcamera */
+} /* namespace libcamera */

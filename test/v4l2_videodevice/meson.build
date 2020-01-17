@@ -2,11 +2,13 @@
 # They are not alphabetically sorted.
 v4l2_videodevice_tests = [
     [ 'double_open',        'double_open.cpp' ],
+    [ 'controls',           'controls.cpp' ],
     [ 'formats',            'formats.cpp' ],
     [ 'request_buffers',    'request_buffers.cpp' ],
     [ 'stream_on_off',      'stream_on_off.cpp' ],
     [ 'capture_async',      'capture_async.cpp' ],
     [ 'buffer_sharing',     'buffer_sharing.cpp' ],
+    [ 'v4l2_m2mdevice',     'v4l2_m2mdevice.cpp' ],
 ]
 
 foreach t : v4l2_videodevice_tests

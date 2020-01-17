@@ -8,56 +8,69 @@
 #include <iostream>
 
 #include "camera_test.h"
+#include "test.h"
 
 using namespace std;
 
 namespace {
 
-class Capture : public CameraTest
+class Capture : public CameraTest, public Test
 {
+public:
+	Capture()
+		: CameraTest("VIMC Sensor B")
+	{
+	}
+
 protected:
 	unsigned int completeBuffersCount_;
 	unsigned int completeRequestsCount_;
 
-	void bufferComplete(Request *request, Buffer *buffer)
+	void bufferComplete(Request *request, FrameBuffer *buffer)
 	{
-		if (buffer->status() != Buffer::BufferSuccess)
+		if (buffer->metadata().status != FrameMetadata::FrameSuccess)
 			return;
 
 		completeBuffersCount_++;
 	}
 
-	void requestComplete(Request *request, const std::map<Stream *, Buffer *> &buffers)
+	void requestComplete(Request *request)
 	{
 		if (request->status() != Request::RequestComplete)
 			return;
+
+		const std::map<Stream *, FrameBuffer *> &buffers = request->buffers();
 
 		completeRequestsCount_++;
 
 		/* Create a new request. */
 		Stream *stream = buffers.begin()->first;
-		Buffer *buffer = buffers.begin()->second;
-		std::unique_ptr<Buffer> newBuffer = stream->createBuffer(buffer->index());
+		FrameBuffer *buffer = buffers.begin()->second;
 
 		request = camera_->createRequest();
-		request->addBuffer(std::move(newBuffer));
+		request->addBuffer(stream, buffer);
 		camera_->queueRequest(request);
 	}
 
 	int init() override
 	{
-		int ret = CameraTest::init();
-		if (ret)
-			return ret;
+		if (status_ != TestPass)
+			return status_;
 
 		config_ = camera_->generateConfiguration({ StreamRole::VideoRecording });
 		if (!config_ || config_->size() != 1) {
 			cout << "Failed to generate default configuration" << endl;
-			CameraTest::cleanup();
 			return TestFail;
 		}
 
+		allocator_ = FrameBufferAllocator::create(camera_);
+
 		return TestPass;
+	}
+
+	void cleanup() override
+	{
+		delete allocator_;
 	}
 
 	int run() override
@@ -74,27 +87,21 @@ protected:
 			return TestFail;
 		}
 
-		if (camera_->allocateBuffers()) {
-			cout << "Failed to allocate buffers" << endl;
-			return TestFail;
-		}
-
 		Stream *stream = cfg.stream();
+
+		int ret = allocator_->allocate(stream);
+		if (ret < 0)
+			return TestFail;
+
 		std::vector<Request *> requests;
-		for (unsigned int i = 0; i < cfg.bufferCount; ++i) {
+		for (const std::unique_ptr<FrameBuffer> &buffer : allocator_->buffers(stream)) {
 			Request *request = camera_->createRequest();
 			if (!request) {
 				cout << "Failed to create request" << endl;
 				return TestFail;
 			}
 
-			std::unique_ptr<Buffer> buffer = stream->createBuffer(i);
-			if (!buffer) {
-				cout << "Failed to create buffer " << i << endl;
-				return TestFail;
-			}
-
-			if (request->addBuffer(std::move(buffer))) {
+			if (request->addBuffer(stream, buffer.get())) {
 				cout << "Failed to associating buffer with request" << endl;
 				return TestFail;
 			}
@@ -120,17 +127,19 @@ protected:
 			}
 		}
 
-		EventDispatcher *dispatcher = CameraManager::instance()->eventDispatcher();
+		EventDispatcher *dispatcher = cm_->eventDispatcher();
 
 		Timer timer;
 		timer.start(1000);
 		while (timer.isRunning())
 			dispatcher->processEvents();
 
-		if (completeRequestsCount_ <= cfg.bufferCount * 2) {
+		unsigned int nbuffers = allocator_->buffers(stream).size();
+
+		if (completeRequestsCount_ <= nbuffers * 2) {
 			cout << "Failed to capture enough frames (got "
 			     << completeRequestsCount_ << " expected at least "
-			     << cfg.bufferCount * 2 << ")" << endl;
+			     << nbuffers * 2 << ")" << endl;
 			return TestFail;
 		}
 
@@ -144,15 +153,11 @@ protected:
 			return TestFail;
 		}
 
-		if (camera_->freeBuffers()) {
-			cout << "Failed to free buffers" << endl;
-			return TestFail;
-		}
-
 		return TestPass;
 	}
 
 	std::unique_ptr<CameraConfiguration> config_;
+	FrameBufferAllocator *allocator_;
 };
 
 } /* namespace */

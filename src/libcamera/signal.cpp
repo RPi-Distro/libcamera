@@ -7,10 +7,6 @@
 
 #include <libcamera/signal.h>
 
-#include "message.h"
-#include "thread.h"
-#include "utils.h"
-
 /**
  * \file signal.h
  * \brief Signal & slot implementation
@@ -57,27 +53,8 @@ namespace libcamera {
  * passed through the signal will remain valid after the signal is emitted.
  */
 
-void SlotBase::disconnect(SignalBase *signal)
-{
-	if (object_)
-		object_->disconnect(signal);
-}
-
-void SlotBase::activatePack(void *pack)
-{
-	Object *obj = static_cast<Object *>(object_);
-
-	if (Thread::current() == obj->thread()) {
-		invokePack(pack);
-	} else {
-		std::unique_ptr<Message> msg =
-			utils::make_unique<SignalMessage>(this, pack);
-		obj->postMessage(std::move(msg));
-	}
-}
-
 /**
- * \fn Signal::connect(T *object, void(T::*func)(Args...))
+ * \fn Signal::connect(T *object, R (T::*func)(Args...))
  * \brief Connect the signal to a member function slot
  * \param[in] object The slot object pointer
  * \param[in] func The slot member function
@@ -89,7 +66,7 @@ void SlotBase::activatePack(void *pack)
  */
 
 /**
- * \fn Signal::connect(void(*func)(Args...))
+ * \fn Signal::connect(R (*func)(Args...))
  * \brief Connect the signal to a static function slot
  * \param[in] func The slot static function
  */
@@ -106,14 +83,14 @@ void SlotBase::activatePack(void *pack)
  */
 
 /**
- * \fn Signal::disconnect(T *object, void(T::*func)(Args...))
+ * \fn Signal::disconnect(T *object, R (T::*func)(Args...))
  * \brief Disconnect the signal from the \a object slot member function \a func
  * \param[in] object The object pointer whose slots to disconnect
  * \param[in] func The slot member function to disconnect
  */
 
 /**
- * \fn Signal::disconnect(void(*func)(Args...))
+ * \fn Signal::disconnect(R (*func)(Args...))
  * \brief Disconnect the signal from the slot static function \a func
  * \param[in] func The slot static function to disconnect
  */

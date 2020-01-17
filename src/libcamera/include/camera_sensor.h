@@ -13,10 +13,11 @@
 #include <libcamera/geometry.h>
 
 #include "log.h"
-#include "v4l2_controls.h"
 
 namespace libcamera {
 
+class ControlInfoMap;
+class ControlList;
 class MediaEntity;
 class V4L2Subdevice;
 
@@ -42,9 +43,9 @@ public:
 				      const Size &size) const;
 	int setFormat(V4L2SubdeviceFormat *format);
 
-	const V4L2ControlInfoMap &controls() const;
-	int getControls(V4L2ControlList *ctrls);
-	int setControls(V4L2ControlList *ctrls);
+	const ControlInfoMap &controls() const;
+	int getControls(ControlList *ctrls);
+	int setControls(ControlList *ctrls);
 
 protected:
 	std::string logPrefix() const;

@@ -2,56 +2,76 @@
 /*
  * Copyright (C) 2019, Google Inc.
  *
- * control_info.cpp - ControlInfo tests
+ * control_info.cpp - ControlInfoMap tests
  */
 
 #include <iostream>
 
+#include <libcamera/camera.h>
+#include <libcamera/camera_manager.h>
+#include <libcamera/control_ids.h>
 #include <libcamera/controls.h>
 
+#include "camera_controls.h"
+
+#include "camera_test.h"
 #include "test.h"
 
 using namespace std;
 using namespace libcamera;
 
-class ControlInfoTest : public Test
+class ControlInfoMapTest : public CameraTest, public Test
 {
-protected:
-	int run()
+public:
+	ControlInfoMapTest()
+		: CameraTest("VIMC Sensor B")
 	{
-		/*
-		 * Test information retrieval from a control with no minimum
-		 * and maximum.
-		 */
-		ControlInfo info(Brightness);
+	}
 
-		if (info.id() != Brightness ||
-		    info.type() != ControlValueInteger ||
-		    info.name() != std::string("Brightness")) {
-			cout << "Invalid control identification for Brightness" << endl;
+protected:
+	int init() override
+	{
+		return status_;
+	}
+
+	int run() override
+	{
+		const ControlInfoMap &info = camera_->controls();
+
+		/* Test looking up a valid control by ControlId. */
+		if (info.count(&controls::Brightness) != 1) {
+			cerr << "count() on valid control failed" << endl;
 			return TestFail;
 		}
 
-		if (info.min().getInt() != 0 || info.max().getInt() != 0) {
-			cout << "Invalid control range for Brightness" << endl;
+		if (info.find(&controls::Brightness) == info.end()) {
+			cerr << "find() on valid control failed" << endl;
 			return TestFail;
 		}
 
-		/*
-		 * Test information retrieval from a control with a minimum and
-		 * a maximum value.
-		 */
-		info = ControlInfo(Contrast, 10, 200);
+		info.at(&controls::Brightness);
 
-		if (info.id() != Contrast ||
-		    info.type() != ControlValueInteger ||
-		    info.name() != std::string("Contrast")) {
-			cout << "Invalid control identification for Contrast" << endl;
+		/* Test looking up a valid control by numerical ID. */
+		if (info.count(controls::Brightness.id()) != 1) {
+			cerr << "count() on valid ID failed" << endl;
 			return TestFail;
 		}
 
-		if (info.min().getInt() != 10 || info.max().getInt() != 200) {
-			cout << "Invalid control range for Contrast" << endl;
+		if (info.find(controls::Brightness.id()) == info.end()) {
+			cerr << "find() on valid ID failed" << endl;
+			return TestFail;
+		}
+
+		info.at(controls::Brightness.id());
+
+		/* Test looking up an invalid control by numerical ID. */
+		if (info.count(12345) != 0) {
+			cerr << "count() on invalid ID failed" << endl;
+			return TestFail;
+		}
+
+		if (info.find(12345) != info.end()) {
+			cerr << "find() on invalid ID failed" << endl;
 			return TestFail;
 		}
 
@@ -59,4 +79,4 @@ protected:
 	}
 };
 
-TEST_REGISTER(ControlInfoTest)
+TEST_REGISTER(ControlInfoMapTest)

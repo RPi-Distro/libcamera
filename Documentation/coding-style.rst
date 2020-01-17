@@ -1,9 +1,7 @@
+.. _coding-style-guidelines:
+
 Coding Style Guidelines
 =======================
-
-The libcamera project has high standards of stability, efficiency and
-reliability. To achieve those, the project goes to great length to produce
-code that is as easy to read, understand and maintain as possible.
 
 These coding guidelines are meant to ensure code quality. As a contributor
 you are expected to follow them in all code submitted to the project. While
@@ -61,26 +59,44 @@ document:
   Code Style for indentation, braces, spacing, etc
 * Header guards are formatted as '__LIBCAMERA_FILE_NAME_H__'
 
+Order of Includes
+~~~~~~~~~~~~~~~~~
+
+Headers shall be included at the beginning of .c, .cpp and .h files, right
+after the file description comment block and, for .h files, the header guard
+macro. For .cpp files, if the file implements an API declared in a header file,
+that header file shall be included first in order to ensure it is
+self-contained.
+
+The headers shall be grouped and ordered as follows.
+
+ # The header declaring the API being implemented (if any)
+ # The C and C++ system and standard library headers
+ # Other libraries' headers, with one group per library
+ # Other project's headers
+
+Groups of headers shall be separated by a single blank line. Headers within
+each group shall be sorted alphabetically.
+
+System and library headers shall be included with angle brackets. Project
+headers shall be included with angle brackets for the libcamera public API
+headers, and with double quotes for other libcamera headers.
+
 
 C++ Specific Rules
 ------------------
 
-The code shall be implemented in C++03, extended with the following
-C++-11-specific features:
+The code shall be implemented in C++14, with the following caveats:
 
-* Initializer lists
-* Type inference (auto and decltype)
-  Type inference shall be used with caution, to avoid drifting towards an
-  untyped language.
-* Range-based for loop
-* Lambda functions
-* Explicit overrides and final
-* Null pointer constant
-* General-purpose smart pointers (std::unique_ptr), deprecating std::auto_ptr.
+* Type inference (auto and decltype) shall be used with caution, to avoid
+  drifting towards an untyped language.
+* The explicit, override and final specifiers are to be used where applicable.
+* General-purpose smart pointers (std::unique_ptr) deprecate std::auto_ptr.
   Smart pointers, as well as shared pointers and weak pointers, shall not be
   overused.
-* Variadic class and function templates
-* rvalue references, move constructor and move assignment
+* Classes are encouraged to define move constructors and assignment operators
+  where applicable, and generally make use of the features offered by rvalue
+  references.
 
 Object Ownership
 ~~~~~~~~~~~~~~~~
@@ -169,6 +185,18 @@ These rules match the `object ownership rules from the Chromium C++ Style Guide`
    to global objects whose lifetime matches the lifetime of the application. As
    long term borrowing isn't marked through language constructs, it shall be
    documented explicitly in details in the API.
+
+C Compatibility Headers
+~~~~~~~~~~~~~~~~~~~~~~~
+
+The C++ standard defines a set of C++ standard library headers, and for some of
+them, defines C compatibility headers. The former have a name of the form
+<cxxx> while the later are named <xxx.h>. The C++ headers declare names in the
+std namespace, and may declare the same names in the global namespace. The C
+compatibility headers declare names in the global namespace, and may declare
+the same names in the std namespace. Usage of the C compatibility headers is
+strongly preferred. Code shall not rely on the optional declaration of names in
+the global or std namespace.
 
 
 Documentation

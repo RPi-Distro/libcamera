@@ -8,11 +8,14 @@
 #include "v4l2_device.h"
 
 #include <fcntl.h>
+#include <iomanip>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 #include "log.h"
+#include "utils.h"
 #include "v4l2_controls.h"
 
 /**
@@ -73,7 +76,7 @@ int V4L2Device::open(unsigned int flags)
 		return -EBUSY;
 	}
 
-	int ret = ::open(deviceNode_.c_str(), flags);
+	int ret = syscall(SYS_openat, AT_FDCWD, deviceNode_.c_str(), flags);
 	if (ret < 0) {
 		ret = -errno;
 		LOG(V4L2, Error) << "Failed to open V4L2 device: "
@@ -84,6 +87,32 @@ int V4L2Device::open(unsigned int flags)
 	fd_ = ret;
 
 	listControls();
+
+	return 0;
+}
+
+/**
+ * \brief Set the file descriptor of a V4L2 device
+ * \param[in] fd The file descriptor handle
+ *
+ * This method allows a device to provide an already opened file descriptor
+ * referring to the V4L2 device node, instead of opening it with open(). This
+ * can be used for V4L2 M2M devices where a single video device node is used for
+ * both the output and capture devices, or when receiving an open file
+ * descriptor in a context that doesn't have permission to open the device node
+ * itself.
+ *
+ * This method and the open() method are mutually exclusive, only one of the two
+ * shall be used for a V4L2Device instance.
+ *
+ * \return 0 on success or a negative error code otherwise
+ */
+int V4L2Device::setFd(int fd)
+{
+	if (isOpen())
+		return -EBUSY;
+
+	fd_ = fd;
 
 	return 0;
 }
@@ -137,28 +166,27 @@ void V4L2Device::close()
  * \retval -EINVAL One of the control is not supported or not accessible
  * \retval i The index of the control that failed
  */
-int V4L2Device::getControls(V4L2ControlList *ctrls)
+int V4L2Device::getControls(ControlList *ctrls)
 {
 	unsigned int count = ctrls->size();
 	if (count == 0)
 		return 0;
 
-	const V4L2ControlInfo *controlInfo[count];
 	struct v4l2_ext_control v4l2Ctrls[count];
 	memset(v4l2Ctrls, 0, sizeof(v4l2Ctrls));
 
-	for (unsigned int i = 0; i < count; ++i) {
-		const V4L2Control *ctrl = ctrls->getByIndex(i);
-		const auto iter = controls_.find(ctrl->id());
+	unsigned int i = 0;
+	for (const auto &ctrl : *ctrls) {
+		unsigned int id = ctrl.first;
+		const auto iter = controls_.find(id);
 		if (iter == controls_.end()) {
 			LOG(V4L2, Error)
-				<< "Control '" << ctrl->id() << "' not found";
+				<< "Control " << utils::hex(id) << " not found";
 			return -EINVAL;
 		}
 
-		const V4L2ControlInfo *info = &iter->second;
-		controlInfo[i] = info;
-		v4l2Ctrls[i].id = info->id();
+		v4l2Ctrls[i].id = id;
+		i++;
 	}
 
 	struct v4l2_ext_controls v4l2ExtCtrls = {};
@@ -184,7 +212,7 @@ int V4L2Device::getControls(V4L2ControlList *ctrls)
 		ret = errorIdx;
 	}
 
-	updateControls(ctrls, controlInfo, v4l2Ctrls, count);
+	updateControls(ctrls, v4l2Ctrls, count);
 
 	return ret;
 }
@@ -212,42 +240,43 @@ int V4L2Device::getControls(V4L2ControlList *ctrls)
  * \retval -EINVAL One of the control is not supported or not accessible
  * \retval i The index of the control that failed
  */
-int V4L2Device::setControls(V4L2ControlList *ctrls)
+int V4L2Device::setControls(ControlList *ctrls)
 {
 	unsigned int count = ctrls->size();
 	if (count == 0)
 		return 0;
 
-	const V4L2ControlInfo *controlInfo[count];
 	struct v4l2_ext_control v4l2Ctrls[count];
 	memset(v4l2Ctrls, 0, sizeof(v4l2Ctrls));
 
-	for (unsigned int i = 0; i < count; ++i) {
-		const V4L2Control *ctrl = ctrls->getByIndex(i);
-		const auto iter = controls_.find(ctrl->id());
+	unsigned int i = 0;
+	for (const auto &ctrl : *ctrls) {
+		unsigned int id = ctrl.first;
+		const auto iter = controls_.find(id);
 		if (iter == controls_.end()) {
 			LOG(V4L2, Error)
-				<< "Control '" << ctrl->id() << "' not found";
+				<< "Control " << utils::hex(id) << " not found";
 			return -EINVAL;
 		}
 
-		const V4L2ControlInfo *info = &iter->second;
-		controlInfo[i] = info;
-		v4l2Ctrls[i].id = info->id();
+		v4l2Ctrls[i].id = id;
 
 		/* Set the v4l2_ext_control value for the write operation. */
-		switch (info->type()) {
-		case V4L2_CTRL_TYPE_INTEGER64:
-			v4l2Ctrls[i].value64 = ctrl->value();
+		const ControlValue &value = ctrl.second;
+		switch (iter->first->type()) {
+		case ControlTypeInteger64:
+			v4l2Ctrls[i].value64 = value.get<int64_t>();
 			break;
 		default:
 			/*
 			 * \todo To be changed when support for string and
 			 * compound controls will be added.
 			 */
-			v4l2Ctrls[i].value = ctrl->value();
+			v4l2Ctrls[i].value = value.get<int32_t>();
 			break;
 		}
+
+		i++;
 	}
 
 	struct v4l2_ext_controls v4l2ExtCtrls = {};
@@ -261,19 +290,19 @@ int V4L2Device::setControls(V4L2ControlList *ctrls)
 
 		/* Generic validation error. */
 		if (errorIdx == 0 || errorIdx >= count) {
-			LOG(V4L2, Error) << "Unable to read controls: "
+			LOG(V4L2, Error) << "Unable to set controls: "
 					 << strerror(ret);
 			return -EINVAL;
 		}
 
 		/* A specific control failed. */
-		LOG(V4L2, Error) << "Unable to read control " << errorIdx
+		LOG(V4L2, Error) << "Unable to set control " << errorIdx
 				 << ": " << strerror(ret);
 		count = errorIdx - 1;
 		ret = errorIdx;
 	}
 
-	updateControls(ctrls, controlInfo, v4l2Ctrls, count);
+	updateControls(ctrls, v4l2Ctrls, count);
 
 	return ret;
 }
@@ -314,6 +343,7 @@ int V4L2Device::ioctl(unsigned long request, void *argp)
  */
 void V4L2Device::listControls()
 {
+	ControlInfoMap::Map ctrls;
 	struct v4l2_query_ext_ctrl ctrl = {};
 
 	/* \todo Add support for menu and compound controls. */
@@ -326,8 +356,14 @@ void V4L2Device::listControls()
 		    ctrl.flags & V4L2_CTRL_FLAG_DISABLED)
 			continue;
 
-		V4L2ControlInfo info(ctrl);
-		switch (info.type()) {
+		if (ctrl.elems != 1 || ctrl.nr_of_dims) {
+			LOG(V4L2, Debug)
+				<< "Array control " << utils::hex(ctrl.id)
+				<< " not supported";
+			continue;
+		}
+
+		switch (ctrl.type) {
 		case V4L2_CTRL_TYPE_INTEGER:
 		case V4L2_CTRL_TYPE_BOOLEAN:
 		case V4L2_CTRL_TYPE_MENU:
@@ -338,45 +374,54 @@ void V4L2Device::listControls()
 			break;
 		/* \todo Support compound controls. */
 		default:
-			LOG(V4L2, Debug) << "Control type '" << info.type()
-					 << "' not supported";
+			LOG(V4L2, Debug)
+				<< "Control " << utils::hex(ctrl.id)
+				<< " has unsupported type " << ctrl.type;
 			continue;
 		}
 
-		controls_.emplace(ctrl.id, info);
+		controlIds_.emplace_back(std::make_unique<V4L2ControlId>(ctrl));
+		ctrls.emplace(controlIds_.back().get(), V4L2ControlRange(ctrl));
 	}
+
+	controls_ = std::move(ctrls);
 }
 
 /*
  * \brief Update the value of the first \a count V4L2 controls in \a ctrls using
  * values in \a v4l2Ctrls
  * \param[inout] ctrls List of V4L2 controls to update
- * \param[in] controlInfo List of V4L2 control information
  * \param[in] v4l2Ctrls List of V4L2 extended controls as returned by the driver
  * \param[in] count The number of controls to update
  */
-void V4L2Device::updateControls(V4L2ControlList *ctrls,
-				const V4L2ControlInfo **controlInfo,
+void V4L2Device::updateControls(ControlList *ctrls,
 				const struct v4l2_ext_control *v4l2Ctrls,
 				unsigned int count)
 {
-	for (unsigned int i = 0; i < count; ++i) {
-		const struct v4l2_ext_control *v4l2Ctrl = &v4l2Ctrls[i];
-		const V4L2ControlInfo *info = controlInfo[i];
-		V4L2Control *ctrl = ctrls->getByIndex(i);
+	unsigned int i = 0;
+	for (auto &ctrl : *ctrls) {
+		if (i == count)
+			break;
 
-		switch (info->type()) {
-		case V4L2_CTRL_TYPE_INTEGER64:
-			ctrl->setValue(v4l2Ctrl->value64);
+		const struct v4l2_ext_control *v4l2Ctrl = &v4l2Ctrls[i];
+		unsigned int id = ctrl.first;
+		ControlValue &value = ctrl.second;
+
+		const auto iter = controls_.find(id);
+		switch (iter->first->type()) {
+		case ControlTypeInteger64:
+			value.set<int64_t>(v4l2Ctrl->value64);
 			break;
 		default:
 			/*
 			 * \todo To be changed when support for string and
 			 * compound controls will be added.
 			 */
-			ctrl->setValue(v4l2Ctrl->value);
+			value.set<int32_t>(v4l2Ctrl->value);
 			break;
 		}
+
+		i++;
 	}
 }
 

@@ -44,13 +44,12 @@ public:
 	std::shared_ptr<MediaDevice> search(const DeviceMatch &dm);
 
 protected:
-	int addDevice(const std::string &deviceNode);
+	std::shared_ptr<MediaDevice> createDevice(const std::string &deviceNode);
+	void addDevice(const std::shared_ptr<MediaDevice> &media);
 	void removeDevice(const std::string &deviceNode);
 
 private:
 	std::vector<std::shared_ptr<MediaDevice>> devices_;
-
-	virtual std::string lookupDeviceNode(int major, int minor) = 0;
 };
 
 } /* namespace libcamera */

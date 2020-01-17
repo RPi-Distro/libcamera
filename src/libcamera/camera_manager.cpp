@@ -35,11 +35,14 @@ LOG_DEFINE_CATEGORY(Camera)
  * in the system to applications. The manager owns all Camera objects and
  * handles hot-plugging and hot-unplugging to manage the lifetime of cameras.
  *
- * To interact with libcamera, an application retrieves the camera manager
- * instance with CameraManager::instance(). The manager is initially stopped,
- * and shall be configured before being started. In particular a custom event
- * dispatcher shall be installed if needed with
- * CameraManager::setEventDispatcher().
+ * To interact with libcamera, an application starts by creating a camera
+ * manager instance. Only a single instance of the camera manager may exist at
+ * a time. Attempting to create a second instance without first deleting the
+ * existing instance results in undefined behaviour.
+ *
+ * The manager is initially stopped, and shall be configured before being
+ * started. In particular a custom event dispatcher shall be installed if
+ * needed with CameraManager::setEventDispatcher().
  *
  * Once the camera manager is configured, it shall be started with start().
  * This will enumerate all the cameras present in the system, which can then be
@@ -56,13 +59,21 @@ LOG_DEFINE_CATEGORY(Camera)
  * removed due to hot-unplug.
  */
 
+CameraManager *CameraManager::self_ = nullptr;
+
 CameraManager::CameraManager()
 	: enumerator_(nullptr)
 {
+	if (self_)
+		LOG(Camera, Fatal)
+			<< "Multiple CameraManager objects are not allowed";
+
+	self_ = this;
 }
 
 CameraManager::~CameraManager()
 {
+	self_ = nullptr;
 }
 
 /**
@@ -145,7 +156,7 @@ void CameraManager::stop()
  * \brief Retrieve all available cameras
  *
  * Before calling this function the caller is responsible for ensuring that
- * the camera manger is running.
+ * the camera manager is running.
  *
  * \return List of all available cameras
  */
@@ -155,7 +166,7 @@ void CameraManager::stop()
  * \param[in] name Name of camera to get
  *
  * Before calling this function the caller is responsible for ensuring that
- * the camera manger is running.
+ * the camera manager is running.
  *
  * \return Shared pointer to Camera object or nullptr if camera not found
  */
@@ -170,14 +181,41 @@ std::shared_ptr<Camera> CameraManager::get(const std::string &name)
 }
 
 /**
+ * \brief Retrieve a camera based on device number
+ * \param[in] devnum Device number of camera to get
+ *
+ * This method is meant solely for the use of the V4L2 compatibility
+ * layer, to map device nodes to Camera instances. Applications shall
+ * not use it and shall instead retrieve cameras by name.
+ *
+ * Before calling this function the caller is responsible for ensuring that
+ * the camera manager is running.
+ *
+ * \return Shared pointer to Camera object, which is empty if the camera is
+ * not found
+ */
+std::shared_ptr<Camera> CameraManager::get(dev_t devnum)
+{
+	auto iter = camerasByDevnum_.find(devnum);
+	if (iter == camerasByDevnum_.end())
+		return nullptr;
+
+	return iter->second.lock();
+}
+
+/**
  * \brief Add a camera to the camera manager
  * \param[in] camera The camera to be added
+ * \param[in] devnum The device number to associate with \a camera
  *
  * This function is called by pipeline handlers to register the cameras they
  * handle with the camera manager. Registered cameras are immediately made
  * available to the system.
+ *
+ * \a devnum is used by the V4L2 compatibility layer to map V4L2 device nodes
+ * to Camera instances.
  */
-void CameraManager::addCamera(std::shared_ptr<Camera> camera)
+void CameraManager::addCamera(std::shared_ptr<Camera> camera, dev_t devnum)
 {
 	for (std::shared_ptr<Camera> c : cameras_) {
 		if (c->name() == camera->name()) {
@@ -189,6 +227,11 @@ void CameraManager::addCamera(std::shared_ptr<Camera> camera)
 	}
 
 	cameras_.push_back(std::move(camera));
+
+	if (devnum) {
+		unsigned int index = cameras_.size() - 1;
+		camerasByDevnum_[devnum] = cameras_[index];
+	}
 }
 
 /**
@@ -201,30 +244,24 @@ void CameraManager::addCamera(std::shared_ptr<Camera> camera)
  */
 void CameraManager::removeCamera(Camera *camera)
 {
-	for (auto iter = cameras_.begin(); iter != cameras_.end(); ++iter) {
-		if (iter->get() == camera) {
-			LOG(Camera, Debug)
-				<< "Unregistering camera '"
-				<< camera->name() << "'";
-			cameras_.erase(iter);
-			return;
-		}
-	}
-}
+	auto iter = std::find_if(cameras_.begin(), cameras_.end(),
+				 [camera](std::shared_ptr<Camera> &c) {
+					 return c.get() == camera;
+				 });
+	if (iter == cameras_.end())
+		return;
 
-/**
- * \brief Retrieve the camera manager instance
- *
- * The CameraManager is a singleton and can't be constructed manually. This
- * function shall instead be used to retrieve the single global instance of the
- * manager.
- *
- * \return The camera manager instance
- */
-CameraManager *CameraManager::instance()
-{
-	static CameraManager manager;
-	return &manager;
+	LOG(Camera, Debug)
+		<< "Unregistering camera '" << camera->name() << "'";
+
+	auto iter_d = std::find_if(camerasByDevnum_.begin(), camerasByDevnum_.end(),
+				   [camera](const std::pair<dev_t, std::weak_ptr<Camera>> &p) {
+					   return p.second.lock().get() == camera;
+				   });
+	if (iter_d != camerasByDevnum_.end())
+		camerasByDevnum_.erase(iter_d);
+
+	cameras_.erase(iter);
 }
 
 /**
@@ -248,7 +285,7 @@ CameraManager *CameraManager::instance()
  */
 void CameraManager::setEventDispatcher(std::unique_ptr<EventDispatcher> dispatcher)
 {
-	Thread::current()->setEventDispatcher(std::move(dispatcher));
+	thread()->setEventDispatcher(std::move(dispatcher));
 }
 
 /**
@@ -264,7 +301,7 @@ void CameraManager::setEventDispatcher(std::unique_ptr<EventDispatcher> dispatch
  */
 EventDispatcher *CameraManager::eventDispatcher()
 {
-	return Thread::current()->eventDispatcher();
+	return thread()->eventDispatcher();
 }
 
 } /* namespace libcamera */

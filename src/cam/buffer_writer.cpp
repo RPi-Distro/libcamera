@@ -10,16 +10,40 @@
 #include <iostream>
 #include <sstream>
 #include <string.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
 #include "buffer_writer.h"
+
+using namespace libcamera;
 
 BufferWriter::BufferWriter(const std::string &pattern)
 	: pattern_(pattern)
 {
 }
 
-int BufferWriter::write(libcamera::Buffer *buffer, const std::string &streamName)
+BufferWriter::~BufferWriter()
+{
+	for (auto &iter : mappedBuffers_) {
+		void *memory = iter.second.first;
+		unsigned int length = iter.second.second;
+		munmap(memory, length);
+	}
+	mappedBuffers_.clear();
+}
+
+void BufferWriter::mapBuffer(FrameBuffer *buffer)
+{
+	for (const FrameBuffer::Plane &plane : buffer->planes()) {
+		void *memory = mmap(NULL, plane.length, PROT_READ, MAP_SHARED,
+				    plane.fd.fd(), 0);
+
+		mappedBuffers_[plane.fd.fd()] =
+			std::make_pair(memory, plane.length);
+	}
+}
+
+int BufferWriter::write(FrameBuffer *buffer, const std::string &streamName)
 {
 	std::string filename;
 	size_t pos;
@@ -30,7 +54,7 @@ int BufferWriter::write(libcamera::Buffer *buffer, const std::string &streamName
 	if (pos != std::string::npos) {
 		std::stringstream ss;
 		ss << streamName << "-" << std::setw(6)
-		   << std::setfill('0') << buffer->sequence();
+		   << std::setfill('0') << buffer->metadata().sequence;
 		filename.replace(pos, 1, ss.str());
 	}
 
@@ -40,10 +64,9 @@ int BufferWriter::write(libcamera::Buffer *buffer, const std::string &streamName
 	if (fd == -1)
 		return -errno;
 
-	libcamera::BufferMemory *mem = buffer->mem();
-	for (libcamera::Plane &plane : mem->planes()) {
-		void *data = plane.mem();
-		unsigned int length = plane.length();
+	for (const FrameBuffer::Plane &plane : buffer->planes()) {
+		void *data = mappedBuffers_[plane.fd.fd()].first;
+		unsigned int length = plane.length;
 
 		ret = ::write(fd, data, length);
 		if (ret < 0) {

@@ -8,7 +8,8 @@
 #define __LIBCAMERA_V4L2_DEVICE_H__
 
 #include <map>
-#include <string>
+#include <memory>
+#include <vector>
 
 #include <linux/videodev2.h>
 
@@ -23,10 +24,10 @@ public:
 	void close();
 	bool isOpen() const { return fd_ != -1; }
 
-	const V4L2ControlInfoMap &controls() const { return controls_; }
+	const ControlInfoMap &controls() const { return controls_; }
 
-	int getControls(V4L2ControlList *ctrls);
-	int setControls(V4L2ControlList *ctrls);
+	int getControls(ControlList *ctrls);
+	int setControls(ControlList *ctrls);
 
 	const std::string &deviceNode() const { return deviceNode_; }
 
@@ -35,6 +36,7 @@ protected:
 	~V4L2Device();
 
 	int open(unsigned int flags);
+	int setFd(int fd);
 
 	int ioctl(unsigned long request, void *argp);
 
@@ -42,12 +44,12 @@ protected:
 
 private:
 	void listControls();
-	void updateControls(V4L2ControlList *ctrls,
-			    const V4L2ControlInfo **controlInfo,
+	void updateControls(ControlList *ctrls,
 			    const struct v4l2_ext_control *v4l2Ctrls,
 			    unsigned int count);
 
-	V4L2ControlInfoMap controls_;
+	std::vector<std::unique_ptr<V4L2ControlId>> controlIds_;
+	ControlInfoMap controls_;
 	std::string deviceNode_;
 	int fd_;
 };
