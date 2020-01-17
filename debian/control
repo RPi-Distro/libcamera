@@ -7,7 +7,7 @@ Uploaders:
  Andrej Shadura <andrewsh@debian.org>
 Build-Depends: debhelper-compat (= 12),
                dh-exec,
-               meson (>= 0.40),
+               meson (>= 0.47),
                libudev-dev,
                python3-sphinx,
                libjs-jquery,
