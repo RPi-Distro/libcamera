@@ -1,15 +1,5 @@
-libcamera (0~git20190717+36d6229-1) unstable; urgency=medium
-
-  [Emmanuel Arias]
-  * New upstream version 0~git20190717+36d6229
-
-  [Ondřej Nový]
-  * Bump Standards-Version to 4.4.0
-
- -- Emmanuel Arias <emmanuelarias30@gmail.com>  Wed, 17 Jul 2019 19:14:08 +0000
-
-libcamera (0~git20190625+cb21bb3-1) unstable; urgency=medium
+libcamera (0~git20200116+30f9624-1) UNRELEASED; urgency=medium
 
   * Initial release (Closes: #930456).
 
- -- Emmanuel Arias <emmanuelarias30@gmail.com>  Sun, 02 Jun 2019 02:32:46 +0000
+ -- Emmanuel Arias <eamanu@yaerobi.com>  Fri, 17 Jan 2020 10:42:50 -0300
