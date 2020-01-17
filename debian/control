@@ -10,6 +10,7 @@ Build-Depends: debhelper-compat (= 12),
                meson (>= 0.47),
                libudev-dev,
                python3-sphinx,
+               python3-yaml,
                libjs-jquery,
                libjs-underscore
 Standards-Version: 4.4.1
