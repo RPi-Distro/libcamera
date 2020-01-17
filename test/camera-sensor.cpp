@@ -13,6 +13,7 @@
 #include "camera_sensor.h"
 #include "device_enumerator.h"
 #include "media_device.h"
+#include "utils.h"
 #include "v4l2_subdevice.h"
 
 #include "test.h"
@@ -83,14 +84,15 @@ protected:
 			return TestFail;
 		}
 
-		V4L2SubdeviceFormat format = sensor_->getFormat({ MEDIA_BUS_FMT_UYVY8_2X8,
+		/* Use an invalid format and make sure it's not selected. */
+		V4L2SubdeviceFormat format = sensor_->getFormat({ 0xdeadbeef,
 								  MEDIA_BUS_FMT_SBGGR10_1X10,
 								  MEDIA_BUS_FMT_BGR888_1X24 },
 								Size(1024, 768));
 		if (format.mbus_code != MEDIA_BUS_FMT_SBGGR10_1X10 ||
 		    format.size != Size(4096, 2160)) {
 			cerr << "Failed to get a suitable format, expected 4096x2160-0x"
-			     << std::hex << MEDIA_BUS_FMT_SBGGR10_1X10
+			     << utils::hex(MEDIA_BUS_FMT_SBGGR10_1X10)
 			     << ", got " << format.toString() << endl;
 			return TestFail;
 		}

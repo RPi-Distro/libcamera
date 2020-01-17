@@ -43,6 +43,8 @@ public:
 	EventDispatcher *eventDispatcher();
 	void setEventDispatcher(std::unique_ptr<EventDispatcher> dispatcher);
 
+	void dispatchMessages();
+
 protected:
 	int exec();
 	virtual void run();
@@ -53,13 +55,14 @@ private:
 
 	void postMessage(std::unique_ptr<Message> msg, Object *receiver);
 	void removeMessages(Object *receiver);
-	void dispatchMessages();
 
 	friend class Object;
 	friend class ThreadData;
 	friend class ThreadMain;
 
 	void moveObject(Object *object);
+	void moveObject(Object *object, ThreadData *currentData,
+			ThreadData *targetData);
 
 	std::thread thread_;
 	ThreadData *data_;

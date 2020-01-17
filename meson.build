@@ -1,10 +1,10 @@
 project('libcamera', 'c', 'cpp',
-    meson_version : '>= 0.40',
+    meson_version : '>= 0.47',
     version : '0.0.0',
     default_options : [
         'werror=true',
         'warning_level=2',
-        'cpp_std=c++11',
+        'cpp_std=c++14',
     ],
     license : 'LGPL 2.1+')
 
@@ -26,6 +26,10 @@ libcamera_version = libcamera_git_version.split('+')[0]
 cc = meson.get_compiler('c')
 config_h = configuration_data()
 
+if cc.has_header_symbol('execinfo.h', 'backtrace')
+    config_h.set('HAVE_BACKTRACE', 1)
+endif
+
 if cc.has_header_symbol('stdlib.h', 'secure_getenv', prefix : '#define _GNU_SOURCE')
     config_h.set('HAVE_SECURE_GETENV', 1)
 endif
@@ -35,16 +39,29 @@ common_arguments = [
     '-include', 'config.h',
 ]
 
-c_arguments = common_arguments
-cpp_arguments = common_arguments
+c_arguments = []
+cpp_arguments = []
 
-# Use libc++ by default if available instead of libstdc++ when compiling with
-# clang.
-if cc.get_id() == 'clang' and cc.find_library('libc++', required: false).found()
-    cpp_arguments += [
-        '-stdlib=libc++',
-    ]
+if cc.get_id() == 'clang'
+    # Turn _FORTIFY_SOURCE by default on optimised builds (as it requires -O1
+    # or higher). This is needed on clang only as gcc enables it by default.
+    if get_option('optimization') != '0'
+        common_arguments += [
+            '-D_FORTIFY_SOURCE=2',
+        ]
+    endif
+
+    # Use libc++ by default if available instead of libstdc++ when compiling
+    # with clang.
+    if cc.find_library('libc++', required: false).found()
+        cpp_arguments += [
+            '-stdlib=libc++',
+        ]
+    endif
 endif
+
+c_arguments += common_arguments
+cpp_arguments += common_arguments
 
 add_project_arguments(c_arguments, language : 'c')
 add_project_arguments(cpp_arguments, language : 'cpp')
@@ -63,7 +80,7 @@ if get_option('documentation')
     subdir('Documentation')
 endif
 
-if get_option('tests')
+if get_option('test')
     subdir('test')
 endif
 

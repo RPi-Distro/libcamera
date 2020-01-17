@@ -7,11 +7,15 @@
 
 #include <libcamera/object.h>
 
+#include <algorithm>
+
 #include <libcamera/signal.h>
 
 #include "log.h"
 #include "message.h"
+#include "semaphore.h"
 #include "thread.h"
+#include "utils.h"
 
 /**
  * \file object.h
@@ -19,6 +23,8 @@
  */
 
 namespace libcamera {
+
+LOG_DEFINE_CATEGORY(Object)
 
 /**
  * \class Object
@@ -28,10 +34,15 @@ namespace libcamera {
  * slots. By inheriting from Object, an object is automatically disconnected
  * from all connected signals when it gets destroyed.
  *
- * Object instances are bound to the thread in which they're created. When a
- * message is posted to an object, its handler will run in the object's thread.
- * This allows implementing easy message passing between threads by inheriting
- * from the Object class.
+ * Object instances are bound to the thread of their parent, or the thread in
+ * which they're created when they have no parent. When a message is posted to
+ * an object, its handler will run in the object's thread. This allows
+ * implementing easy message passing between threads by inheriting from the
+ * Object class.
+ *
+ * Deleting an object from a thread other than the one the object is bound to is
+ * unsafe, unless the caller ensures that the object isn't processing any
+ * message concurrently.
  *
  * Object slots connected to signals will also run in the context of the
  * object's thread, regardless of whether the signal is emitted in the same or
@@ -40,12 +51,29 @@ namespace libcamera {
  * \sa Message, Signal, Thread
  */
 
-Object::Object()
-	: pendingMessages_(0)
+/**
+ * \brief Construct an Object instance
+ * \param[in] parent The object parent
+ *
+ * The new Object instance is bound to the thread of its \a parent, or to the
+ * current thread if the \a parent is nullptr.
+ */
+Object::Object(Object *parent)
+	: parent_(parent), pendingMessages_(0)
 {
-	thread_ = Thread::current();
+	thread_ = parent ? parent->thread() : Thread::current();
+
+	if (parent)
+		parent->children_.push_back(this);
 }
 
+/**
+ * \brief Destroy an Object instance
+ *
+ * Deleting an Object automatically disconnects all signals from the Object's
+ * slots. All the Object's children are made orphan, but stay bound to their
+ * current thread.
+ */
 Object::~Object()
 {
 	for (SignalBase *signal : signals_)
@@ -53,6 +81,16 @@ Object::~Object()
 
 	if (pendingMessages_)
 		thread()->removeMessages(this);
+
+	if (parent_) {
+		auto it = std::find(parent_->children_.begin(),
+				    parent_->children_.end(), this);
+		ASSERT(it != parent_->children_.end());
+		parent_->children_.erase(it);
+	}
+
+	for (auto child : children_)
+		child->parent_ = nullptr;
 }
 
 /**
@@ -88,9 +126,14 @@ void Object::postMessage(std::unique_ptr<Message> msg)
 void Object::message(Message *msg)
 {
 	switch (msg->type()) {
-	case Message::SignalMessage: {
-		SignalMessage *smsg = static_cast<SignalMessage *>(msg);
-		smsg->slot_->invokePack(smsg->pack_);
+	case Message::InvokeMessage: {
+		InvokeMessage *iMsg = static_cast<InvokeMessage *>(msg);
+		Semaphore *semaphore = iMsg->semaphore();
+		iMsg->invoke();
+
+		if (semaphore)
+			semaphore->release();
+
 		break;
 	}
 
@@ -100,18 +143,45 @@ void Object::message(Message *msg)
 }
 
 /**
+ * \fn R Object::invokeMethod()
+ * \brief Invoke a method asynchronously on an Object instance
+ * \param[in] func The object method to invoke
+ * \param[in] type Connection type for method invocation
+ * \param[in] args The method arguments
+ *
+ * This method invokes the member method \a func with arguments \a args, based
+ * on the connection \a type. Depending on the type, the method will be called
+ * synchronously in the same thread or asynchronously in the object's thread.
+ *
+ * Arguments \a args passed by value or reference are copied, while pointers
+ * are passed untouched. The caller shall ensure that any pointer argument
+ * remains valid until the method is invoked.
+ *
+ * \return For connection types ConnectionTypeDirect and
+ * ConnectionTypeBlocking, return the return value of the invoked method. For
+ * connection type ConnectionTypeQueued, return a default-constructed R value.
+ */
+
+/**
  * \fn Object::thread()
  * \brief Retrieve the thread the object is bound to
  * \return The thread the object is bound to
  */
 
 /**
- * \brief Move the object to a different thread
+ * \brief Move the object and all its children to a different thread
  * \param[in] thread The target thread
  *
- * This method moves the object from the current thread to the new \a thread.
- * It shall be called from the thread in which the object currently lives,
- * otherwise the behaviour is undefined.
+ * This method moves the object and all its children from the current thread to
+ * the new \a thread. It shall be called from the thread in which the object
+ * currently lives, otherwise the behaviour is undefined.
+ *
+ * Before the object is moved, a Message::ThreadMoveMessage message is sent to
+ * it. The message() method can be reimplement in derived classes to be notified
+ * of the upcoming thread move and perform any required processing.
+ *
+ * Moving an object that has a parent is not allowed, and causes undefined
+ * behaviour.
  */
 void Object::moveToThread(Thread *thread)
 {
@@ -120,8 +190,31 @@ void Object::moveToThread(Thread *thread)
 	if (thread_ == thread)
 		return;
 
+	if (parent_) {
+		LOG(Object, Error)
+			<< "Moving object to thread with a parent is not permitted";
+		return;
+	}
+
+	notifyThreadMove();
+
 	thread->moveObject(this);
 }
+
+void Object::notifyThreadMove()
+{
+	Message msg(Message::ThreadMoveMessage);
+	message(&msg);
+
+	for (auto child : children_)
+		child->notifyThreadMove();
+}
+
+/**
+ * \fn Object::parent()
+ * \brief Retrieve the object's parent
+ * \return The object's parent
+ */
 
 void Object::connect(SignalBase *signal)
 {
@@ -138,4 +231,4 @@ void Object::disconnect(SignalBase *signal)
 	}
 }
 
-}; /* namespace libcamera */
+} /* namespace libcamera */

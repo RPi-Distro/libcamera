@@ -4,8 +4,8 @@
  *
  * media_device_print_test.cpp - Print out media devices
  */
-#include <iostream>
 
+#include <iostream>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -26,13 +26,13 @@ using namespace std;
 class MediaDevicePrintTest : public Test
 {
 public:
-	MediaDevicePrintTest() { }
-	~MediaDevicePrintTest() { }
+	MediaDevicePrintTest() {}
+	~MediaDevicePrintTest() {}
 
 protected:
 	int init() { return 0; }
 	int run();
-	void cleanup() { }
+	void cleanup() {}
 
 private:
 	int testMediaDevice(string deviceNode);
@@ -137,7 +137,7 @@ int MediaDevicePrintTest::run()
 	 */
 	for (i = 0; i < MAX_MEDIA_DEV; i++) {
 		string mediadev = deviceNode + to_string(i);
-		struct stat pstat = { };
+		struct stat pstat = {};
 
 		if (stat(mediadev.c_str(), &pstat))
 			continue;

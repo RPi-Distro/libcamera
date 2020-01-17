@@ -9,37 +9,35 @@
 
 #include <libcamera/camera.h>
 #include <libcamera/camera_manager.h>
+#include <libcamera/control_ids.h>
 #include <libcamera/controls.h>
 
+#include "camera_controls.h"
+
+#include "camera_test.h"
 #include "test.h"
 
 using namespace std;
 using namespace libcamera;
 
-class ControlListTest : public Test
+class ControlListTest : public CameraTest, public Test
 {
-protected:
-	int init()
+public:
+	ControlListTest()
+		: CameraTest("VIMC Sensor B")
 	{
-		cm_ = CameraManager::instance();
-
-		if (cm_->start()) {
-			cout << "Failed to start camera manager" << endl;
-			return TestFail;
-		}
-
-		camera_ = cm_->get("VIMC Sensor B");
-		if (!camera_) {
-			cout << "Can not find VIMC camera" << endl;
-			return TestSkip;
-		}
-
-		return TestPass;
 	}
 
-	int run()
+protected:
+	int init() override
 	{
-		ControlList list(camera_.get());
+		return status_;
+	}
+
+	int run() override
+	{
+		CameraControlValidator validator(camera_.get());
+		ControlList list(controls::controls, &validator);
 
 		/* Test that the list is initially empty. */
 		if (!list.empty()) {
@@ -52,7 +50,7 @@ protected:
 			return TestFail;
 		}
 
-		if (list.contains(Brightness)) {
+		if (list.contains(controls::Brightness)) {
 			cout << "List should not contain Brightness control" << endl;
 			return TestFail;
 		}
@@ -70,7 +68,7 @@ protected:
 		 * Set a control, and verify that the list now contains it, and
 		 * nothing else.
 		 */
-		list[Brightness] = 255;
+		list.set(controls::Brightness, 255);
 
 		if (list.empty()) {
 			cout << "List should not be empty" << endl;
@@ -82,7 +80,7 @@ protected:
 			return TestFail;
 		}
 
-		if (!list.contains(Brightness)) {
+		if (!list.contains(controls::Brightness)) {
 			cout << "List should contain Brightness control" << endl;
 			return TestFail;
 		}
@@ -96,118 +94,63 @@ protected:
 			return TestFail;
 		}
 
-		if (list[Brightness].getInt() != 255) {
+		if (list.get(controls::Brightness) != 255) {
 			cout << "Incorrest Brightness control value" << endl;
 			return TestFail;
 		}
 
-		if (list.contains(Contrast)) {
+		if (list.contains(controls::Contrast)) {
 			cout << "List should not contain Contract control" << endl;
 			return TestFail;
 		}
 
-		/*
-		 * Set a second control through ControlInfo and retrieve it
-		 * through both controlId and ControlInfo.
-		 */
-		const ControlInfoMap &controls = camera_->controls();
-		const ControlInfo *brightness = &controls.find(Brightness)->second;
-		const ControlInfo *contrast = &controls.find(Contrast)->second;
+		/* Update the first control and set a second one. */
+		list.set(controls::Brightness, 64);
+		list.set(controls::Contrast, 128);
 
-		list[brightness] = 64;
-		list[contrast] = 128;
-
-		if (!list.contains(Contrast) || !list.contains(contrast)) {
+		if (!list.contains(controls::Contrast) ||
+		    !list.contains(controls::Contrast)) {
 			cout << "List should contain Contrast control" << endl;
 			return TestFail;
 		}
 
-		/*
-		 * Test control value retrieval and update through ControlInfo.
-		 */
-		if (list[brightness].getInt() != 64 ||
-		    list[contrast].getInt() != 128) {
+		if (list.get(controls::Brightness) != 64 ||
+		    list.get(controls::Contrast) != 128) {
 			cout << "Failed to retrieve control value" << endl;
 			return TestFail;
 		}
 
-		list[brightness] = 10;
-		list[contrast] = 20;
+		/*
+		 * Update both controls and verify that the container doesn't
+		 * grow.
+		 */
+		list.set(controls::Brightness, 10);
+		list.set(controls::Contrast, 20);
 
-		if (list[brightness].getInt() != 10 ||
-		    list[contrast].getInt() != 20) {
+		if (list.get(controls::Brightness) != 10 ||
+		    list.get(controls::Contrast) != 20) {
 			cout << "Failed to update control value" << endl;
 			return TestFail;
 		}
 
-		/*
-		 * Assert that the container has not grown with the control
-		 * updated.
-		 */
 		if (list.size() != 2) {
 			cout << "List should contain two elements" << endl;
 			return TestFail;
 		}
 
 		/*
-		 * Test list merging. Create a new list, add two controls with
-		 * one overlapping the existing list, merge the lists and clear
-		 * the old list. Verify that the new list is empty and that the
-		 * new list contains the expected items and values.
+		 * Attempt to set an invalid control and verify that the
+		 * operation failed.
 		 */
-		ControlList newList(camera_.get());
+		list.set(controls::AwbEnable, true);
 
-		newList[Brightness] = 128;
-		newList[Saturation] = 255;
-		newList.update(list);
-
-		list.clear();
-
-		if (list.size() != 0) {
-			cout << "Old List should contain zero items" << endl;
-			return TestFail;
-		}
-
-		if (!list.empty()) {
-			cout << "Old List should be empty" << endl;
-			return TestFail;
-		}
-
-		if (newList.size() != 3) {
-			cout << "New list has incorrect size" << endl;
-			return TestFail;
-		}
-
-		if (!newList.contains(Brightness) ||
-		    !newList.contains(Contrast) ||
-		    !newList.contains(Saturation)) {
-			cout << "New list contains incorrect items" << endl;
-			return TestFail;
-		}
-
-		if (newList[Brightness].getInt() != 10 ||
-		    newList[Contrast].getInt() != 20 ||
-		    newList[Saturation].getInt() != 255) {
-			cout << "New list contains incorrect values" << endl;
+		if (list.contains(controls::AwbEnable)) {
+			cout << "List shouldn't contain AwbEnable control" << endl;
 			return TestFail;
 		}
 
 		return TestPass;
 	}
-
-	void cleanup()
-	{
-		if (camera_) {
-			camera_->release();
-			camera_.reset();
-		}
-
-		cm_->stop();
-	}
-
-private:
-	CameraManager *cm_;
-	std::shared_ptr<Camera> camera_;
 };
 
 TEST_REGISTER(ControlListTest)

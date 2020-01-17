@@ -12,20 +12,21 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <sys/sysmacros.h>
 #include <vector>
 
+#include <ipa/ipa_interface.h>
 #include <libcamera/controls.h>
 #include <libcamera/stream.h>
 
 namespace libcamera {
 
-class Buffer;
-class BufferPool;
 class Camera;
 class CameraConfiguration;
 class CameraManager;
 class DeviceEnumerator;
 class DeviceMatch;
+class FrameBuffer;
 class MediaDevice;
 class PipelineHandler;
 class Request;
@@ -43,6 +44,7 @@ public:
 	PipelineHandler *pipe_;
 	std::list<Request *> queuedRequests_;
 	ControlInfoMap controlInfo_;
+	std::unique_ptr<IPAInterface> ipa_;
 
 private:
 	CameraData(const CameraData &) = delete;
@@ -68,25 +70,28 @@ public:
 		const StreamRoles &roles) = 0;
 	virtual int configure(Camera *camera, CameraConfiguration *config) = 0;
 
-	virtual int allocateBuffers(Camera *camera,
-				    const std::set<Stream *> &streams) = 0;
-	virtual int freeBuffers(Camera *camera,
-				const std::set<Stream *> &streams) = 0;
+	virtual int exportFrameBuffers(Camera *camera, Stream *stream,
+				       std::vector<std::unique_ptr<FrameBuffer>> *buffers) = 0;
+	virtual int importFrameBuffers(Camera *camera, Stream *stream) = 0;
+	virtual void freeFrameBuffers(Camera *camera, Stream *stream) = 0;
 
 	virtual int start(Camera *camera) = 0;
 	virtual void stop(Camera *camera) = 0;
 
-	virtual int queueRequest(Camera *camera, Request *request);
+	int queueRequest(Camera *camera, Request *request);
 
-	bool completeBuffer(Camera *camera, Request *request, Buffer *buffer);
+	bool completeBuffer(Camera *camera, Request *request,
+			    FrameBuffer *buffer);
 	void completeRequest(Camera *camera, Request *request);
 
 	const char *name() const { return name_; }
 
 protected:
 	void registerCamera(std::shared_ptr<Camera> camera,
-			    std::unique_ptr<CameraData> data);
+			    std::unique_ptr<CameraData> data, dev_t devnum = 0);
 	void hotplugMediaDevice(MediaDevice *media);
+
+	virtual int queueRequestDevice(Camera *camera, Request *request) = 0;
 
 	CameraData *cameraData(const Camera *camera);
 
@@ -109,7 +114,7 @@ class PipelineHandlerFactory
 {
 public:
 	PipelineHandlerFactory(const char *name);
-	virtual ~PipelineHandlerFactory() { };
+	virtual ~PipelineHandlerFactory() {}
 
 	std::shared_ptr<PipelineHandler> create(CameraManager *manager);
 

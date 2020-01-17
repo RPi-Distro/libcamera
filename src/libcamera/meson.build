@@ -1,16 +1,25 @@
 libcamera_sources = files([
+    'bound_method.cpp',
     'buffer.cpp',
+    'byte_stream_buffer.cpp',
     'camera.cpp',
+    'camera_controls.cpp',
     'camera_manager.cpp',
     'camera_sensor.cpp',
     'controls.cpp',
+    'control_serializer.cpp',
+    'control_validator.cpp',
     'device_enumerator.cpp',
     'device_enumerator_sysfs.cpp',
     'event_dispatcher.cpp',
     'event_dispatcher_poll.cpp',
     'event_notifier.cpp',
+    'file_descriptor.cpp',
     'formats.cpp',
+    'framebuffer_allocator.cpp',
     'geometry.cpp',
+    'ipa_context_wrapper.cpp',
+    'ipa_controls.cpp',
     'ipa_interface.cpp',
     'ipa_manager.cpp',
     'ipa_module.cpp',
@@ -22,8 +31,10 @@ libcamera_sources = files([
     'message.cpp',
     'object.cpp',
     'pipeline_handler.cpp',
+    'pixelformats.cpp',
     'process.cpp',
     'request.cpp',
+    'semaphore.cpp',
     'signal.cpp',
     'stream.cpp',
     'thread.cpp',
@@ -35,29 +46,7 @@ libcamera_sources = files([
     'v4l2_videodevice.cpp',
 ])
 
-libcamera_headers = files([
-    'include/camera_sensor.h',
-    'include/device_enumerator.h',
-    'include/device_enumerator_sysfs.h',
-    'include/device_enumerator_udev.h',
-    'include/event_dispatcher_poll.h',
-    'include/formats.h',
-    'include/ipa_manager.h',
-    'include/ipa_module.h',
-    'include/ipa_proxy.h',
-    'include/ipc_unixsocket.h',
-    'include/log.h',
-    'include/media_device.h',
-    'include/media_object.h',
-    'include/message.h',
-    'include/pipeline_handler.h',
-    'include/process.h',
-    'include/thread.h',
-    'include/utils.h',
-    'include/v4l2_device.h',
-    'include/v4l2_subdevice.h',
-    'include/v4l2_videodevice.h',
-])
+subdir('include')
 
 libcamera_internal_includes =  include_directories('include')
 
@@ -78,15 +67,16 @@ if libudev.found()
     ])
 endif
 
-gen_controls = files('gen-controls.awk')
+gen_controls = files('gen-controls.py')
 
-control_types_cpp = custom_target('control_types_cpp',
-                                  input : files('controls.cpp'),
-                                  output : 'control_types.cpp',
-                                  depend_files : gen_controls,
-                                  command : [gen_controls, '@INPUT@', '--code', '@OUTPUT@'])
+control_ids_cpp = custom_target('control_ids_cpp',
+                                input : files('control_ids.yaml', 'control_ids.cpp.in'),
+                                output : 'control_ids.cpp',
+                                depend_files : gen_controls,
+                                command : [gen_controls, '-o', '@OUTPUT@', '@INPUT@'])
 
-libcamera_sources += control_types_cpp
+libcamera_sources += control_ids_cpp
+libcamera_sources += control_ids_h
 
 gen_version = join_paths(meson.source_root(), 'utils', 'gen-version.sh')
 
@@ -98,18 +88,28 @@ version_cpp = vcs_tag(command : [gen_version, meson.build_root()],
 libcamera_sources += version_cpp
 
 libcamera_deps = [
+    cc.find_library('atomic', required: false),
     cc.find_library('dl'),
     libudev,
     dependency('threads'),
 ]
 
+libcamera_link_with = []
+
+if get_option('android')
+    libcamera_sources += android_hal_sources
+    includes += android_includes
+    libcamera_link_with += android_camera_metadata
+endif
+
 libcamera = shared_library('camera',
                            libcamera_sources,
                            install : true,
+                           link_with : libcamera_link_with,
                            include_directories : includes,
                            dependencies : libcamera_deps)
 
-libcamera_dep = declare_dependency(sources : [libcamera_api, libcamera_h],
+libcamera_dep = declare_dependency(sources : [libcamera_api, libcamera_ipa_api, libcamera_h],
                                    include_directories : libcamera_includes,
                                    link_with : libcamera)
 

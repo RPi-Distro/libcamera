@@ -7,16 +7,24 @@
 #ifndef __LIBCAMERA_DEVICE_ENUMERATOR_UDEV_H__
 #define __LIBCAMERA_DEVICE_ENUMERATOR_UDEV_H__
 
+#include <list>
+#include <map>
+#include <memory>
+#include <set>
 #include <string>
+#include <sys/types.h>
 
 #include "device_enumerator.h"
 
 struct udev;
+struct udev_device;
 struct udev_monitor;
 
 namespace libcamera {
 
 class EventNotifier;
+class MediaDevice;
+class MediaEntity;
 
 class DeviceEnumeratorUdev : public DeviceEnumerator
 {
@@ -32,8 +40,33 @@ private:
 	struct udev_monitor *monitor_;
 	EventNotifier *notifier_;
 
-	std::string lookupDeviceNode(int major, int minor) final;
+	using DependencyMap = std::map<dev_t, std::list<MediaEntity *>>;
 
+	struct MediaDeviceDeps {
+		MediaDeviceDeps(const std::shared_ptr<MediaDevice> &media,
+				const DependencyMap &deps)
+			: media_(media), deps_(deps)
+		{
+		}
+
+		bool operator==(const MediaDeviceDeps &other) const
+		{
+			return media_ == other.media_;
+		}
+
+		std::shared_ptr<MediaDevice> media_;
+		DependencyMap deps_;
+	};
+
+	std::set<dev_t> orphans_;
+	std::list<MediaDeviceDeps> pending_;
+	std::map<dev_t, MediaDeviceDeps *> devMap_;
+
+	int addUdevDevice(struct udev_device *dev);
+	int populateMediaDevice(const std::shared_ptr<MediaDevice> &media);
+	std::string lookupDeviceNode(dev_t devnum);
+
+	int addV4L2Device(dev_t devnum);
 	void udevNotify(EventNotifier *notifier);
 };
 

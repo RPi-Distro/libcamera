@@ -18,17 +18,36 @@
 #include "v4l2_videodevice.h"
 
 #include "camera_test.h"
+#include "test.h"
 
 using namespace libcamera;
 
-/* Keep SINK_BUFFER_COUNT > CAMERA_BUFFER_COUNT + 1 */
-static constexpr unsigned int SINK_BUFFER_COUNT = 8;
-static constexpr unsigned int CAMERA_BUFFER_COUNT = 4;
+namespace {
 
-class FrameSink
+/* A provider of external buffers, suitable for import by a Camera. */
+class BufferSource
 {
 public:
-	int init()
+	BufferSource()
+		: video_(nullptr)
+	{
+	}
+
+	~BufferSource()
+	{
+		if (video_) {
+			video_->releaseBuffers();
+			video_->close();
+		}
+
+		delete video_;
+		video_ = nullptr;
+
+		if (media_)
+			media_->release();
+	}
+
+	int allocate(const StreamConfiguration &config)
 	{
 		int ret;
 
@@ -66,360 +85,169 @@ public:
 			return TestFail;
 
 		/* Configure the format. */
-		ret = video_->getFormat(&format_);
+		V4L2DeviceFormat format;
+		ret = video_->getFormat(&format);
 		if (ret) {
 			std::cout << "Failed to get format on output device" << std::endl;
 			return ret;
 		}
 
-		format_.size.width = 640;
-		format_.size.height = 480;
-		format_.fourcc = V4L2_PIX_FMT_RGB24;
-		format_.planesCount = 1;
-		format_.planes[0].size = 640 * 480 * 3;
-		format_.planes[0].bpl = 640 * 3;
+		format.size = config.size;
+		format.fourcc = V4L2VideoDevice::toV4L2Fourcc(config.pixelFormat, false);
+		if (video_->setFormat(&format))
+			return TestFail;
 
-		if (video_->setFormat(&format_)) {
-			cleanup();
+		return video_->exportBuffers(config.bufferCount, &buffers_);
+	}
+
+	const std::vector<std::unique_ptr<FrameBuffer>> &buffers()
+	{
+		return buffers_;
+	}
+
+private:
+	std::shared_ptr<MediaDevice> media_;
+	V4L2VideoDevice *video_;
+	std::vector<std::unique_ptr<FrameBuffer>> buffers_;
+};
+
+class BufferImportTest : public CameraTest, public Test
+{
+public:
+	BufferImportTest()
+		: CameraTest("VIMC Sensor B")
+	{
+	}
+
+protected:
+	void bufferComplete(Request *request, FrameBuffer *buffer)
+	{
+		if (buffer->metadata().status != FrameMetadata::FrameSuccess)
+			return;
+
+		completeBuffersCount_++;
+	}
+
+	void requestComplete(Request *request)
+	{
+		if (request->status() != Request::RequestComplete)
+			return;
+
+		const std::map<Stream *, FrameBuffer *> &buffers = request->buffers();
+
+		completeRequestsCount_++;
+
+		/* Create a new request. */
+		Stream *stream = buffers.begin()->first;
+		FrameBuffer *buffer = buffers.begin()->second;
+
+		request = camera_->createRequest();
+		request->addBuffer(stream, buffer);
+		camera_->queueRequest(request);
+	}
+
+	int init() override
+	{
+		if (status_ != TestPass)
+			return status_;
+
+		config_ = camera_->generateConfiguration({ StreamRole::VideoRecording });
+		if (!config_ || config_->size() != 1) {
+			std::cout << "Failed to generate default configuration" << std::endl;
 			return TestFail;
 		}
-
-		/* Export the buffers to a pool. */
-		pool_.createBuffers(SINK_BUFFER_COUNT);
-		ret = video_->exportBuffers(&pool_);
-		if (ret) {
-			std::cout << "Failed to export buffers" << std::endl;
-			cleanup();
-			return TestFail;
-		}
-
-		/* Only use the first CAMERA_BUFFER_COUNT buffers to start with. */
-		availableBuffers_.resize(CAMERA_BUFFER_COUNT);
-		std::iota(availableBuffers_.begin(), availableBuffers_.end(), 0);
-
-		/* Connect the buffer ready signal. */
-		video_->bufferReady.connect(this, &FrameSink::bufferComplete);
 
 		return TestPass;
 	}
 
-	void cleanup()
+	int run() override
 	{
-		if (video_) {
-			video_->streamOff();
-			video_->releaseBuffers();
-			video_->close();
-			delete video_;
-		}
+		StreamConfiguration &cfg = config_->at(0);
 
-		if (media_)
-			media_->release();
-	}
-
-	int start()
-	{
-		requestsCount_ = 0;
-		done_ = false;
-
-		int ret = video_->streamOn();
-		if (ret < 0)
-			return ret;
-
-		/* Queue all the initial requests. */
-		for (unsigned int index = 0; index < CAMERA_BUFFER_COUNT; ++index)
-			queueRequest(index);
-
-		return 0;
-	}
-
-	int stop()
-	{
-		return video_->streamOff();
-	}
-
-	void requestComplete(uint64_t cookie, const Buffer *metadata)
-	{
-		unsigned int index = cookie;
-
-		Buffer *buffer = new Buffer(index, metadata);
-		int ret = video_->queueBuffer(buffer);
-		if (ret < 0)
-			std::cout << "Failed to queue buffer to sink" << std::endl;
-	}
-
-	bool done() const { return done_; }
-	const V4L2DeviceFormat &format() const { return format_; }
-
-	Signal<uint64_t, int> requestReady;
-
-private:
-	void queueRequest(unsigned int index)
-	{
-		auto it = std::find(availableBuffers_.begin(),
-				    availableBuffers_.end(), index);
-		availableBuffers_.erase(it);
-
-		uint64_t cookie = index;
-		BufferMemory &mem = pool_.buffers()[index];
-		int dmabuf = mem.planes()[0].dmabuf();
-
-		requestReady.emit(cookie, dmabuf);
-
-		requestsCount_++;
-	}
-
-	void bufferComplete(Buffer *buffer)
-	{
-		availableBuffers_.push_back(buffer->index());
-
-		/*
-		 * Pick the buffer for the next request among the available
-		 * buffers.
-		 *
-		 * For the first 20 frames, select the buffer that has just
-		 * completed to keep the mapping of dmabuf fds to buffers
-		 * unchanged in the camera.
-		 *
-		 * For the next 20 frames, cycle randomly over the available
-		 * buffers. The mapping should still be kept unchanged, as the
-		 * camera should map using the cached fds.
-		 *
-		 * For the last 20 frames, cycles through all buffers, which
-		 * should trash the mappings.
-		 */
-		unsigned int index = buffer->index();
-		delete buffer;
-
-		std::cout << "Completed buffer, request=" << requestsCount_
-			  << ", available buffers=" << availableBuffers_.size()
-			  << std::endl;
-
-		if (requestsCount_ >= 60) {
-			if (availableBuffers_.size() == SINK_BUFFER_COUNT)
-				done_ = true;
-			return;
-		}
-
-		if (requestsCount_ == 40) {
-			/* Add the remaining of the buffers. */
-			for (unsigned int i = CAMERA_BUFFER_COUNT;
-			     i < SINK_BUFFER_COUNT; ++i)
-				availableBuffers_.push_back(i);
-		}
-
-		if (requestsCount_ >= 20) {
-			/*
-			 * Wait until we have enough buffers to make this
-			 * meaningful. Preferably half of the camera buffers,
-			 * but no less than 2 in any case.
-			 */
-			const unsigned int min_pool_size =
-				std::min(CAMERA_BUFFER_COUNT / 2, 2U);
-			if (availableBuffers_.size() < min_pool_size)
-				return;
-
-			/* Pick a buffer at random. */
-			unsigned int pos = random_() % availableBuffers_.size();
-			index = availableBuffers_[pos];
-		}
-
-		queueRequest(index);
-	}
-
-	std::shared_ptr<MediaDevice> media_;
-	V4L2VideoDevice *video_;
-	BufferPool pool_;
-	V4L2DeviceFormat format_;
-
-	unsigned int requestsCount_;
-	std::vector<int> availableBuffers_;
-	std::random_device random_;
-
-	bool done_;
-};
-
-class BufferImportTest : public CameraTest
-{
-public:
-	BufferImportTest()
-		: CameraTest()
-	{
-	}
-
-	void queueRequest(uint64_t cookie, int dmabuf)
-	{
-		Request *request = camera_->createRequest(cookie);
-
-		std::unique_ptr<Buffer> buffer = stream_->createBuffer({ dmabuf, -1, -1 });
-		request->addBuffer(move(buffer));
-		camera_->queueRequest(request);
-	}
-
-protected:
-	void bufferComplete(Request *request, Buffer *buffer)
-	{
-		if (buffer->status() != Buffer::BufferSuccess)
-			return;
-
-		unsigned int index = buffer->index();
-		int dmabuf = buffer->dmabufs()[0];
-
-		/* Record dmabuf to index remappings. */
-		bool remapped = false;
-		if (bufferMappings_.find(index) != bufferMappings_.end()) {
-			if (bufferMappings_[index] != dmabuf)
-				remapped = true;
-		}
-
-		std::cout << "Completed request " << framesCaptured_
-			  << ": dmabuf fd " << dmabuf
-			  << " -> index " << index
-			  << " (" << (remapped ? 'R' : '-') << ")"
-			  << std::endl;
-
-		if (remapped)
-			bufferRemappings_.push_back(framesCaptured_);
-
-		bufferMappings_[index] = dmabuf;
-		framesCaptured_++;
-
-		sink_.requestComplete(request->cookie(), buffer);
-
-		if (framesCaptured_ == 60)
-			sink_.stop();
-	}
-
-	int initCamera()
-	{
 		if (camera_->acquire()) {
 			std::cout << "Failed to acquire the camera" << std::endl;
 			return TestFail;
 		}
 
-		/*
-		 * Configure the Stream to work with externally allocated
-		 * buffers by setting the memoryType to ExternalMemory.
-		 */
-		std::unique_ptr<CameraConfiguration> config;
-		config = camera_->generateConfiguration({ StreamRole::VideoRecording });
-		if (!config || config->size() != 1) {
-			std::cout << "Failed to generate configuration" << std::endl;
+		if (camera_->configure(config_.get())) {
+			std::cout << "Failed to set default configuration" << std::endl;
 			return TestFail;
 		}
 
-		const V4L2DeviceFormat &format = sink_.format();
+		Stream *stream = cfg.stream();
 
-		StreamConfiguration &cfg = config->at(0);
-		cfg.size = format.size;
-		cfg.pixelFormat = format.fourcc;
-		cfg.bufferCount = CAMERA_BUFFER_COUNT;
-		cfg.memoryType = ExternalMemory;
-
-		if (camera_->configure(config.get())) {
-			std::cout << "Failed to set configuration" << std::endl;
+		BufferSource source;
+		int ret = source.allocate(cfg);
+		if (ret < 0)
 			return TestFail;
+
+		std::vector<Request *> requests;
+		for (const std::unique_ptr<FrameBuffer> &buffer : source.buffers()) {
+			Request *request = camera_->createRequest();
+			if (!request) {
+				std::cout << "Failed to create request" << std::endl;
+				return TestFail;
+			}
+
+			if (request->addBuffer(stream, buffer.get())) {
+				std::cout << "Failed to associating buffer with request" << std::endl;
+				return TestFail;
+			}
+
+			requests.push_back(request);
 		}
 
-		stream_ = cfg.stream();
+		completeRequestsCount_ = 0;
+		completeBuffersCount_ = 0;
 
-		/* Allocate buffers. */
-		if (camera_->allocateBuffers()) {
-			std::cout << "Failed to allocate buffers" << std::endl;
-			return TestFail;
-		}
-
-		/* Connect the buffer completed signal. */
 		camera_->bufferCompleted.connect(this, &BufferImportTest::bufferComplete);
-
-		return TestPass;
-	}
-
-	int init()
-	{
-		int ret = CameraTest::init();
-		if (ret)
-			return ret;
-
-		ret = sink_.init();
-		if (ret != TestPass) {
-			cleanup();
-			return ret;
-		}
-
-		ret = initCamera();
-		if (ret != TestPass) {
-			cleanup();
-			return ret;
-		}
-
-		sink_.requestReady.connect(this, &BufferImportTest::queueRequest);
-		return TestPass;
-	}
-
-	int run()
-	{
-		int ret;
-
-		framesCaptured_ = 0;
+		camera_->requestCompleted.connect(this, &BufferImportTest::requestComplete);
 
 		if (camera_->start()) {
 			std::cout << "Failed to start camera" << std::endl;
 			return TestFail;
 		}
 
-		ret = sink_.start();
-		if (ret < 0) {
-			std::cout << "Failed to start sink" << std::endl;
-			return TestFail;
+		for (Request *request : requests) {
+			if (camera_->queueRequest(request)) {
+				std::cout << "Failed to queue request" << std::endl;
+				return TestFail;
+			}
 		}
 
-		EventDispatcher *dispatcher = CameraManager::instance()->eventDispatcher();
+		EventDispatcher *dispatcher = cm_->eventDispatcher();
 
 		Timer timer;
-		timer.start(3000);
-		while (timer.isRunning() && !sink_.done())
+		timer.start(1000);
+		while (timer.isRunning())
 			dispatcher->processEvents();
 
-		std::cout << framesCaptured_ << " frames captured, "
-			  << bufferRemappings_.size() << " buffers remapped"
-			  << std::endl;
-
-		if (framesCaptured_ < 60) {
-			std::cout << "Too few frames captured" << std::endl;
+		if (completeRequestsCount_ <= cfg.bufferCount * 2) {
+			std::cout << "Failed to capture enough frames (got "
+				  << completeRequestsCount_ << " expected at least "
+				  << cfg.bufferCount * 2 << ")" << std::endl;
 			return TestFail;
 		}
 
-		if (bufferRemappings_.empty()) {
-			std::cout << "No buffer remappings" << std::endl;
+		if (completeRequestsCount_ != completeBuffersCount_) {
+			std::cout << "Number of completed buffers and requests differ" << std::endl;
 			return TestFail;
 		}
 
-		if (bufferRemappings_[0] < 40) {
-			std::cout << "Early buffer remapping" << std::endl;
+		if (camera_->stop()) {
+			std::cout << "Failed to stop camera" << std::endl;
 			return TestFail;
 		}
 
 		return TestPass;
 	}
 
-	void cleanup()
-	{
-		sink_.cleanup();
-
-		camera_->stop();
-		camera_->freeBuffers();
-
-		CameraTest::cleanup();
-	}
-
 private:
-	Stream *stream_;
-
-	std::map<unsigned int, int> bufferMappings_;
-	std::vector<unsigned int> bufferRemappings_;
-	unsigned int framesCaptured_;
-
-	FrameSink sink_;
+	unsigned int completeBuffersCount_;
+	unsigned int completeRequestsCount_;
+	std::unique_ptr<CameraConfiguration> config_;
 };
+
+} /* namespace */
 
 TEST_REGISTER(BufferImportTest);

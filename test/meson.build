@@ -8,24 +8,32 @@ subdir('log')
 subdir('media_device')
 subdir('pipeline')
 subdir('process')
+subdir('serialization')
 subdir('stream')
 subdir('v4l2_subdevice')
 subdir('v4l2_videodevice')
 
 public_tests = [
-    ['event',                           'event.cpp'],
-    ['event-dispatcher',                'event-dispatcher.cpp'],
     ['geometry',                        'geometry.cpp'],
     ['list-cameras',                    'list-cameras.cpp'],
     ['signal',                          'signal.cpp'],
-    ['timer',                           'timer.cpp'],
 ]
 
 internal_tests = [
+    ['byte-stream-buffer',              'byte-stream-buffer.cpp'],
     ['camera-sensor',                   'camera-sensor.cpp'],
+    ['event',                           'event.cpp'],
+    ['event-dispatcher',                'event-dispatcher.cpp'],
+    ['event-thread',                    'event-thread.cpp'],
+    ['file-descriptor',                 'file-descriptor.cpp'],
     ['message',                         'message.cpp'],
+    ['object',                          'object.cpp'],
+    ['object-invoke',                   'object-invoke.cpp'],
     ['signal-threads',                  'signal-threads.cpp'],
     ['threads',                         'threads.cpp'],
+    ['timer',                           'timer.cpp'],
+    ['timer-thread',                    'timer-thread.cpp'],
+    ['utils',                           'utils.cpp'],
 ]
 
 foreach t : public_tests

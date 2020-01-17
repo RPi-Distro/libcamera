@@ -11,8 +11,10 @@
 
 #include <libcamera/buffer.h>
 #include <libcamera/camera.h>
+#include <libcamera/control_ids.h>
 #include <libcamera/stream.h>
 
+#include "camera_controls.h"
 #include "log.h"
 
 /**
@@ -55,17 +57,27 @@ LOG_DEFINE_CATEGORY(Request)
  *
  */
 Request::Request(Camera *camera, uint64_t cookie)
-	: camera_(camera), controls_(camera), cookie_(cookie),
-	  status_(RequestPending), cancelled_(false)
+	: camera_(camera), cookie_(cookie), status_(RequestPending),
+	  cancelled_(false)
 {
+	/**
+	 * \todo Should the Camera expose a validator instance, to avoid
+	 * creating a new instance for each request?
+	 */
+	validator_ = new CameraControlValidator(camera);
+	controls_ = new ControlList(controls::controls, validator_);
+
+	/**
+	 * \todo: Add a validator for metadata controls.
+	 */
+	metadata_ = new ControlList(controls::controls);
 }
 
 Request::~Request()
 {
-	for (auto it : bufferMap_) {
-		Buffer *buffer = it.second;
-		delete buffer;
-	}
+	delete metadata_;
+	delete controls_;
+	delete validator_;
 }
 
 /**
@@ -89,17 +101,19 @@ Request::~Request()
  * \brief Retrieve the request's streams to buffers map
  *
  * Return a reference to the map that associates each Stream part of the
- * request to the Buffer the Stream output should be directed to.
+ * request to the FrameBuffer the Stream output should be directed to.
  *
- * \return The map of Stream to Buffer
+ * \return The map of Stream to FrameBuffer
  */
 
 /**
- * \brief Store a Buffer with its associated Stream in the Request
- * \param[in] buffer The Buffer to store in the request
+ * \brief Add a FrameBuffer with its associated Stream to the Request
+ * \param[in] stream The stream the buffer belongs to
+ * \param[in] buffer The FrameBuffer to add to the request
  *
- * Ownership of the buffer is passed to the request. It will be deleted when
- * the request is destroyed after completing.
+ * A reference to the buffer is stored in the request. The caller is responsible
+ * for ensuring that the buffer will remain valid until the request complete
+ * callback is called.
  *
  * A request can only contain one buffer per stream. If a buffer has already
  * been added to the request for the same stream, this method returns -EEXIST.
@@ -108,9 +122,8 @@ Request::~Request()
  * \retval -EEXIST The request already contains a buffer for the stream
  * \retval -EINVAL The buffer does not reference a valid Stream
  */
-int Request::addBuffer(std::unique_ptr<Buffer> buffer)
+int Request::addBuffer(Stream *stream, FrameBuffer *buffer)
 {
-	Stream *stream = buffer->stream();
 	if (!stream) {
 		LOG(Request, Error) << "Invalid stream reference";
 		return -EINVAL;
@@ -118,11 +131,13 @@ int Request::addBuffer(std::unique_ptr<Buffer> buffer)
 
 	auto it = bufferMap_.find(stream);
 	if (it != bufferMap_.end()) {
-		LOG(Request, Error) << "Buffer already set for stream";
+		LOG(Request, Error) << "FrameBuffer already set for stream";
 		return -EEXIST;
 	}
 
-	bufferMap_[stream] = buffer.release();
+	buffer->request_ = this;
+	pending_.insert(buffer);
+	bufferMap_[stream] = buffer;
 
 	return 0;
 }
@@ -142,7 +157,7 @@ int Request::addBuffer(std::unique_ptr<Buffer> buffer)
  * \return The buffer associated with the stream, or nullptr if the stream is
  * not part of this request
  */
-Buffer *Request::findBuffer(Stream *stream) const
+FrameBuffer *Request::findBuffer(Stream *stream) const
 {
 	auto it = bufferMap_.find(stream);
 	if (it == bufferMap_.end())
@@ -150,6 +165,14 @@ Buffer *Request::findBuffer(Stream *stream) const
 
 	return it->second;
 }
+
+/**
+ * \fn Request::metadata()
+ * \brief Retrieve the request's metadata
+ * \todo Offer a read-only API towards applications while keeping a read/write
+ * API internally.
+ * \return The metadata associated with the request
+ */
 
 /**
  * \fn Request::cookie()
@@ -179,30 +202,6 @@ Buffer *Request::findBuffer(Stream *stream) const
  */
 
 /**
- * \brief Validate the request and prepare it for the completion handler
- *
- * Requests that contain no buffers are invalid and are rejected.
- *
- * \return 0 on success or a negative error code otherwise
- * \retval -EINVAL The request is invalid
- */
-int Request::prepare()
-{
-	if (bufferMap_.empty()) {
-		LOG(Request, Error) << "Invalid request due to missing buffers";
-		return -EINVAL;
-	}
-
-	for (auto const &pair : bufferMap_) {
-		Buffer *buffer = pair.second;
-		buffer->setRequest(this);
-		pending_.insert(buffer);
-	}
-
-	return 0;
-}
-
-/**
  * \brief Complete a queued request
  *
  * Mark the request as complete by updating its status to RequestComplete,
@@ -228,14 +227,14 @@ void Request::complete()
  * \return True if all buffers contained in the request have completed, false
  * otherwise
  */
-bool Request::completeBuffer(Buffer *buffer)
+bool Request::completeBuffer(FrameBuffer *buffer)
 {
 	int ret = pending_.erase(buffer);
 	ASSERT(ret == 1);
 
-	buffer->setRequest(nullptr);
+	buffer->request_ = nullptr;
 
-	if (buffer->status() == Buffer::BufferCancelled)
+	if (buffer->metadata().status == FrameMetadata::FrameCancelled)
 		cancelled_ = true;
 
 	return !hasPendingBuffers();

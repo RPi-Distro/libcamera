@@ -9,15 +9,14 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include <libcamera/camera_manager.h>
+#include <ipa/ipa_interface.h>
 #include <libcamera/event_dispatcher.h>
-#include <libcamera/ipa/ipa_interface.h>
 #include <libcamera/logging.h>
 
 #include "ipa_module.h"
 #include "ipc_unixsocket.h"
 #include "log.h"
-#include "utils.h"
+#include "thread.h"
 
 using namespace libcamera;
 
@@ -58,7 +57,7 @@ int main(int argc, char **argv)
 		<< "Starting worker for IPA module " << argv[1]
 		<< " with IPC fd = " << fd;
 
-	std::unique_ptr<IPAModule> ipam = utils::make_unique<IPAModule>(argv[1]);
+	std::unique_ptr<IPAModule> ipam = std::make_unique<IPAModule>(argv[1]);
 	if (!ipam->isValid() || !ipam->load()) {
 		LOG(IPAProxyLinuxWorker, Error)
 			<< "IPAModule " << argv[1] << " should be valid but isn't";
@@ -72,18 +71,20 @@ int main(int argc, char **argv)
 	}
 	socket.readyRead.connect(&readyRead);
 
-	std::unique_ptr<IPAInterface> ipa = ipam->createInstance();
-	if (!ipa) {
-		LOG(IPAProxyLinuxWorker, Error) << "Failed to create IPA interface";
+	struct ipa_context *ipac = ipam->createContext();
+	if (!ipac) {
+		LOG(IPAProxyLinuxWorker, Error) << "Failed to create IPA context";
 		return EXIT_FAILURE;
 	}
 
 	LOG(IPAProxyLinuxWorker, Debug) << "Proxy worker successfully started";
 
 	/* \todo upgrade listening loop */
-	EventDispatcher *dispatcher = CameraManager::instance()->eventDispatcher();
+	EventDispatcher *dispatcher = Thread::current()->eventDispatcher();
 	while (1)
 		dispatcher->processEvents();
+
+	ipac->ops->destroy(ipac);
 
 	return 0;
 }

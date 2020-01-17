@@ -9,10 +9,13 @@
 
 #include <atomic>
 
+#include <libcamera/bound_method.h>
+
 namespace libcamera {
 
+class BoundMethodBase;
 class Object;
-class SlotBase;
+class Semaphore;
 class Thread;
 
 class Message
@@ -20,7 +23,8 @@ class Message
 public:
 	enum Type {
 		None = 0,
-		SignalMessage = 1,
+		InvokeMessage = 1,
+		ThreadMoveMessage = 2,
 		UserMessage = 1000,
 	};
 
@@ -41,16 +45,24 @@ private:
 	static std::atomic_uint nextUserType_;
 };
 
-class SignalMessage : public Message
+class InvokeMessage : public Message
 {
 public:
-	SignalMessage(SlotBase *slot, void *pack)
-		: Message(Message::SignalMessage), slot_(slot), pack_(pack)
-	{
-	}
+	InvokeMessage(BoundMethodBase *method,
+		      std::shared_ptr<BoundMethodPackBase> pack,
+		      Semaphore *semaphore = nullptr,
+		      bool deleteMethod = false);
+	~InvokeMessage();
 
-	SlotBase *slot_;
-	void *pack_;
+	Semaphore *semaphore() const { return semaphore_; }
+
+	void invoke();
+
+private:
+	BoundMethodBase *method_;
+	std::shared_ptr<BoundMethodPackBase> pack_;
+	Semaphore *semaphore_;
+	bool deleteMethod_;
 };
 
 } /* namespace libcamera */

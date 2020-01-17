@@ -5,13 +5,14 @@
  * timer.cpp - Timer test
  */
 
+#include <chrono>
 #include <iostream>
 
-#include <libcamera/camera_manager.h>
 #include <libcamera/event_dispatcher.h>
 #include <libcamera/timer.h>
 
 #include "test.h"
+#include "thread.h"
 
 using namespace std;
 using namespace libcamera;
@@ -20,36 +21,50 @@ class ManagedTimer : public Timer
 {
 public:
 	ManagedTimer()
-		: Timer(), interval_(0)
+		: Timer(), count_(0)
 	{
 		timeout.connect(this, &ManagedTimer::timeoutHandler);
 	}
 
 	void start(int msec)
 	{
-		interval_ = msec;
-		clock_gettime(CLOCK_MONOTONIC, &start_);
-		expiration_ = { 0, 0 };
+		count_ = 0;
+		start_ = std::chrono::steady_clock::now();
+		expiration_ = std::chrono::steady_clock::time_point();
 
 		Timer::start(msec);
 	}
 
+	void start(std::chrono::steady_clock::time_point deadline)
+	{
+		count_ = 0;
+		start_ = std::chrono::steady_clock::now();
+		expiration_ = std::chrono::steady_clock::time_point();
+
+		Timer::start(deadline);
+	}
+
 	int jitter()
 	{
-		int duration = (expiration_.tv_sec - start_.tv_sec) * 1000;
-		duration += (expiration_.tv_nsec - start_.tv_nsec) / 1000000;
-		return abs(duration - interval_);
+		std::chrono::steady_clock::duration duration = expiration_ - deadline();
+		return abs(std::chrono::duration_cast<std::chrono::milliseconds>(duration).count());
+	}
+
+	bool hasFailed()
+	{
+		return isRunning() || count_ != 1 || jitter() > 50;
 	}
 
 private:
 	void timeoutHandler(Timer *timer)
 	{
-		clock_gettime(CLOCK_MONOTONIC, &expiration_);
+		expiration_ = std::chrono::steady_clock::now();
+		count_++;
 	}
 
-	int interval_;
-	struct timespec start_;
-	struct timespec expiration_;
+	unsigned int count_;
+	std::chrono::steady_clock::time_point start_;
+	std::chrono::steady_clock::time_point expiration_;
 };
 
 class TimerTest : public Test
@@ -62,7 +77,7 @@ protected:
 
 	int run()
 	{
-		EventDispatcher *dispatcher = CameraManager::instance()->eventDispatcher();
+		EventDispatcher *dispatcher = Thread::current()->eventDispatcher();
 		ManagedTimer timer;
 		ManagedTimer timer2;
 
@@ -76,7 +91,7 @@ protected:
 
 		dispatcher->processEvents();
 
-		if (timer.isRunning() || timer.jitter() > 50) {
+		if (timer.hasFailed()) {
 			cout << "Timer expiration test failed" << endl;
 			return TestFail;
 		}
@@ -89,7 +104,7 @@ protected:
 		timer.start(4295);
 		dispatcher->processEvents();
 
-		if (timer.isRunning() || timer.jitter() > 50) {
+		if (timer.hasFailed()) {
 			cout << "Timer expiration test failed" << endl;
 			return TestFail;
 		}
@@ -104,8 +119,30 @@ protected:
 
 		dispatcher->processEvents();
 
-		if (timer.isRunning() || timer.jitter() > 50) {
+		if (timer.hasFailed()) {
 			cout << "Timer restart test failed" << endl;
+			return TestFail;
+		}
+
+		/* Timer restart before expiration. */
+		timer.start(50);
+		timer.start(100);
+		timer.start(150);
+
+		dispatcher->processEvents();
+
+		if (timer.hasFailed()) {
+			cout << "Timer restart before expiration test failed" << endl;
+			return TestFail;
+		}
+
+		/* Timer with absolute deadline. */
+		timer.start(std::chrono::steady_clock::now() + std::chrono::milliseconds(200));
+
+		dispatcher->processEvents();
+
+		if (timer.hasFailed()) {
+			cout << "Absolute deadline test failed" << endl;
 			return TestFail;
 		}
 

@@ -7,7 +7,6 @@
 #ifndef __LIBCAMERA_CAMERA_H__
 #define __LIBCAMERA_CAMERA_H__
 
-#include <map>
 #include <memory>
 #include <set>
 #include <stdint.h>
@@ -20,7 +19,8 @@
 
 namespace libcamera {
 
-class Buffer;
+class FrameBuffer;
+class FrameBufferAllocator;
 class PipelineHandler;
 class Request;
 
@@ -78,8 +78,8 @@ public:
 
 	const std::string &name() const;
 
-	Signal<Request *, Buffer *> bufferCompleted;
-	Signal<Request *, const std::map<Stream *, Buffer *> &> requestCompleted;
+	Signal<Request *, FrameBuffer *> bufferCompleted;
+	Signal<Request *> requestCompleted;
 	Signal<Camera *> disconnected;
 
 	int acquire();
@@ -90,9 +90,6 @@ public:
 	const std::set<Stream *> &streams() const;
 	std::unique_ptr<CameraConfiguration> generateConfiguration(const StreamRoles &roles);
 	int configure(CameraConfiguration *config);
-
-	int allocateBuffers();
-	int freeBuffers();
 
 	Request *createRequest(uint64_t cookie = 0);
 	int queueRequest(Request *request);
@@ -105,7 +102,6 @@ private:
 		CameraAvailable,
 		CameraAcquired,
 		CameraConfigured,
-		CameraPrepared,
 		CameraRunning,
 	};
 
@@ -127,6 +123,10 @@ private:
 
 	bool disconnected_;
 	State state_;
+
+	/* Needed to update allocator_ and to read state_ and activeStreams_. */
+	friend class FrameBufferAllocator;
+	FrameBufferAllocator *allocator_;
 };
 
 } /* namespace libcamera */

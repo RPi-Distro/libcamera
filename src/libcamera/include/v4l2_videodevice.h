@@ -11,8 +11,11 @@
 #include <vector>
 
 #include <linux/videodev2.h>
+#include <memory>
 
+#include <libcamera/buffer.h>
 #include <libcamera/geometry.h>
+#include <libcamera/pixelformats.h>
 #include <libcamera/signal.h>
 
 #include "formats.h"
@@ -21,10 +24,8 @@
 
 namespace libcamera {
 
-class Buffer;
-class BufferMemory;
-class BufferPool;
 class EventNotifier;
+class FileDescriptor;
 class MediaDevice;
 class MediaEntity;
 
@@ -50,7 +51,8 @@ struct V4L2Capability final : v4l2_capability {
 	bool isMultiplanar() const
 	{
 		return device_caps() & (V4L2_CAP_VIDEO_CAPTURE_MPLANE |
-					V4L2_CAP_VIDEO_OUTPUT_MPLANE);
+					V4L2_CAP_VIDEO_OUTPUT_MPLANE |
+					V4L2_CAP_VIDEO_M2M_MPLANE);
 	}
 	bool isCapture() const
 	{
@@ -70,6 +72,11 @@ struct V4L2Capability final : v4l2_capability {
 					V4L2_CAP_VIDEO_CAPTURE_MPLANE |
 					V4L2_CAP_VIDEO_OUTPUT |
 					V4L2_CAP_VIDEO_OUTPUT_MPLANE);
+	}
+	bool isM2M() const
+	{
+		return device_caps() & (V4L2_CAP_VIDEO_M2M |
+					V4L2_CAP_VIDEO_M2M_MPLANE);
 	}
 	bool isMeta() const
 	{
@@ -98,6 +105,46 @@ struct V4L2Capability final : v4l2_capability {
 	}
 };
 
+class V4L2BufferCache
+{
+public:
+	V4L2BufferCache(unsigned int numEntries);
+	V4L2BufferCache(const std::vector<std::unique_ptr<FrameBuffer>> &buffers);
+	~V4L2BufferCache();
+
+	int get(const FrameBuffer &buffer);
+	void put(unsigned int index);
+
+private:
+	class Entry
+	{
+	public:
+		Entry();
+		Entry(bool free, const FrameBuffer &buffer);
+
+		bool operator==(const FrameBuffer &buffer);
+
+		bool free;
+
+	private:
+		struct Plane {
+			Plane(const FrameBuffer::Plane &plane)
+				: fd(plane.fd.fd()), length(plane.length)
+			{
+			}
+
+			int fd;
+			unsigned int length;
+		};
+
+		std::vector<Plane> planes_;
+	};
+
+	std::vector<Entry> cache_;
+	/* \todo Expose the miss counter through an instrumentation API. */
+	unsigned int missCounter_;
+};
+
 class V4L2DeviceFormat
 {
 public:
@@ -124,6 +171,7 @@ public:
 	V4L2VideoDevice &operator=(const V4L2VideoDevice &) = delete;
 
 	int open();
+	int open(int handle, enum v4l2_buf_type type);
 	void close();
 
 	const char *driverName() const { return caps_.driver(); }
@@ -134,19 +182,23 @@ public:
 	int setFormat(V4L2DeviceFormat *format);
 	ImageFormats formats();
 
-	int exportBuffers(BufferPool *pool);
-	int importBuffers(BufferPool *pool);
+	int exportBuffers(unsigned int count,
+			  std::vector<std::unique_ptr<FrameBuffer>> *buffers);
+	int importBuffers(unsigned int count);
 	int releaseBuffers();
 
-	int queueBuffer(Buffer *buffer);
-	std::vector<std::unique_ptr<Buffer>> queueAllBuffers();
-	Signal<Buffer *> bufferReady;
+	int queueBuffer(FrameBuffer *buffer);
+	Signal<FrameBuffer *> bufferReady;
 
 	int streamOn();
 	int streamOff();
 
 	static V4L2VideoDevice *fromEntityName(const MediaDevice *media,
 					       const std::string &entity);
+
+	static PixelFormat toPixelFormat(uint32_t v4l2Fourcc);
+	uint32_t toV4L2Fourcc(PixelFormat pixelFormat);
+	static uint32_t toV4L2Fourcc(PixelFormat pixelFormat, bool multiplanar);
 
 protected:
 	std::string logPrefix() const;
@@ -165,21 +217,40 @@ private:
 	std::vector<SizeRange> enumSizes(unsigned int pixelFormat);
 
 	int requestBuffers(unsigned int count);
-	int createPlane(BufferMemory *buffer, unsigned int index,
-			unsigned int plane, unsigned int length);
+	std::unique_ptr<FrameBuffer> createBuffer(const struct v4l2_buffer &buf);
+	FileDescriptor exportDmabufFd(unsigned int index, unsigned int plane);
 
-	Buffer *dequeueBuffer();
 	void bufferAvailable(EventNotifier *notifier);
+	FrameBuffer *dequeueBuffer();
 
 	V4L2Capability caps_;
 
 	enum v4l2_buf_type bufferType_;
 	enum v4l2_memory memoryType_;
 
-	BufferPool *bufferPool_;
-	std::map<unsigned int, Buffer *> queuedBuffers_;
+	V4L2BufferCache *cache_;
+	std::map<unsigned int, FrameBuffer *> queuedBuffers_;
 
 	EventNotifier *fdEvent_;
+};
+
+class V4L2M2MDevice
+{
+public:
+	V4L2M2MDevice(const std::string &deviceNode);
+	~V4L2M2MDevice();
+
+	int open();
+	void close();
+
+	V4L2VideoDevice *output() { return output_; }
+	V4L2VideoDevice *capture() { return capture_; }
+
+private:
+	std::string deviceNode_;
+
+	V4L2VideoDevice *output_;
+	V4L2VideoDevice *capture_;
 };
 
 } /* namespace libcamera */

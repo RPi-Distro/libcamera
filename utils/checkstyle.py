@@ -102,7 +102,7 @@ class DiffHunkSide(object):
 
 
 class DiffHunk(object):
-    diff_header_regex = re.compile('@@ -([0-9]+),([0-9]+) \+([0-9]+),([0-9]+) @@')
+    diff_header_regex = re.compile(r'@@ -([0-9]+),?([0-9]+)? \+([0-9]+),?([0-9]+)? @@')
 
     def __init__(self, line):
         match = DiffHunk.diff_header_regex.match(line)
@@ -238,6 +238,38 @@ class StyleIssue(object):
         self.line_number = line_number
         self.line = line
         self.msg = msg
+
+
+class IncludeChecker(StyleChecker):
+    patterns = ('*.cpp', '*.h')
+
+    headers = ('assert', 'ctype', 'errno', 'fenv', 'float', 'inttypes',
+               'limits', 'locale', 'math', 'setjmp', 'signal', 'stdarg',
+               'stddef', 'stdint', 'stdio', 'stdlib', 'string', 'time', 'uchar',
+               'wchar', 'wctype')
+    include_regex = re.compile('^#include <c([a-z]*)>')
+
+    def __init__(self, content):
+        super().__init__()
+        self.__content = content
+
+    def check(self, line_numbers):
+        issues = []
+
+        for line_number in line_numbers:
+            line = self.__content[line_number - 1]
+            match = IncludeChecker.include_regex.match(line)
+            if not match:
+                continue
+
+            header = match.group(1)
+            if header not in IncludeChecker.headers:
+                continue
+
+            issues.append(StyleIssue(line_number, line,
+                                     'C compatibility header <%s.h> is preferred' % header))
+
+        return issues
 
 
 class LogCategoryChecker(StyleChecker):

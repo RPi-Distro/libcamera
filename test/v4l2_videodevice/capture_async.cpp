@@ -5,13 +5,13 @@
  * libcamera V4L2 API tests
  */
 
+#include <iostream>
+
 #include <libcamera/buffer.h>
-#include <libcamera/camera_manager.h>
 #include <libcamera/event_dispatcher.h>
 #include <libcamera/timer.h>
 
-#include <iostream>
-
+#include "thread.h"
 #include "v4l2_videodevice_test.h"
 
 class CaptureAsyncTest : public V4L2VideoDeviceTest
@@ -20,9 +20,9 @@ public:
 	CaptureAsyncTest()
 		: V4L2VideoDeviceTest("vimc", "Raw Capture 0"), frames(0) {}
 
-	void receiveBuffer(Buffer *buffer)
+	void receiveBuffer(FrameBuffer *buffer)
 	{
-		std::cout << "Received buffer " << buffer->index() << std::endl;
+		std::cout << "Buffer received" << std::endl;
 		frames++;
 
 		/* Requeue the buffer for further use. */
@@ -34,22 +34,22 @@ protected:
 	{
 		const unsigned int bufferCount = 8;
 
-		EventDispatcher *dispatcher = CameraManager::instance()->eventDispatcher();
+		EventDispatcher *dispatcher = Thread::current()->eventDispatcher();
 		Timer timeout;
 		int ret;
 
-		pool_.createBuffers(bufferCount);
-
-		ret = capture_->exportBuffers(&pool_);
-		if (ret)
+		ret = capture_->exportBuffers(bufferCount, &buffers_);
+		if (ret < 0)
 			return TestFail;
 
 		capture_->bufferReady.connect(this, &CaptureAsyncTest::receiveBuffer);
 
-		std::vector<std::unique_ptr<Buffer>> buffers;
-		buffers = capture_->queueAllBuffers();
-		if (buffers.empty())
-			return TestFail;
+		for (const std::unique_ptr<FrameBuffer> &buffer : buffers_) {
+			if (capture_->queueBuffer(buffer.get())) {
+				std::cout << "Failed to queue buffer" << std::endl;
+				return TestFail;
+			}
+		}
 
 		ret = capture_->streamOn();
 		if (ret)

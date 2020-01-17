@@ -7,12 +7,15 @@
 
 #include <libcamera/timer.h>
 
-#include <time.h>
+#include <chrono>
 
 #include <libcamera/camera_manager.h>
 #include <libcamera/event_dispatcher.h>
 
 #include "log.h"
+#include "message.h"
+#include "thread.h"
+#include "utils.h"
 
 /**
  * \file timer.h
@@ -33,13 +36,24 @@ LOG_DEFINE_CATEGORY(Timer)
  * Once started the timer will run until it times out. It can be stopped with
  * stop(), and once it times out or is stopped, can be started again with
  * start().
+ *
+ * The timer deadline is specified as either a duration in milliseconds or an
+ * absolute time point. If the deadline is set to the current time or to the
+ * past, the timer will time out immediately when execution returns to the
+ * event loop of the timer's thread.
+ *
+ * Timers run in the thread they belong to, and thus emit the \a ref timeout
+ * signal from that thread. To avoid race conditions they must not be started
+ * or stopped from a different thread, attempts to do so will be rejected and
+ * logged, and may cause undefined behaviour.
  */
 
 /**
  * \brief Construct a timer
+ * \param[in] parent The parent Object
  */
-Timer::Timer()
-	: interval_(0), deadline_(0)
+Timer::Timer(Object *parent)
+	: Object(parent), running_(false)
 {
 }
 
@@ -49,24 +63,50 @@ Timer::~Timer()
 }
 
 /**
+ * \fn Timer::start(unsigned int msec)
  * \brief Start or restart the timer with a timeout of \a msec
  * \param[in] msec The timer duration in milliseconds
  *
- * If the timer is already running it will be stopped and restarted.
+ * This method shall be called from the thread the timer is associated with. If
+ * the timer is already running it will be stopped and restarted.
  */
-void Timer::start(unsigned int msec)
-{
-	struct timespec tp;
-	clock_gettime(CLOCK_MONOTONIC, &tp);
 
-	interval_ = msec;
-	deadline_ = tp.tv_sec * 1000000000ULL + tp.tv_nsec + msec * 1000000ULL;
+/**
+ * \brief Start or restart the timer with a timeout of \a duration
+ * \param[in] duration The timer duration in milliseconds
+ *
+ * This method shall be called from the thread the timer is associated with. If
+ * the timer is already running it will be stopped and restarted.
+ */
+void Timer::start(std::chrono::milliseconds duration)
+{
+	start(utils::clock::now() + duration);
+}
+
+/**
+ * \brief Start or restart the timer with a \a deadline
+ * \param[in] deadline The timer deadline
+ *
+ * This method shall be called from the thread the timer is associated with. If
+ * the timer is already running it will be stopped and restarted.
+ */
+void Timer::start(std::chrono::steady_clock::time_point deadline)
+{
+	if (Thread::current() != thread()) {
+		LOG(Timer, Error) << "Timer can't be started from another thread";
+		return;
+	}
+
+	deadline_ = deadline;
 
 	LOG(Timer, Debug)
-		<< "Starting timer " << this << " with interval "
-		<< msec << ": deadline " << deadline_;
+		<< "Starting timer " << this << ": deadline "
+		<< utils::time_point_to_string(deadline_);
 
-	CameraManager::instance()->eventDispatcher()->registerTimer(this);
+	if (isRunning())
+		unregisterTimer();
+
+	registerTimer();
 }
 
 /**
@@ -75,13 +115,32 @@ void Timer::start(unsigned int msec)
  * After this function returns the timer is guaranteed not to emit the
  * \ref timeout signal.
  *
- * If the timer is not running this function performs no operation.
+ * This method shall be called from the thread the timer is associated with. If
+ * the timer is not running this function performs no operation.
  */
 void Timer::stop()
 {
-	CameraManager::instance()->eventDispatcher()->unregisterTimer(this);
+	if (!isRunning())
+		return;
 
-	deadline_ = 0;
+	if (Thread::current() != thread()) {
+		LOG(Timer, Error) << "Timer can't be stopped from another thread";
+		return;
+	}
+
+	unregisterTimer();
+}
+
+void Timer::registerTimer()
+{
+	thread()->eventDispatcher()->registerTimer(this);
+	running_ = true;
+}
+
+void Timer::unregisterTimer()
+{
+	running_ = false;
+	thread()->eventDispatcher()->unregisterTimer(this);
 }
 
 /**
@@ -90,19 +149,13 @@ void Timer::stop()
  */
 bool Timer::isRunning() const
 {
-	return deadline_ != 0;
+	return running_;
 }
-
-/**
- * \fn Timer::interval()
- * \brief Retrieve the timer interval
- * \return The timer interval in milliseconds
- */
 
 /**
  * \fn Timer::deadline()
  * \brief Retrieve the timer deadline
- * \return The timer deadline in nanoseconds
+ * \return The timer deadline
  */
 
 /**
@@ -111,5 +164,18 @@ bool Timer::isRunning() const
  *
  * The timer pointer is passed as a parameter.
  */
+
+void Timer::message(Message *msg)
+{
+	if (msg->type() == Message::ThreadMoveMessage) {
+		if (isRunning()) {
+			unregisterTimer();
+			invokeMethod(&Timer::registerTimer,
+				     ConnectionTypeQueued);
+		}
+	}
+
+	Object::message(msg);
+}
 
 } /* namespace libcamera */

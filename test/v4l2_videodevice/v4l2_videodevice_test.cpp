@@ -6,7 +6,8 @@
  */
 
 #include <iostream>
-#include <sys/stat.h>
+
+#include <linux/media-bus-format.h>
 
 #include "v4l2_videodevice_test.h"
 
@@ -15,16 +16,6 @@
 
 using namespace std;
 using namespace libcamera;
-
-bool exists(const std::string &path)
-{
-	struct stat sb;
-
-	if (stat(path.c_str(), &sb) == 0)
-		return true;
-
-	return false;
-}
 
 int V4L2VideoDeviceTest::init()
 {
@@ -69,6 +60,28 @@ int V4L2VideoDeviceTest::init()
 	if (capture_->getFormat(&format))
 		return TestFail;
 
+	if (driver_ == "vimc") {
+		sensor_ = new CameraSensor(media_->getEntityByName("Sensor A"));
+		if (sensor_->init())
+			return TestFail;
+
+		debayer_ = new V4L2Subdevice(media_->getEntityByName("Debayer A"));
+		if (debayer_->open())
+			return TestFail;
+
+		format.fourcc = V4L2_PIX_FMT_SBGGR8;
+
+		V4L2SubdeviceFormat subformat = {};
+		subformat.mbus_code = MEDIA_BUS_FMT_SBGGR8_1X8;
+		subformat.size = format.size;
+
+		if (sensor_->setFormat(&subformat))
+			return TestFail;
+
+		if (debayer_->setFormat(0, &subformat))
+			return TestFail;
+	}
+
 	format.size.width = 640;
 	format.size.height = 480;
 	if (capture_->setFormat(&format))
@@ -83,5 +96,7 @@ void V4L2VideoDeviceTest::cleanup()
 	capture_->releaseBuffers();
 	capture_->close();
 
+	delete debayer_;
+	delete sensor_;
 	delete capture_;
-};
+}

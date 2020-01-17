@@ -7,30 +7,41 @@
 #ifndef __LIBCAMERA_TIMER_H__
 #define __LIBCAMERA_TIMER_H__
 
-#include <cstdint>
+#include <chrono>
+#include <stdint.h>
 
+#include <libcamera/object.h>
 #include <libcamera/signal.h>
 
 namespace libcamera {
 
-class Timer
+class Message;
+
+class Timer : public Object
 {
 public:
-	Timer();
+	Timer(Object *parent = nullptr);
 	~Timer();
 
-	void start(unsigned int msec);
+	void start(unsigned int msec) { start(std::chrono::milliseconds(msec)); }
+	void start(std::chrono::milliseconds duration);
+	void start(std::chrono::steady_clock::time_point deadline);
 	void stop();
 	bool isRunning() const;
 
-	unsigned int interval() const { return interval_; }
-	uint64_t deadline() const { return deadline_; }
+	std::chrono::steady_clock::time_point deadline() const { return deadline_; }
 
 	Signal<Timer *> timeout;
 
+protected:
+	void message(Message *msg) override;
+
 private:
-	unsigned int interval_;
-	uint64_t deadline_;
+	void registerTimer();
+	void unregisterTimer();
+
+	bool running_;
+	std::chrono::steady_clock::time_point deadline_;
 };
 
 } /* namespace libcamera */

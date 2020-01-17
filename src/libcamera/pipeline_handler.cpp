@@ -7,6 +7,8 @@
 
 #include "pipeline_handler.h"
 
+#include <sys/sysmacros.h>
+
 #include <libcamera/buffer.h>
 #include <libcamera/camera.h>
 #include <libcamera/camera_manager.h>
@@ -97,6 +99,14 @@ LOG_DEFINE_CATEGORY(Pipeline)
  */
 
 /**
+ * \var CameraData::ipa_
+ * \brief The IPA module used by the camera
+ *
+ * Reference to the Image Processing Algorithms (IPA) operating on the camera's
+ * stream(s). If no IPA exists for the camera, this field is set to nullptr.
+ */
+
+/**
  * \class PipelineHandler
  * \brief Create and manage cameras based on a set of media devices
  *
@@ -127,7 +137,7 @@ PipelineHandler::~PipelineHandler()
 {
 	for (std::shared_ptr<MediaDevice> media : mediaDevices_)
 		media->release();
-};
+}
 
 /**
  * \fn PipelineHandler::match(DeviceEnumerator *enumerator)
@@ -280,32 +290,75 @@ const ControlInfoMap &PipelineHandler::controls(Camera *camera)
  */
 
 /**
- * \fn PipelineHandler::allocateBuffers()
- * \brief Allocate buffers for a stream
- * \param[in] camera The camera the \a stream belongs to
- * \param[in] streams The set of streams to allocate buffers for
+ * \fn PipelineHandler::exportFrameBuffers()
+ * \brief Allocate buffers for \a stream
+ * \param[in] camera The camera
+ * \param[in] stream The stream to allocate buffers for
+ * \param[out] buffers Array of buffers successfully allocated
  *
- * This method allocates buffers internally in the pipeline handler for each
- * stream in the \a streams buffer set, and associates them with the stream's
- * buffer pool.
+ * This method allocates buffers for the \a stream from the devices associated
+ * with the stream in the corresponding pipeline handler. Those buffers shall be
+ * suitable to be added to a Request for the stream, and shall be mappable to
+ * the CPU through their associated dmabufs with mmap().
  *
- * The intended caller of this method is the Camera class.
+ * The method may only be called after the Camera has been configured and before
+ * it gets started, or after it gets stopped. It shall be called only for
+ * streams that are part of the active camera configuration, and at most once
+ * per stream until buffers for the stream are freed with freeFrameBuffers().
+ *
+ * exportFrameBuffers() shall also allocate all other resources required by
+ * the pipeline handler for the stream to prepare for starting the Camera. This
+ * responsibility is shared with importFrameBuffers(), and one and only one of
+ * those two methods shall be called for each stream until the buffers are
+ * freed. The pipeline handler shall support all combinations of
+ * exportFrameBuffers() and importFrameBuffers() for the streams contained in
+ * any camera configuration.
+ *
+ * The only intended caller is the FrameBufferAllocator helper.
  *
  * \return 0 on success or a negative error code otherwise
  */
 
 /**
- * \fn PipelineHandler::freeBuffers()
- * \brief Free all buffers associated with a stream
- * \param[in] camera The camera the \a stream belongs to
- * \param[in] streams The set of streams to free buffers from
+ * \fn PipelineHandler::importFrameBuffers()
+ * \brief Prepare \a stream to use external buffers
+ * \param[in] camera The camera
+ * \param[in] stream The stream to prepare for import
  *
- * After a capture session has been stopped all buffers associated with each
- * stream shall be freed.
+ * This method prepares the pipeline handler to use buffers provided by the
+ * application for the \a stream.
  *
- * The intended caller of this method is the Camera class.
+ * The method may only be called after the Camera has been configured and before
+ * it gets started, or after it gets stopped. It shall be called only for
+ * streams that are part of the active camera configuration, and at most once
+ * per stream until buffers for the stream are freed with freeFrameBuffers().
+ *
+ * importFrameBuffers() shall also allocate all other resources required by the
+ * pipeline handler for the stream to prepare for starting the Camera. This
+ * responsibility is shared with exportFrameBuffers(), and one and only one of
+ * those two methods shall be called for each stream until the buffers are
+ * freed. The pipeline handler shall support all combinations of
+ * exportFrameBuffers() and importFrameBuffers() for the streams contained in
+ * any camera configuration.
+ *
+ * The only intended caller is Camera::start().
  *
  * \return 0 on success or a negative error code otherwise
+ */
+
+/**
+ * \fn PipelineHandler::freeFrameBuffers()
+ * \brief Free buffers allocated from the stream
+ * \param[in] camera The camera
+ * \param[in] stream The stream to free buffers for
+ *
+ * This method shall free all buffers and all other resources allocated for the
+ * \a stream by exportFrameBuffers() or importFrameBuffers(). It shall be
+ * called only after a successful call to either of these two methods, and only
+ * once per stream.
+ *
+ * The only intended callers are Camera::stop() and the FrameBufferAllocator
+ * helper.
  */
 
 /**
@@ -337,16 +390,12 @@ const ControlInfoMap &PipelineHandler::controls(Camera *camera)
  * \param[in] request The request to queue
  *
  * This method queues a capture request to the pipeline handler for processing.
- * The request contains a set of buffers associated with streams and a set of
- * parameters. The pipeline handler shall program the device to ensure that the
- * parameters will be applied to the frames captured in the buffers provided in
- * the request.
+ * The request is first added to the internal list of queued requests, and
+ * then passed to the pipeline handler with a call to queueRequestDevice().
  *
- * Pipeline handlers shall override this method. The base implementation in the
- * PipelineHandler class keeps track of queued requests in order to ensure
- * completion of all requests when the pipeline handler is stopped with stop().
- * Requests completion shall be signaled by the pipeline handler using the
- * completeRequest() method.
+ * Keeping track of queued requests ensures automatic completion of all requests
+ * when the pipeline handler is stopped with stop(). Request completion shall be
+ * signalled by the pipeline handler using the completeRequest() method.
  *
  * \return 0 on success or a negative error code otherwise
  */
@@ -355,8 +404,27 @@ int PipelineHandler::queueRequest(Camera *camera, Request *request)
 	CameraData *data = cameraData(camera);
 	data->queuedRequests_.push_back(request);
 
-	return 0;
+	int ret = queueRequestDevice(camera, request);
+	if (ret)
+		data->queuedRequests_.remove(request);
+
+	return ret;
 }
+
+/**
+ * \fn PipelineHandler::queueRequestDevice()
+ * \brief Queue a request to the device
+ * \param[in] camera The camera to queue the request to
+ * \param[in] request The request to queue
+ *
+ * This method queues a capture request to the device for processing. The
+ * request contains a set of buffers associated with streams and a set of
+ * parameters. The pipeline handler shall program the device to ensure that the
+ * parameters will be applied to the frames captured in the buffers provided in
+ * the request.
+ *
+ * \return 0 on success or a negative error code otherwise
+ */
 
 /**
  * \brief Complete a buffer for a request
@@ -375,7 +443,7 @@ int PipelineHandler::queueRequest(Camera *camera, Request *request)
  * otherwise
  */
 bool PipelineHandler::completeBuffer(Camera *camera, Request *request,
-				     Buffer *buffer)
+				     FrameBuffer *buffer)
 {
 	camera->bufferCompleted.emit(request, buffer);
 	return request->completeBuffer(buffer);
@@ -401,13 +469,13 @@ void PipelineHandler::completeRequest(Camera *camera, Request *request)
 	CameraData *data = cameraData(camera);
 
 	while (!data->queuedRequests_.empty()) {
-		request = data->queuedRequests_.front();
-		if (request->status() == Request::RequestPending)
+		Request *req = data->queuedRequests_.front();
+		if (req->status() == Request::RequestPending)
 			break;
 
-		ASSERT(!request->hasPendingBuffers());
+		ASSERT(!req->hasPendingBuffers());
 		data->queuedRequests_.pop_front();
-		camera->requestComplete(request);
+		camera->requestComplete(req);
 	}
 }
 
@@ -415,19 +483,26 @@ void PipelineHandler::completeRequest(Camera *camera, Request *request)
  * \brief Register a camera to the camera manager and pipeline handler
  * \param[in] camera The camera to be added
  * \param[in] data Pipeline-specific data for the camera
+ * \param[in] devnum Device number of the camera (optional)
  *
  * This method is called by pipeline handlers to register the cameras they
  * handle with the camera manager. It associates the pipeline-specific \a data
  * with the camera, for later retrieval with cameraData(). Ownership of \a data
  * is transferred to the PipelineHandler.
+ *
+ * \a devnum is the device number (as returned by makedev) that the \a camera
+ * is to be associated with. This is for the V4L2 compatibility layer to map
+ * device nodes to Camera instances based on the device number
+ * registered by this method in \a devnum.
  */
 void PipelineHandler::registerCamera(std::shared_ptr<Camera> camera,
-				     std::unique_ptr<CameraData> data)
+				     std::unique_ptr<CameraData> data,
+				     dev_t devnum)
 {
 	data->camera_ = camera.get();
 	cameraData_[camera.get()] = std::move(data);
 	cameras_.push_back(camera);
-	manager_->addCamera(std::move(camera));
+	manager_->addCamera(std::move(camera), devnum);
 }
 
 /**

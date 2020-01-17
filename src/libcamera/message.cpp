@@ -7,6 +7,8 @@
 
 #include "message.h"
 
+#include <libcamera/signal.h>
+
 #include "log.h"
 
 /**
@@ -43,8 +45,10 @@ std::atomic_uint Message::nextUserType_{ Message::UserMessage };
  * \brief The message type
  * \var Message::None
  * \brief Invalid message type
- * \var Message::SignalMessage
- * \brief Asynchronous signal delivery across threads
+ * \var Message::InvokeMessage
+ * \brief Asynchronous method invocation across threads
+ * \var Message::ThreadMoveMessage
+ * \brief Object is being moved to a different thread
  * \var Message::UserMessage
  * \brief First value available for user-defined messages
  */
@@ -89,7 +93,7 @@ Message::~Message()
  * class MyCustomMessage : public Message
  * {
  * public:
- *	MyCustomMessage() : Message(type()) { }
+ *	MyCustomMessage() : Message(type()) {}
  *
  *	static Message::Type type()
  *	{
@@ -107,25 +111,55 @@ Message::Type Message::registerMessageType()
 }
 
 /**
- * \class SignalMessage
- * \brief A message carrying a Signal across threads
+ * \class InvokeMessage
+ * \brief A message carrying a method invocation across threads
  */
 
 /**
- * \fn SignalMessage::SignalMessage()
- * \brief Construct a SignalMessage
- * \param[in] slot The slot that the signal targets
- * \param[in] pack The signal arguments
+ * \brief Construct an InvokeMessage for method invocation on an Object
+ * \param[in] method The bound method
+ * \param[in] pack The packed method arguments
+ * \param[in] semaphore The semaphore used to signal message delivery
+ * \param[in] deleteMethod True to delete the \a method when the message is
+ * destroyed
+ */
+InvokeMessage::InvokeMessage(BoundMethodBase *method,
+			     std::shared_ptr<BoundMethodPackBase> pack,
+			     Semaphore *semaphore, bool deleteMethod)
+	: Message(Message::InvokeMessage), method_(method), pack_(pack),
+	  semaphore_(semaphore), deleteMethod_(deleteMethod)
+{
+}
+
+InvokeMessage::~InvokeMessage()
+{
+	if (deleteMethod_)
+		delete method_;
+}
+
+/**
+ * \fn InvokeMessage::semaphore()
+ * \brief Retrieve the message semaphore passed to the constructor
+ * \return The message semaphore
  */
 
 /**
- * \var SignalMessage::slot_
- * \brief The slot that the signal targets
+ * \brief Invoke the method bound to InvokeMessage::method_ with arguments
+ * InvokeMessage::pack_
+ */
+void InvokeMessage::invoke()
+{
+	method_->invokePack(pack_.get());
+}
+
+/**
+ * \var InvokeMessage::method_
+ * \brief The method to be invoked
  */
 
 /**
- * \var SignalMessage::pack_
- * \brief The signal arguments
+ * \var InvokeMessage::pack_
+ * \brief The packed method invocation arguments
  */
 
-}; /* namespace libcamera */
+} /* namespace libcamera */

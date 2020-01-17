@@ -10,6 +10,9 @@
 #include <libcamera/camera_manager.h>
 #include <libcamera/event_dispatcher.h>
 
+#include "message.h"
+#include "thread.h"
+
 /**
  * \file event_notifier.h
  * \brief File descriptor event notifier
@@ -58,9 +61,10 @@ namespace libcamera {
  * \brief Construct an event notifier with a file descriptor and event type
  * \param[in] fd The file descriptor to monitor
  * \param[in] type The event type to monitor
+ * \param[in] parent The parent Object
  */
-EventNotifier::EventNotifier(int fd, Type type)
-	: fd_(fd), type_(type), enabled_(false)
+EventNotifier::EventNotifier(int fd, Type type, Object *parent)
+	: Object(parent), fd_(fd), type_(type), enabled_(false)
 {
 	setEnabled(true);
 }
@@ -103,7 +107,7 @@ void EventNotifier::setEnabled(bool enable)
 
 	enabled_ = enable;
 
-	EventDispatcher *dispatcher = CameraManager::instance()->eventDispatcher();
+	EventDispatcher *dispatcher = thread()->eventDispatcher();
 	if (enable)
 		dispatcher->registerEventNotifier(this);
 	else
@@ -118,5 +122,18 @@ void EventNotifier::setEnabled(bool enable)
  * descriptor monitored by the notifier. The notifier pointer is passed as a
  * parameter.
  */
+
+void EventNotifier::message(Message *msg)
+{
+	if (msg->type() == Message::ThreadMoveMessage) {
+		if (enabled_) {
+			setEnabled(false);
+			invokeMethod(&EventNotifier::setEnabled,
+				     ConnectionTypeQueued, true);
+		}
+	}
+
+	Object::message(msg);
+}
 
 } /* namespace libcamera */

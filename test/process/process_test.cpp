@@ -9,12 +9,12 @@
 #include <unistd.h>
 #include <vector>
 
-#include <libcamera/camera_manager.h>
 #include <libcamera/event_dispatcher.h>
 #include <libcamera/timer.h>
 
 #include "process.h"
 #include "test.h"
+#include "thread.h"
 #include "utils.h"
 
 using namespace std;
@@ -35,27 +35,29 @@ class ProcessTest : public Test
 {
 public:
 	ProcessTest()
+		: exitStatus_(Process::NotExited), exitCode_(-1)
 	{
 	}
 
 protected:
 	int run()
 	{
-		EventDispatcher *dispatcher = CameraManager::instance()->eventDispatcher();
+		EventDispatcher *dispatcher = Thread::current()->eventDispatcher();
 		Timer timeout;
 
 		int exitCode = 42;
 		vector<std::string> args;
 		args.push_back(to_string(exitCode));
+		proc_.finished.connect(this, &ProcessTest::procFinished);
+
 		int ret = proc_.start("/proc/self/exe", args);
 		if (ret) {
 			cerr << "failed to start process" << endl;
 			return TestFail;
 		}
-		proc_.finished.connect(this, &ProcessTest::procFinished);
 
-		timeout.start(100);
-		while (timeout.isRunning())
+		timeout.start(2000);
+		while (timeout.isRunning() && exitStatus_ == Process::NotExited)
 			dispatcher->processEvents();
 
 		if (exitStatus_ != Process::NormalExit) {

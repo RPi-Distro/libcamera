@@ -7,17 +7,40 @@
 
 #include <libcamera/controls.h>
 
+#include <iomanip>
 #include <sstream>
 #include <string>
 
-#include <libcamera/camera.h>
-
+#include "control_validator.h"
 #include "log.h"
 #include "utils.h"
 
 /**
  * \file controls.h
- * \brief Describes control framework and controls supported by a camera
+ * \brief Framework to manage controls related to an object
+ *
+ * A control is a mean to govern or influence the operation of an object, and in
+ * particular of a camera. Every control is defined by a unique numerical ID, a
+ * name string and the data type of the value it stores. The libcamera API
+ * defines a set of standard controls in the libcamera::controls namespace, as
+ * a set of instances of the Control class.
+ *
+ * The main way for applications to interact with controls is through the
+ * ControlList stored in the Request class:
+ *
+ * \code{.cpp}
+ * Request *req = ...;
+ * ControlList &controls = req->controls();
+ * controls->set(controls::AwbEnable, false);
+ * controls->set(controls::ManualExposure, 1000);
+ *
+ * ...
+ *
+ * int32_t exposure = controls->get(controls::ManualExposure);
+ * \endcode
+ *
+ * The ControlList::get() and ControlList::set() methods automatically deduce
+ * the data type based on the control.
  */
 
 namespace libcamera {
@@ -25,16 +48,16 @@ namespace libcamera {
 LOG_DEFINE_CATEGORY(Controls)
 
 /**
- * \enum ControlValueType
- * \brief Define the data type of value represented by a ControlValue
- * \var ControlValueNone
- * Identifies an unset control value
- * \var ControlValueBool
- * Identifies controls storing a boolean value
- * \var ControlValueInteger
- * Identifies controls storing an integer value
- * \var ControlValueInteger64
- * Identifies controls storing a 64-bit integer value
+ * \enum ControlType
+ * \brief Define the data type of a Control
+ * \var ControlTypeNone
+ * Invalid type, for empty values
+ * \var ControlTypeBool
+ * The control stores a boolean value
+ * \var ControlTypeInteger32
+ * The control stores a 32-bit integer value
+ * \var ControlTypeInteger64
+ * The control stores a 64-bit integer value
  */
 
 /**
@@ -46,7 +69,7 @@ LOG_DEFINE_CATEGORY(Controls)
  * \brief Construct an empty ControlValue.
  */
 ControlValue::ControlValue()
-	: type_(ControlValueNone)
+	: type_(ControlTypeNone)
 {
 }
 
@@ -55,7 +78,7 @@ ControlValue::ControlValue()
  * \param[in] value Boolean value to store
  */
 ControlValue::ControlValue(bool value)
-	: type_(ControlValueBool), bool_(value)
+	: type_(ControlTypeBool), bool_(value)
 {
 }
 
@@ -63,8 +86,8 @@ ControlValue::ControlValue(bool value)
  * \brief Construct an integer ControlValue
  * \param[in] value Integer value to store
  */
-ControlValue::ControlValue(int value)
-	: type_(ControlValueInteger), integer_(value)
+ControlValue::ControlValue(int32_t value)
+	: type_(ControlTypeInteger32), integer32_(value)
 {
 }
 
@@ -73,7 +96,7 @@ ControlValue::ControlValue(int value)
  * \param[in] value Integer value to store
  */
 ControlValue::ControlValue(int64_t value)
-	: type_(ControlValueInteger64), integer64_(value)
+	: type_(ControlTypeInteger64), integer64_(value)
 {
 }
 
@@ -86,80 +109,71 @@ ControlValue::ControlValue(int64_t value)
 /**
  * \fn ControlValue::isNone()
  * \brief Determine if the value is not initialised
- * \return True if the value type is ControlValueNone, false otherwise
+ * \return True if the value type is ControlTypeNone, false otherwise
  */
 
 /**
- * \brief Set the value with a boolean
- * \param[in] value Boolean value to store
- */
-void ControlValue::set(bool value)
-{
-	type_ = ControlValueBool;
-	bool_ = value;
-}
-
-/**
- * \brief Set the value with an integer
- * \param[in] value Integer value to store
- */
-void ControlValue::set(int value)
-{
-	type_ = ControlValueInteger;
-	integer_ = value;
-}
-
-/**
- * \brief Set the value with a 64 bit integer
- * \param[in] value 64 bit integer value to store
- */
-void ControlValue::set(int64_t value)
-{
-	type_ = ControlValueInteger64;
-	integer64_ = value;
-}
-
-/**
- * \brief Get the boolean value
+ * \fn template<typename T> const T &ControlValue::get() const
+ * \brief Get the control value
  *
- * The value type must be Boolean.
+ * The control value type shall match the type T, otherwise the behaviour is
+ * undefined.
  *
- * \return The boolean value
+ * \return The control value
  */
-bool ControlValue::getBool() const
+
+/**
+ * \fn template<typename T> void ControlValue::set(const T &value)
+ * \brief Set the control value to \a value
+ * \param[in] value The control value
+ */
+
+#ifndef __DOXYGEN__
+template<>
+const bool &ControlValue::get<bool>() const
 {
-	ASSERT(type_ == ControlValueBool);
+	ASSERT(type_ == ControlTypeBool);
 
 	return bool_;
 }
 
-/**
- * \brief Get the integer value
- *
- * The value type must be Integer or Integer64.
- *
- * \return The integer value
- */
-int ControlValue::getInt() const
+template<>
+const int32_t &ControlValue::get<int32_t>() const
 {
-	ASSERT(type_ == ControlValueInteger || type_ == ControlValueInteger64);
+	ASSERT(type_ == ControlTypeInteger32 || type_ == ControlTypeInteger64);
 
-	return integer_;
+	return integer32_;
 }
 
-/**
- * \brief Get the 64-bit integer value
- *
- * The value type must be Integer or Integer64.
- *
- * \return The 64-bit integer value
- */
-int64_t ControlValue::getInt64() const
+template<>
+const int64_t &ControlValue::get<int64_t>() const
 {
-	ASSERT(type_ == ControlValueInteger || type_ == ControlValueInteger64);
+	ASSERT(type_ == ControlTypeInteger32 || type_ == ControlTypeInteger64);
 
 	return integer64_;
 }
+
+template<>
+void ControlValue::set<bool>(const bool &value)
+{
+	type_ = ControlTypeBool;
+	bool_ = value;
+}
+
+template<>
+void ControlValue::set<int32_t>(const int32_t &value)
+{
+	type_ = ControlTypeInteger32;
+	integer32_ = value;
+}
+
+template<>
+void ControlValue::set<int64_t>(const int64_t &value)
+{
+	type_ = ControlTypeInteger64;
+	integer64_ = value;
+}
+#endif /* __DOXYGEN__ */
 
 /**
  * \brief Assemble and return a string describing the value
@@ -168,13 +182,13 @@ int64_t ControlValue::getInt64() const
 std::string ControlValue::toString() const
 {
 	switch (type_) {
-	case ControlValueNone:
+	case ControlTypeNone:
 		return "<None>";
-	case ControlValueBool:
+	case ControlTypeBool:
 		return bool_ ? "True" : "False";
-	case ControlValueInteger:
-		return std::to_string(integer_);
-	case ControlValueInteger64:
+	case ControlTypeInteger32:
+		return std::to_string(integer32_);
+	case ControlTypeInteger64:
 		return std::to_string(integer64_);
 	}
 
@@ -182,216 +196,443 @@ std::string ControlValue::toString() const
 }
 
 /**
- * \enum ControlId
- * \brief Numerical control ID
+ * \brief Compare ControlValue instances for equality
+ * \return True if the values have identical types and values, false otherwise
  */
-
-/**
- * \var AwbEnable
- * ControlType: Bool
- *
- * Enables or disables the AWB. See also \a libcamera::ControlId::ManualGain
- */
-
-/**
- * \var Brightness
- * ControlType: Integer
- *
- * Specify a fixed brightness parameter.
- */
-
-/**
- * \var Contrast
- * ControlType: Integer
- *
- * Specify a fixed contrast parameter.
- */
-
-/**
- * \var Saturation
- * ControlType: Integer
- *
- * Specify a fixed saturation parameter.
- */
-
-/**
- * \var ManualExposure
- * ControlType: Integer
- *
- * Specify a fixed exposure time in milli-seconds
- */
-
-/**
- * \var ManualGain
- * ControlType: Integer
- *
- * Specify a fixed gain parameter
- */
-
-/**
- * \struct ControlIdentifier
- * \brief Describe a ControlId with control specific constant meta-data
- *
- * Defines a Control with a unique ID, a name, and a type.
- * This structure is used as static part of the auto-generated control
- * definitions, which are generated from the ControlId documentation.
- *
- * \var ControlIdentifier::id
- * The unique ID for a control
- * \var ControlIdentifier::name
- * The string representation of the control
- * \var ControlIdentifier::type
- * The ValueType required to represent the control value
- */
-
-/*
- * The controlTypes are automatically generated to produce a control_types.cpp
- * output. This file is not for public use, and so no suitable header exists
- * for this sole usage of the controlTypes reference. As such the extern is
- * only defined here for use during the ControlInfo constructor and should not
- * be referenced directly elsewhere.
- */
-extern const std::unordered_map<ControlId, ControlIdentifier> controlTypes;
-
-/**
- * \class ControlInfo
- * \brief Describe the information and capabilities of a Control
- *
- * The ControlInfo represents control specific meta-data which is constant on a
- * per camera basis. ControlInfo classes are constructed by pipeline handlers
- * to expose the controls they support and the metadata needed to utilise those
- * controls.
- */
-
-/**
- * \brief Construct a ControlInfo with minimum and maximum range parameters
- * \param[in] id The control ID
- * \param[in] min The control minimum value
- * \param[in] max The control maximum value
- */
-ControlInfo::ControlInfo(ControlId id, const ControlValue &min,
-			 const ControlValue &max)
-	: min_(min), max_(max)
+bool ControlValue::operator==(const ControlValue &other) const
 {
-	auto iter = controlTypes.find(id);
-	if (iter == controlTypes.end()) {
-		LOG(Controls, Fatal) << "Attempt to create invalid ControlInfo";
-		return;
-	}
+	if (type_ != other.type_)
+		return false;
 
-	ident_ = &iter->second;
+	switch (type_) {
+	case ControlTypeBool:
+		return bool_ == other.bool_;
+	case ControlTypeInteger32:
+		return integer32_ == other.integer32_;
+	case ControlTypeInteger64:
+		return integer64_ == other.integer64_;
+	default:
+		return false;
+	}
 }
 
 /**
- * \fn ControlInfo::id()
- * \brief Retrieve the control ID
- * \return The control ID
+ * \fn bool ControlValue::operator!=()
+ * \brief Compare ControlValue instances for non equality
+ * \return False if the values have identical types and values, true otherwise
  */
 
 /**
- * \fn ControlInfo::name()
- * \brief Retrieve the control name string
- * \return The control name string
+ * \class ControlId
+ * \brief Control static metadata
+ *
+ * The ControlId class stores a control ID, name and data type. It provides
+ * unique identification of a control, but without support for compile-time
+ * type deduction that the derived template Control class supports. See the
+ * Control class for more information.
  */
 
 /**
- * \fn ControlInfo::type()
+ * \fn ControlId::ControlId(unsigned int id, const std::string &name, ControlType type)
+ * \brief Construct a ControlId instance
+ * \param[in] id The control numerical ID
+ * \param[in] name The control name
+ * \param[in] type The control data type
+ */
+
+/**
+ * \fn unsigned int ControlId::id() const
+ * \brief Retrieve the control numerical ID
+ * \return The control numerical ID
+ */
+
+/**
+ * \fn const char *ControlId::name() const
+ * \brief Retrieve the control name
+ * \return The control name
+ */
+
+/**
+ * \fn ControlType ControlId::type() const
  * \brief Retrieve the control data type
  * \return The control data type
  */
 
 /**
- * \fn ControlInfo::min()
+ * \fn bool operator==(unsigned int lhs, const ControlId &rhs)
+ * \brief Compare a ControlId with a control numerical ID
+ * \param[in] lhs Left-hand side numerical ID
+ * \param[in] rhs Right-hand side ControlId
+ *
+ * \return True if \a lhs is equal to \a rhs.id(), false otherwise
+ */
+
+/**
+ * \fn bool operator==(const ControlId &lhs, unsigned int rhs)
+ * \brief Compare a ControlId with a control numerical ID
+ * \param[in] lhs Left-hand side ControlId
+ * \param[in] rhs Right-hand side numerical ID
+ *
+ * \return True if \a lhs.id() is equal to \a rhs, false otherwise
+ */
+
+/**
+ * \class Control
+ * \brief Describe a control and its intrinsic properties
+ *
+ * The Control class models a control exposed by an object. Its template type
+ * name T refers to the control data type, and allows methods that operate on
+ * control values to be defined as template methods using the same type T for
+ * the control value. See for instance how the ControlList::get() method
+ * returns a value corresponding to the type of the requested control.
+ *
+ * While this class is the main mean to refer to a control, the control
+ * identifying information are stored in the non-template base ControlId class.
+ * This allows code that operates on a set of controls of different types to
+ * reference those controls through a ControlId instead of a Control. For
+ * instance, the list of controls supported by a camera is exposed as ControlId
+ * instead of Control.
+ *
+ * Controls of any type can be defined through template specialisation, but
+ * libcamera only supports the bool, int32_t and int64_t types natively (this
+ * includes types that are equivalent to the supported types, such as int and
+ * long int).
+ *
+ * Controls IDs shall be unique. While nothing prevents multiple instances of
+ * the Control class to be created with the same ID for the same object, doing
+ * so may cause undefined behaviour.
+ */
+
+/**
+ * \fn Control::Control(unsigned int id, const char *name)
+ * \brief Construct a Control instance
+ * \param[in] id The control numerical ID
+ * \param[in] name The control name
+ *
+ * The control data type is automatically deduced from the template type T.
+ */
+
+/**
+ * \typedef Control::type
+ * \brief The Control template type T
+ */
+
+#ifndef __DOXYGEN__
+template<>
+Control<void>::Control(unsigned int id, const char *name)
+	: ControlId(id, name, ControlTypeNone)
+{
+}
+
+template<>
+Control<bool>::Control(unsigned int id, const char *name)
+	: ControlId(id, name, ControlTypeBool)
+{
+}
+
+template<>
+Control<int32_t>::Control(unsigned int id, const char *name)
+	: ControlId(id, name, ControlTypeInteger32)
+{
+}
+
+template<>
+Control<int64_t>::Control(unsigned int id, const char *name)
+	: ControlId(id, name, ControlTypeInteger64)
+{
+}
+#endif /* __DOXYGEN__ */
+
+/**
+ * \class ControlRange
+ * \brief Describe the limits of valid values for a Control
+ *
+ * The ControlRange expresses the constraints on valid values for a control.
+ * The constraints depend on the object the control applies to, and are
+ * constant for the lifetime of that object. They are typically constructed by
+ * pipeline handlers to describe the controls they support.
+ */
+
+/**
+ * \brief Construct a ControlRange with minimum and maximum range parameters
+ * \param[in] min The control minimum value
+ * \param[in] max The control maximum value
+ */
+ControlRange::ControlRange(const ControlValue &min,
+			   const ControlValue &max)
+	: min_(min), max_(max)
+{
+}
+
+/**
+ * \fn ControlRange::min()
  * \brief Retrieve the minimum value of the control
  * \return A ControlValue with the minimum value for the control
  */
 
 /**
- * \fn ControlInfo::max()
+ * \fn ControlRange::max()
  * \brief Retrieve the maximum value of the control
  * \return A ControlValue with the maximum value for the control
  */
 
 /**
- * \brief Provide a string representation of the ControlInfo
+ * \brief Provide a string representation of the ControlRange
  */
-std::string ControlInfo::toString() const
+std::string ControlRange::toString() const
 {
 	std::stringstream ss;
 
-	ss << name() << "[" << min_.toString() << ".." << max_.toString() << "]";
+	ss << "[" << min_.toString() << ".." << max_.toString() << "]";
 
 	return ss.str();
 }
 
 /**
- * \brief Compare control information for equality
- * \param[in] lhs Left-hand side control information
- * \param[in] rhs Right-hand side control information
- *
- * Control information is compared based on the ID only, as a camera may not
- * have two separate controls with the same ID.
- *
- * \return True if \a lhs and \a rhs are equal, false otherwise
+ * \fn bool ControlRange::operator==()
+ * \brief Compare ControlRange instances for equality
+ * \return True if the ranges have identical min and max, false otherwise
  */
-bool operator==(const ControlInfo &lhs, const ControlInfo &rhs)
+
+/**
+ * \fn bool ControlRange::operator!=()
+ * \brief Compare ControlRange instances for non equality
+ * \return False if the ranges have identical min and max, true otherwise
+ */
+
+/**
+ * \typedef ControlIdMap
+ * \brief A map of numerical control ID to ControlId
+ *
+ * The map is used by ControlList instances to access controls by numerical
+ * IDs. A global map of all libcamera controls is provided by
+ * controls::controls.
+ */
+
+/**
+ * \class ControlInfoMap
+ * \brief A map of ControlId to ControlRange
+ *
+ * The ControlInfoMap class describes controls supported by an object as an
+ * unsorted map of ControlId pointers to ControlRange instances. Unlike the
+ * standard std::unsorted_map<> class, it is designed the be immutable once
+ * constructed, and thus only exposes the read accessors of the
+ * std::unsorted_map<> base class.
+ *
+ * In addition to the features of the standard unsorted map, this class also
+ * provides access to the mapped elements using numerical ID keys. It maintains
+ * an internal map of numerical ID to ControlId for this purpose, and exposes it
+ * through the idmap() method to help construction of ControlList instances.
+ */
+
+/**
+ * \typedef ControlInfoMap::Map
+ * \brief The base std::unsorted_map<> container
+ */
+
+/**
+ * \fn ControlInfoMap::ControlInfoMap(const ControlInfoMap &other)
+ * \brief Copy constructor, construct a ControlInfoMap from a copy of \a other
+ * \param[in] other The other ControlInfoMap
+ */
+
+/**
+ * \brief Construct a ControlInfoMap from an initializer list
+ * \param[in] init The initializer list
+ */
+ControlInfoMap::ControlInfoMap(std::initializer_list<Map::value_type> init)
+	: Map(init)
 {
-	return lhs.id() == rhs.id();
+	generateIdmap();
 }
 
 /**
- * \brief Compare control ID and information for equality
- * \param[in] lhs Left-hand side control identifier
- * \param[in] rhs Right-hand side control information
+ * \brief Construct a ControlInfoMap from a plain map
+ * \param[in] info The control info plain map
  *
- * Control information is compared based on the ID only, as a camera may not
- * have two separate controls with the same ID.
- *
- * \return True if \a lhs and \a rhs are equal, false otherwise
+ * Construct a new ControlInfoMap and populate its contents with those of
+ * \a info using move semantics. Upon return the \a info map will be empty.
  */
-bool operator==(const ControlId &lhs, const ControlInfo &rhs)
+ControlInfoMap::ControlInfoMap(Map &&info)
+	: Map(std::move(info))
 {
-	return lhs == rhs.id();
+	generateIdmap();
 }
 
 /**
- * \brief Compare control information and ID for equality
- * \param[in] lhs Left-hand side control information
- * \param[in] rhs Right-hand side control identifier
- *
- * Control information is compared based on the ID only, as a camera may not
- * have two separate controls with the same ID.
- *
- * \return True if \a lhs and \a rhs are equal, false otherwise
+ * \fn ControlInfoMap &ControlInfoMap::operator=(const ControlInfoMap &other)
+ * \brief Copy assignment operator, replace the contents with a copy of \a other
+ * \param[in] other The other ControlInfoMap
+ * \return A reference to the ControlInfoMap
  */
-bool operator==(const ControlInfo &lhs, const ControlId &rhs)
+
+/**
+ * \brief Replace the contents with those from the initializer list
+ * \param[in] init The initializer list
+ * \return A reference to the ControlInfoMap
+ */
+ControlInfoMap &ControlInfoMap::operator=(std::initializer_list<Map::value_type> init)
 {
-	return lhs.id() == rhs;
+	Map::operator=(init);
+	generateIdmap();
+	return *this;
 }
 
 /**
- * \typedef ControlInfoMap
- * \brief A map of ControlId to ControlInfo
+ * \brief Move assignment operator from a plain map
+ * \param[in] info The control info plain map
+ *
+ * Populate the map by replacing its contents with those of \a info using move
+ * semantics. Upon return the \a info map will be empty.
+ *
+ * \return A reference to the populated ControlInfoMap
  */
+ControlInfoMap &ControlInfoMap::operator=(Map &&info)
+{
+	Map::operator=(std::move(info));
+	generateIdmap();
+	return *this;
+}
+
+/**
+ * \brief Access specified element by numerical ID
+ * \param[in] id The numerical ID
+ * \return A reference to the element whose ID is equal to \a id
+ */
+ControlInfoMap::mapped_type &ControlInfoMap::at(unsigned int id)
+{
+	return at(idmap_.at(id));
+}
+
+/**
+ * \brief Access specified element by numerical ID
+ * \param[in] id The numerical ID
+ * \return A const reference to the element whose ID is equal to \a id
+ */
+const ControlInfoMap::mapped_type &ControlInfoMap::at(unsigned int id) const
+{
+	return at(idmap_.at(id));
+}
+
+/**
+ * \brief Count the number of elements matching a numerical ID
+ * \param[in] id The numerical ID
+ * \return The number of elements matching the numerical \a id
+ */
+ControlInfoMap::size_type ControlInfoMap::count(unsigned int id) const
+{
+	/*
+	 * The ControlInfoMap and its idmap have a 1:1 mapping between their
+	 * entries, we can thus just count the matching entries in idmap to
+	 * avoid an additional lookup.
+	 */
+	return idmap_.count(id);
+}
+
+/**
+ * \brief Find the element matching a numerical ID
+ * \param[in] id The numerical ID
+ * \return An iterator pointing to the element matching the numerical \a id, or
+ * end() if no such element exists
+ */
+ControlInfoMap::iterator ControlInfoMap::find(unsigned int id)
+{
+	auto iter = idmap_.find(id);
+	if (iter == idmap_.end())
+		return end();
+
+	return find(iter->second);
+}
+
+/**
+ * \brief Find the element matching a numerical ID
+ * \param[in] id The numerical ID
+ * \return A const iterator pointing to the element matching the numerical
+ * \a id, or end() if no such element exists
+ */
+ControlInfoMap::const_iterator ControlInfoMap::find(unsigned int id) const
+{
+	auto iter = idmap_.find(id);
+	if (iter == idmap_.end())
+		return end();
+
+	return find(iter->second);
+}
+
+/**
+ * \fn const ControlIdMap &ControlInfoMap::idmap() const
+ * \brief Retrieve the ControlId map
+ *
+ * Constructing ControlList instances for V4L2 controls requires a ControlIdMap
+ * for the V4L2 device that the control list targets. This helper method
+ * returns a suitable idmap for that purpose.
+ *
+ * \return The ControlId map
+ */
+
+void ControlInfoMap::generateIdmap()
+{
+	idmap_.clear();
+
+	for (const auto &ctrl : *this) {
+		if (ctrl.first->type() != ctrl.second.min().type()) {
+			LOG(Controls, Error)
+				<< "Control " << utils::hex(ctrl.first->id())
+				<< " type and range type mismatch";
+			idmap_.clear();
+			clear();
+			return;
+		}
+
+		idmap_[ctrl.first->id()] = ctrl.first;
+	}
+}
 
 /**
  * \class ControlList
- * \brief Associate a list of ControlId with their values for a camera
+ * \brief Associate a list of ControlId with their values for an object
  *
- * A ControlList wraps a map of ControlId to ControlValue and provide
- * additional validation against the control information exposed by a Camera.
+ * The ControlList class stores values of controls exposed by an object. The
+ * lists returned by the Request::controls() and Request::metadata() methods
+ * refer to the camera that the request belongs to.
  *
- * A list is only valid for as long as the camera it refers to is valid. After
- * that calling any method of the ControlList class other than its destructor
- * will cause undefined behaviour.
+ * Control lists are constructed with a map of all the controls supported by
+ * their object, and an optional ControlValidator to further validate the
+ * controls.
  */
 
 /**
- * \brief Construct a ControlList with a reference to the Camera it applies on
- * \param[in] camera The camera
+ * \brief Construct a ControlList not associated with any object
+ *
+ * This constructor is meant to support ControlList serialization and shall not
+ * be used directly by application.
  */
-ControlList::ControlList(Camera *camera)
-	: camera_(camera)
+ControlList::ControlList()
+	: validator_(nullptr), idmap_(nullptr), infoMap_(nullptr)
+{
+}
+
+/**
+ * \brief Construct a ControlList with an optional control validator
+ * \param[in] idmap The ControlId map for the control list target object
+ * \param[in] validator The validator (may be null)
+ *
+ * For ControlList containing libcamera controls, a global map of all libcamera
+ * controls is provided by controls::controls and can be used as the \a idmap
+ * argument.
+ */
+ControlList::ControlList(const ControlIdMap &idmap, ControlValidator *validator)
+	: validator_(validator), idmap_(&idmap), infoMap_(nullptr)
+{
+}
+
+/**
+ * \brief Construct a ControlList with the idmap of a control info map
+ * \param[in] info The ControlInfoMap for the control list target object
+ * \param[in] validator The validator (may be null)
+ */
+ControlList::ControlList(const ControlInfoMap &info, ControlValidator *validator)
+	: validator_(validator), idmap_(&info.idmap()), infoMap_(&info)
 {
 }
 
@@ -432,40 +673,6 @@ ControlList::ControlList(Camera *camera)
  */
 
 /**
- * \brief Check if the list contains a control with the specified \a id
- * \param[in] id The control ID
- *
- * The behaviour is undefined if the control \a id is not supported by the
- * camera that the ControlList refers to.
- *
- * \return True if the list contains a matching control, false otherwise
- */
-bool ControlList::contains(ControlId id) const
-{
-	const ControlInfoMap &controls = camera_->controls();
-	const auto iter = controls.find(id);
-	if (iter == controls.end()) {
-		LOG(Controls, Error)
-			<< "Camera " << camera_->name()
-			<< " does not support control " << id;
-
-		return false;
-	}
-
-	return controls_.find(&iter->second) != controls_.end();
-}
-
-/**
- * \brief Check if the list contains a control with the specified \a info
- * \param[in] info The control info
- * \return True if the list contains a matching control, false otherwise
- */
-bool ControlList::contains(const ControlInfo *info) const
-{
-	return controls_.find(info) != controls_.end();
-}
-
-/**
  * \fn ControlList::empty()
  * \brief Identify if the list is empty
  * \return True if the list does not contain any control, false otherwise
@@ -483,70 +690,131 @@ bool ControlList::contains(const ControlInfo *info) const
  */
 
 /**
- * \brief Access or insert the control specified by \a id
+ * \brief Check if the list contains a control with the specified \a id
  * \param[in] id The control ID
  *
- * This method returns a reference to the control identified by \a id, inserting
- * it in the list if the ID is not already present.
- *
- * The behaviour is undefined if the control \a id is not supported by the
- * camera that the ControlList refers to.
- *
- * \return A reference to the value of the control identified by \a id
+ * \return True if the list contains a matching control, false otherwise
  */
-ControlValue &ControlList::operator[](ControlId id)
+bool ControlList::contains(const ControlId &id) const
 {
-	const ControlInfoMap &controls = camera_->controls();
-	const auto iter = controls.find(id);
-	if (iter == controls.end()) {
-		LOG(Controls, Error)
-			<< "Camera " << camera_->name()
-			<< " does not support control " << id;
-
-		static ControlValue empty;
-		return empty;
-	}
-
-	return controls_[&iter->second];
+	return controls_.find(id.id()) != controls_.end();
 }
 
 /**
- * \fn ControlList::operator[](const ControlInfo *info)
- * \brief Access or insert the control specified by \a info
- * \param[in] info The control info
+ * \brief Check if the list contains a control with the specified \a id
+ * \param[in] id The control numerical ID
  *
- * This method returns a reference to the control identified by \a info,
- * inserting it in the list if the info is not already present.
+ * \return True if the list contains a matching control, false otherwise
+ */
+bool ControlList::contains(unsigned int id) const
+{
+	return controls_.find(id) != controls_.end();
+}
+
+/**
+ * \fn template<typename T> const T &ControlList::get(const Control<T> &ctrl) const
+ * \brief Get the value of control \a ctrl
+ * \param[in] ctrl The control
  *
- * \return A reference to the value of the control identified by \a info
+ * The behaviour is undefined if the control \a ctrl is not present in the
+ * list. Use ControlList::contains() to test for the presence of a control in
+ * the list before retrieving its value.
+ *
+ * The control value type shall match the type T, otherwise the behaviour is
+ * undefined.
+ *
+ * \return The control value
  */
 
 /**
- * \brief Update the list with a union of itself and \a other
- * \param other The other list
+ * \fn template<typename T> void ControlList::set(const Control<T> &ctrl, const T &value)
+ * \brief Set the control \a ctrl value to \a value
+ * \param[in] ctrl The control
+ * \param[in] value The control value
  *
- * Update the control list to include all values from the \a other list.
- * Elements in the list whose control IDs are contained in \a other are updated
- * with the value from \a other. Elements in the \a other list that have no
- * corresponding element in the list are added to the list with their value.
+ * This method sets the value of a control in the control list. If the control
+ * is already present in the list, its value is updated, otherwise it is added
+ * to the list.
  *
- * The behaviour is undefined if the two lists refer to different Camera
- * instances.
+ * The behaviour is undefined if the control \a ctrl is not supported by the
+ * object that the list refers to.
  */
-void ControlList::update(const ControlList &other)
+
+/**
+ * \brief Get the value of control \a id
+ * \param[in] id The control numerical ID
+ *
+ * The behaviour is undefined if the control \a id is not present in the list.
+ * Use ControlList::contains() to test for the presence of a control in the
+ * list before retrieving its value.
+ *
+ * \return The control value
+ */
+const ControlValue &ControlList::get(unsigned int id) const
 {
-	if (other.camera_ != camera_) {
-		LOG(Controls, Error)
-			<< "Can't update ControlList from a different camera";
+	static ControlValue zero;
+
+	const ControlValue *val = find(id);
+	if (!val)
+		return zero;
+
+	return *val;
+}
+
+/**
+ * \brief Set the value of control \a id to \a value
+ * \param[in] id The control ID
+ * \param[in] value The control value
+ *
+ * This method sets the value of a control in the control list. If the control
+ * is already present in the list, its value is updated, otherwise it is added
+ * to the list.
+ *
+ * The behaviour is undefined if the control \a id is not supported by the
+ * object that the list refers to.
+ */
+void ControlList::set(unsigned int id, const ControlValue &value)
+{
+	ControlValue *val = find(id);
+	if (!val)
 		return;
+
+	*val = value;
+}
+
+/**
+ * \fn ControlList::infoMap()
+ * \brief Retrieve the ControlInfoMap used to construct the ControlList
+ *
+ * \return The ControlInfoMap used to construct the ControlList. ControlList
+ * instances constructed with ControlList() or
+ * ControlList(const ControlIdMap &idmap, ControlValidator *validator) have no
+ * associated ControlInfoMap, nullptr is returned in that case.
+ */
+
+const ControlValue *ControlList::find(unsigned int id) const
+{
+	const auto iter = controls_.find(id);
+	if (iter == controls_.end()) {
+		LOG(Controls, Error)
+			<< "Control " << utils::hex(id) << " not found";
+
+		return nullptr;
 	}
 
-	for (auto it : other) {
-		const ControlInfo *info = it.first;
-		const ControlValue &value = it.second;
+	return &iter->second;
+}
 
-		controls_[info] = value;
+ControlValue *ControlList::find(unsigned int id)
+{
+	if (validator_ && !validator_->validate(id)) {
+		LOG(Controls, Error)
+			<< "Control " << utils::hex(id)
+			<< " is not valid for " << validator_->name();
+		return nullptr;
 	}
+
+	return &controls_[id];
 }
 
 } /* namespace libcamera */

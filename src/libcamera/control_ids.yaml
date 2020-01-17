@@ -1,0 +1,53 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+#
+# Copyright (C) 2019, Google Inc.
+#
+%YAML 1.2
+---
+controls:
+  - AeEnable:
+      type: bool
+      description: |
+        Enable or disable the AE.
+
+        \sa ManualExposure
+
+  - AeLocked:
+      type: bool
+      description: |
+        Report the lock status of a running AE algorithm.
+
+        If the AE algorithm is locked the value shall be set to true, if it's
+        converging it shall be set to false. If the AE algorithm is not
+        running the control shall not be present in the metadata control list.
+
+        \sa AeEnable
+
+  - AwbEnable:
+      type: bool
+      description: |
+        Enable or disable the AWB.
+
+        \sa ManualGain
+
+  - Brightness:
+      type: int32_t
+      description: Specify a fixed brightness parameter
+
+  - Contrast:
+      type: int32_t
+      description: Specify a fixed contrast parameter
+
+  - Saturation:
+      type: int32_t
+      description: Specify a fixed saturation parameter
+
+  - ManualExposure:
+      type: int32_t
+      description: Specify a fixed exposure time in milli-seconds
+
+  - ManualGain:
+      type: int32_t
+      description: Specify a fixed gain parameter
+
+...

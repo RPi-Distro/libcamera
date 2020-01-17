@@ -14,6 +14,7 @@
 #include <math.h>
 
 #include "formats.h"
+#include "utils.h"
 #include "v4l2_subdevice.h"
 
 /**
@@ -79,9 +80,8 @@ int CameraSensor::init()
 
 	if (entity_->function() != MEDIA_ENT_F_CAM_SENSOR) {
 		LOG(CameraSensor, Error)
-			<< "Invalid sensor function 0x"
-			<< std::hex << std::setfill('0') << std::setw(8)
-			<< entity_->function();
+			<< "Invalid sensor function "
+			<< utils::hex(entity_->function());
 		return -EINVAL;
 	}
 
@@ -251,7 +251,7 @@ int CameraSensor::setFormat(V4L2SubdeviceFormat *format)
  * \brief Retrieve the supported V4L2 controls and their information
  * \return A map of the V4L2 controls supported by the sensor
  */
-const V4L2ControlInfoMap &CameraSensor::controls() const
+const ControlInfoMap &CameraSensor::controls() const
 {
 	return subdev_->controls();
 }
@@ -279,7 +279,7 @@ const V4L2ControlInfoMap &CameraSensor::controls() const
  * \retval -EINVAL One of the control is not supported or not accessible
  * \retval i The index of the control that failed
  */
-int CameraSensor::getControls(V4L2ControlList *ctrls)
+int CameraSensor::getControls(ControlList *ctrls)
 {
 	return subdev_->getControls(ctrls);
 }
@@ -309,7 +309,7 @@ int CameraSensor::getControls(V4L2ControlList *ctrls)
  * \retval -EINVAL One of the control is not supported or not accessible
  * \retval i The index of the control that failed
  */
-int CameraSensor::setControls(V4L2ControlList *ctrls)
+int CameraSensor::setControls(ControlList *ctrls)
 {
 	return subdev_->setControls(ctrls);
 }

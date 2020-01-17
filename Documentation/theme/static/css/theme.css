@@ -6,7 +6,7 @@ html {
 }
 
 body {
-	color: rgb(0, 0, 0, 0.5);
+	color: rgb(0, 0, 0, 0.65);
 	font-family: Arial, sans-serif;
 	margin: 0px;
 }
@@ -22,6 +22,10 @@ a.headerlink {
 	font-size: 70%;
 	padding-left: 5px;
 	visibility: hidden;
+}
+
+a.toc-backref {
+	text-decoration: none;
 }
 
 h1:hover a.headerlink,
@@ -200,43 +204,51 @@ div#content {
 	padding-bottom: 50px;
 	margin-left: 0px;
 	margin-right: 0px;
-	overflow: auto;
 }
 
 div#content > div.block {
 	font-size: 16px;
 	margin-right: 0px;
-	margin-left: 20px;
-	max-width: 800px;
-	padding: 20px 60px 0px 60px;
+	margin-left: 0px;
+	max-width: 1280px;
+	padding: 0px 60px 0px 60px;
 	text-align: justify;
-	width: 70%;
 }
 
 div#content > div.block h1 {
-	color: black;
 	font-size: 40px;
+	margin-top: 0px;
 	text-align: left;
 }
 
-div.local-toc {
+div#content > div.block > div.section {
+	max-width: 800px;
+}
+
+div.local.topic {
 	float: right;
 	background-color: #fcfcff;
 	border: 1px dotted #4896e0;
-	margin-right: 100px;
+	margin-left: 20px;
+	margin-right: 0px;
+	max-width: 15em;
 	padding: 10px 20px 10px 10px;
+	text-align: left;
 }
 
-div.toc-title {
-	font-weight: bold;
-}
-
-div.local-toc ul {
+div.local.topic ul {
 	padding-left: 20px;
 	margin-bottom: 5px;
 }
 
-div.local-toc a {
+div.local.topic > ul:before {
+	content: "Contents";
+	display: block;
+	font-weight: bold;
+	margin-bottom: 10px;
+}
+
+div.local.topic a {
 	font-weight: normal;
 	padding-left: 10px;
 	text-decoration: none;
@@ -270,5 +282,8 @@ div#signature {
 }
 
 #libcamera div.toctree-wrapper {
+	height: 0px;
+	margin: 0px;
+	padding: 0px;
 	visibility: hidden;
 }
