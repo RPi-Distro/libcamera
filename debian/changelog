@@ -1,5 +1,5 @@
-libcamera (0~git20200116+30f9624-1) UNRELEASED; urgency=medium
+libcamera (0~git20200116+30f9624-1) unstable; urgency=medium
 
   * Initial release (Closes: #930456).
 
- -- Emmanuel Arias <eamanu@yaerobi.com>  Fri, 17 Jan 2020 10:42:50 -0300
+ -- Emmanuel Arias <eamanu@yaerobi.com>  Mon, 20 Jan 2020 17:10:51 +0100
