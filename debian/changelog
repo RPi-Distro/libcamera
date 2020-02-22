@@ -2,4 +2,4 @@ libcamera (0~git20200116+30f9624-1) unstable; urgency=medium
 
   * Initial release (Closes: #930456).
 
- -- Emmanuel Arias <eamanu@yaerobi.com>  Mon, 20 Jan 2020 17:10:51 +0100
+ -- Emmanuel Arias <eamanu@yaerobi.com>  Sat, 22 Feb 2020 19:57:58 +0200
