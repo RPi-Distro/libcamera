@@ -1,3 +1,18 @@
+libcamera (0~git20200417+35269f0-1) UNRELEASED; urgency=medium
+
+  * New upstream version 0~git20200417+35269f0
+    * Refresh patches
+  * Move "libcamera-tools" into section "video" (Closes: 956720)
+  * Make build reproducible.
+    Thanks to Chris Lamb <lamby@debian.org> (Closes: #956304)
+  * Add 'licensecheck' target
+  * Generate d/copyright_hints
+  * Add myself to copyright holders
+  * Declare that building this package does not require 'root' powers.
+  * Enable hardening
+
+ -- IOhannes m zmölnig (Debian/GNU) <umlaeute@debian.org>  Sat, 18 Apr 2020 22:44:18 +0200
+
 libcamera (0~git20200116+30f9624-1) unstable; urgency=medium
 
   * Initial release (Closes: #930456).
