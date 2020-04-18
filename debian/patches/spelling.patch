@@ -1,0 +1,28 @@
+Description: Spelling fixes
+Author: IOhannes m zmölnig
+Forwarded: no
+Last-Update: 2020-04-18
+---
+This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
+--- libcamera.orig/src/ipa/rkisp1/rkisp1.cpp
++++ libcamera/src/ipa/rkisp1/rkisp1.cpp
+@@ -167,7 +167,7 @@
+ 		break;
+ 	}
+ 	default:
+-		LOG(IPARkISP1, Error) << "Unkown event " << event.operation;
++		LOG(IPARkISP1, Error) << "Unknown event " << event.operation;
+ 		break;
+ 	}
+ }
+--- libcamera.orig/src/libcamera/pipeline/rkisp1/rkisp1.cpp
++++ libcamera/src/libcamera/pipeline/rkisp1/rkisp1.cpp
+@@ -427,7 +427,7 @@
+ 		metadataReady(frame, action.controls[0]);
+ 		break;
+ 	default:
+-		LOG(RkISP1, Error) << "Unkown action " << action.operation;
++		LOG(RkISP1, Error) << "Unknown action " << action.operation;
+ 		break;
+ 	}
+ }
