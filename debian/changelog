@@ -1,17 +1,23 @@
-libcamera (0~git20200417+35269f0-1) UNRELEASED; urgency=medium
+libcamera (0~git20200417+35269f0-1) unstable; urgency=medium
 
   * New upstream version 0~git20200417+35269f0
     * Refresh patches
+  * B-D un gnutls-dev
+  * Add patch take return value of write() into account
+  * Add patch to fix spelling errors
+  * Enable hardening
   * Move "libcamera-tools" into section "video" (Closes: 956720)
   * Make build reproducible.
     Thanks to Chris Lamb <lamby@debian.org> (Closes: #956304)
-  * Add 'licensecheck' target
-  * Generate d/copyright_hints
-  * Add myself to copyright holders
   * Declare that building this package does not require 'root' powers.
-  * Enable hardening
+  * Update d/copyright
+    * Rearrange d/copyright paragraphs
+    * Add 'licensecheck' target
+    * Generate d/copyright_hints
+    * Add myself to copyright holders
+  * Bump standards version to 4.5.0
 
- -- IOhannes m zmölnig (Debian/GNU) <umlaeute@debian.org>  Sat, 18 Apr 2020 22:44:18 +0200
+ -- IOhannes m zmölnig (Debian/GNU) <umlaeute@debian.org>  Sat, 18 Apr 2020 23:28:05 +0200
 
 libcamera (0~git20200116+30f9624-1) unstable; urgency=medium
 
