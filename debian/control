@@ -47,6 +47,7 @@ Description: complex camera support library
  programming interface to the applications.
 
 Package: libcamera-tools
+Section: video
 Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends}
