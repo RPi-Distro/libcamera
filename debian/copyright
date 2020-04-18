@@ -63,6 +63,7 @@ Files: debian/*
 Copyright:
  2019 Emmanuel Arias <emmanuelarias30@gmail.com>
  2019 Andrej Shadura <andrewsh@debian.org>
+ 2020 IOhannes m zmölnig <umlaeute@debian.org>
 License: GPL-2+
 
 License: GPL-2+
