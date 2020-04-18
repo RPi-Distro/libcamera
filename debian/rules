@@ -19,4 +19,3 @@ licensecheck:
 		> debian/copyright_newhints
 	cmp debian/copyright_hints debian/copyright_newhints \
 		&& rm debian/copyright_newhints
-
