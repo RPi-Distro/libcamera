@@ -9,6 +9,6 @@ export DH_VERBOSE = 1
 override_dh_install:
 	dh_install -X/.doctrees/
 
+.PHONY: override_dh_auto_test
 override_dh_auto_test:
 
-.PHONY: override_dh_auto_test
