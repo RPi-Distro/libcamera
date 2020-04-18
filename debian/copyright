@@ -2,6 +2,18 @@ Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: libcamera
 Source: https://libcamera.org/
 
+Files: *
+Copyright:
+ 2018—2019 Libcamera contributors
+ 2019      Giulio Benetti
+ 2018—2019 Jacopo Mondi
+ 2018—2019 Kieran Bingham
+ 2018—2019 Laurent Pinchart
+ 2019      Mickael Guene
+ 2018—2019 Niklas Söderlund
+ 2019      Paul Elder
+License: GPL-2+
+
 Files:
  src/libcamera/*
  include/libcamera/*
@@ -15,18 +27,6 @@ Copyright:
  2018—2019 Niklas Söderlund
  2019      Paul Elder
 License: LGPL-2.1+
-
-Files: *
-Copyright:
- 2018—2019 Libcamera contributors
- 2019      Giulio Benetti
- 2018—2019 Jacopo Mondi
- 2018—2019 Kieran Bingham
- 2018—2019 Laurent Pinchart
- 2019      Mickael Guene
- 2018—2019 Niklas Söderlund
- 2019      Paul Elder
-License: GPL-2+
 
 Files:
  include/android/hardware/*
