@@ -12,3 +12,11 @@ override_dh_install:
 .PHONY: override_dh_auto_test
 override_dh_auto_test:
 
+
+.PHONY: licensecheck
+licensecheck:
+	licensecheck --deb-machine -r * \
+		> debian/copyright_newhints
+	cmp debian/copyright_hints debian/copyright_newhints \
+		&& rm debian/copyright_newhints
+
