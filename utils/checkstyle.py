@@ -321,10 +321,10 @@ class Pep8Checker(StyleChecker):
         data = ''.join(self.__content).encode('utf-8')
 
         try:
-            ret = subprocess.run(['pep8', '--ignore=E501', '-'],
+            ret = subprocess.run(['pycodestyle', '--ignore=E501', '-'],
                                  input=data, stdout=subprocess.PIPE)
         except FileNotFoundError:
-            issues.append(StyleIssue(0, None, "Please install pep8 to validate python additions"))
+            issues.append(StyleIssue(0, None, "Please install pycodestyle to validate python additions"))
             return issues
 
         results = ret.stdout.decode('utf-8').splitlines()
@@ -336,6 +336,44 @@ class Pep8Checker(StyleChecker):
 
             if line_number in line_numbers:
                 line = self.__content[line_number - 1]
+                issues.append(StyleIssue(line_number, line, msg))
+
+        return issues
+
+
+class ShellChecker(StyleChecker):
+    patterns = ('*.sh',)
+    results_line_regex = re.compile('In - line ([0-9]+):')
+
+    def __init__(self, content):
+        super().__init__()
+        self.__content = content
+
+    def check(self, line_numbers):
+        issues = []
+        data = ''.join(self.__content).encode('utf-8')
+
+        try:
+            ret = subprocess.run(['shellcheck', '-Cnever', '-'],
+                                 input=data, stdout=subprocess.PIPE)
+        except FileNotFoundError:
+            issues.append(StyleIssue(0, None, "Please install shellcheck to validate shell script additions"))
+            return issues
+
+        results = ret.stdout.decode('utf-8').splitlines()
+        for nr, item in enumerate(results):
+            search = re.search(ShellChecker.results_line_regex, item)
+            if search is None:
+                continue
+
+            line_number = int(search.group(1))
+            line = results[nr + 1]
+            msg = results[nr + 2]
+
+            # Determined, but not yet used
+            position = msg.find('^') + 1
+
+            if line_number in line_numbers:
                 issues.append(StyleIssue(line_number, line, msg))
 
         return issues
@@ -443,6 +481,47 @@ class DoxygenFormatter(Formatter):
         return '\n'.join(lines)
 
 
+class IncludeOrderFormatter(Formatter):
+    patterns = ('*.cpp', '*.h')
+
+    include_regex = re.compile('^#include ["<]([^">]*)[">]')
+
+    @classmethod
+    def format(cls, filename, data):
+        lines = []
+        includes = []
+
+        # Parse blocks of #include statements, and output them as a sorted list
+        # when we reach a non #include statement.
+        for line in data.split('\n'):
+            match = IncludeOrderFormatter.include_regex.match(line)
+            if match:
+                # If the current line is an #include statement, add it to the
+                # includes group and continue to the next line.
+                includes.append((line, match.group(1)))
+                continue
+
+            # The current line is not an #include statement, output the sorted
+            # stashed includes first, and then the current line.
+            if len(includes):
+                includes.sort(key=lambda i: i[1])
+                for include in includes:
+                    lines.append(include[0])
+                includes = []
+
+            lines.append(line)
+
+        # In the unlikely case the file ends with an #include statement, make
+        # sure we output the stashed includes.
+        if len(includes):
+            includes.sort(key=lambda i: i[1])
+            for include in includes:
+                lines.append(include[0])
+            includes = []
+
+        return '\n'.join(lines)
+
+
 class StripTrailingSpaceFormatter(Formatter):
     patterns = ('*.c', '*.cpp', '*.h', '*.py', 'meson.build')
 
@@ -458,12 +537,68 @@ class StripTrailingSpaceFormatter(Formatter):
 # Style checking
 #
 
+class Commit:
+    def __init__(self, commit):
+        self.commit = commit
+
+    def get_info(self):
+        # Get the commit title and list of files.
+        ret = subprocess.run(['git', 'show', '--pretty=oneline', '--name-only',
+                              self.commit],
+                             stdout=subprocess.PIPE).stdout.decode('utf-8')
+        files = ret.splitlines()
+        # Returning title and files list as a tuple
+        return files[0], files[1:]
+
+    def get_diff(self, top_level, filename):
+        return subprocess.run(['git', 'diff', '%s~..%s' % (self.commit, self.commit),
+                               '--', '%s/%s' % (top_level, filename)],
+                              stdout=subprocess.PIPE).stdout.decode('utf-8')
+
+    def get_file(self, filename):
+        return subprocess.run(['git', 'show', '%s:%s' % (self.commit, filename)],
+                              stdout=subprocess.PIPE).stdout.decode('utf-8')
+
+
+class StagedChanges(Commit):
+    def __init__(self):
+        Commit.__init__(self, '')
+
+    def get_info(self):
+        ret = subprocess.run(['git', 'diff', '--staged', '--name-only'],
+                             stdout=subprocess.PIPE).stdout.decode('utf-8')
+        return "Staged changes", ret.splitlines()
+
+    def get_diff(self, top_level, filename):
+        return subprocess.run(['git', 'diff', '--staged', '--',
+                               '%s/%s' % (top_level, filename)],
+                              stdout=subprocess.PIPE).stdout.decode('utf-8')
+
+
+class Amendment(StagedChanges):
+    def __init__(self):
+        StagedChanges.__init__(self)
+
+    def get_info(self):
+        # Create a title using HEAD commit
+        ret = subprocess.run(['git', 'show', '--pretty=oneline', '--no-patch'],
+                             stdout=subprocess.PIPE).stdout.decode('utf-8')
+        title = 'Amendment of ' + ret.strip()
+        # Extract the list of modified files
+        ret = subprocess.run(['git', 'diff', '--staged', '--name-only', 'HEAD~'],
+                             stdout=subprocess.PIPE).stdout.decode('utf-8')
+        return title, ret.splitlines()
+
+    def get_diff(self, top_level, filename):
+        return subprocess.run(['git', 'diff', '--staged', 'HEAD~', '--',
+                               '%s/%s' % (top_level, filename)],
+                              stdout=subprocess.PIPE).stdout.decode('utf-8')
+
+
 def check_file(top_level, commit, filename):
     # Extract the line numbers touched by the commit.
-    diff = subprocess.run(['git', 'diff', '%s~..%s' % (commit, commit), '--',
-                           '%s/%s' % (top_level, filename)],
-                          stdout=subprocess.PIPE).stdout
-    diff = diff.decode('utf-8').splitlines(True)
+    diff = commit.get_diff(top_level, filename)
+    diff = diff.splitlines(True)
     commit_diff = parse_diff(diff)
 
     lines = []
@@ -476,9 +611,7 @@ def check_file(top_level, commit, filename):
 
     # Format the file after the commit with all formatters and compute the diff
     # between the unformatted and formatted contents.
-    after = subprocess.run(['git', 'show', '%s:%s' % (commit, filename)],
-                           stdout=subprocess.PIPE).stdout
-    after = after.decode('utf-8')
+    after = commit.get_file(filename)
 
     formatted = after
     for formatter in Formatter.formatters(filename):
@@ -522,12 +655,7 @@ def check_file(top_level, commit, filename):
 
 
 def check_style(top_level, commit):
-    # Get the commit title and list of files.
-    ret = subprocess.run(['git', 'show', '--pretty=oneline','--name-only', commit],
-                         stdout=subprocess.PIPE)
-    files = ret.stdout.decode('utf-8').splitlines()
-    title = files[0]
-    files = files[1:]
+    title, files = commit.get_info()
 
     separator = '-' * len(title)
     print(separator)
@@ -541,7 +669,7 @@ def check_style(top_level, commit):
     files = [f for f in files if len([p for p in patterns if fnmatch.fnmatch(os.path.basename(f), p)])]
     if len(files) == 0:
         print("Commit doesn't touch source files, skipping")
-        return
+        return 0
 
     issues = 0
     for f in files:
@@ -554,8 +682,10 @@ def check_style(top_level, commit):
         print("%u potential style %s detected, please review" % \
                 (issues, 'issue' if issues == 1 else 'issues'))
 
+    return issues
 
-def extract_revlist(revs):
+
+def extract_commits(revs):
     """Extract a list of commits on which to operate from a revision or revision
     range.
     """
@@ -574,7 +704,7 @@ def extract_revlist(revs):
         revlist = ret.stdout.decode('utf-8').splitlines()
         revlist.reverse()
 
-    return revlist
+    return [Commit(x) for x in revlist]
 
 
 def git_top_level():
@@ -595,7 +725,11 @@ def main(argv):
     parser = argparse.ArgumentParser()
     parser.add_argument('--formatter', '-f', type=str, choices=['astyle', 'clang-format'],
                         help='Code formatter. Default to clang-format if not specified.')
-    parser.add_argument('revision_range', type=str, default='HEAD', nargs='?',
+    parser.add_argument('--staged', '-s', action='store_true',
+                        help='Include the changes in the index. Defaults to False')
+    parser.add_argument('--amend', '-a', action='store_true',
+                        help='Include changes in the index and the previous patch combined. Defaults to False')
+    parser.add_argument('revision_range', type=str, default=None, nargs='?',
                         help='Revision range (as defined by git rev-parse). Defaults to HEAD if not specified.')
     args = parser.parse_args(argv[1:])
 
@@ -630,13 +764,30 @@ def main(argv):
     if top_level is None:
             return 1
 
-    revlist = extract_revlist(args.revision_range)
+    commits = []
+    if args.staged:
+        commits.append(StagedChanges())
+    if args.amend:
+        commits.append(Amendment())
 
-    for commit in revlist:
-        check_style(top_level, commit)
+    # If none of --staged or --amend was passed
+    if len(commits) == 0:
+        # And no revisions were passed, then default to HEAD
+        if not args.revision_range:
+            args.revision_range = 'HEAD'
+
+    if args.revision_range:
+        commits += extract_commits(args.revision_range)
+
+    issues = 0
+    for commit in commits:
+        issues += check_style(top_level, commit)
         print('')
 
-    return 0
+    if issues:
+        return 1
+    else:
+        return 0
 
 
 if __name__ == '__main__':

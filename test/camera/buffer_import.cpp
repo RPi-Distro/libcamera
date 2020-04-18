@@ -10,106 +10,19 @@
 #include <algorithm>
 #include <iostream>
 #include <numeric>
-#include <random>
 #include <vector>
 
 #include "device_enumerator.h"
 #include "media_device.h"
 #include "v4l2_videodevice.h"
 
+#include "buffer_source.h"
 #include "camera_test.h"
 #include "test.h"
 
 using namespace libcamera;
 
 namespace {
-
-/* A provider of external buffers, suitable for import by a Camera. */
-class BufferSource
-{
-public:
-	BufferSource()
-		: video_(nullptr)
-	{
-	}
-
-	~BufferSource()
-	{
-		if (video_) {
-			video_->releaseBuffers();
-			video_->close();
-		}
-
-		delete video_;
-		video_ = nullptr;
-
-		if (media_)
-			media_->release();
-	}
-
-	int allocate(const StreamConfiguration &config)
-	{
-		int ret;
-
-		/* Locate and open the video device. */
-		std::string videoDeviceName = "vivid-000-vid-out";
-
-		std::unique_ptr<DeviceEnumerator> enumerator =
-			DeviceEnumerator::create();
-		if (!enumerator) {
-			std::cout << "Failed to create device enumerator" << std::endl;
-			return TestFail;
-		}
-
-		if (enumerator->enumerate()) {
-			std::cout << "Failed to enumerate media devices" << std::endl;
-			return TestFail;
-		}
-
-		DeviceMatch dm("vivid");
-		dm.add(videoDeviceName);
-
-		media_ = enumerator->search(dm);
-		if (!media_) {
-			std::cout << "No vivid output device available" << std::endl;
-			return TestSkip;
-		}
-
-		video_ = V4L2VideoDevice::fromEntityName(media_.get(), videoDeviceName);
-		if (!video_) {
-			std::cout << "Unable to open " << videoDeviceName << std::endl;
-			return TestFail;
-		}
-
-		if (video_->open())
-			return TestFail;
-
-		/* Configure the format. */
-		V4L2DeviceFormat format;
-		ret = video_->getFormat(&format);
-		if (ret) {
-			std::cout << "Failed to get format on output device" << std::endl;
-			return ret;
-		}
-
-		format.size = config.size;
-		format.fourcc = V4L2VideoDevice::toV4L2Fourcc(config.pixelFormat, false);
-		if (video_->setFormat(&format))
-			return TestFail;
-
-		return video_->exportBuffers(config.bufferCount, &buffers_);
-	}
-
-	const std::vector<std::unique_ptr<FrameBuffer>> &buffers()
-	{
-		return buffers_;
-	}
-
-private:
-	std::shared_ptr<MediaDevice> media_;
-	V4L2VideoDevice *video_;
-	std::vector<std::unique_ptr<FrameBuffer>> buffers_;
-};
 
 class BufferImportTest : public CameraTest, public Test
 {
@@ -178,8 +91,8 @@ protected:
 
 		BufferSource source;
 		int ret = source.allocate(cfg);
-		if (ret < 0)
-			return TestFail;
+		if (ret != TestPass)
+			return ret;
 
 		std::vector<Request *> requests;
 		for (const std::unique_ptr<FrameBuffer> &buffer : source.buffers()) {

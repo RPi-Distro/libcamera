@@ -59,10 +59,9 @@ protected:
 			0,
 			"PipelineHandlerVimc",
 			"Dummy IPA for Vimc",
-			"GPL-2.0-or-later",
 		};
 
-		count += runTest("src/ipa/ipa_vimc.so", testInfo);
+		count += runTest("src/ipa/vimc/ipa_vimc.so", testInfo);
 
 		if (count < 0)
 			return TestFail;

@@ -99,6 +99,14 @@ LOG_DEFINE_CATEGORY(Pipeline)
  */
 
 /**
+ * \var CameraData::properties_
+ * \brief The list of properties supported by the camera
+ *
+ * The list of camera properties shall be initialised by the pipeline handler
+ * when creating the camera, and shall not be modified afterwards.
+ */
+
+/**
  * \var CameraData::ipa_
  * \brief The IPA module used by the camera
  *
@@ -166,6 +174,8 @@ PipelineHandler::~PipelineHandler()
  * If this function returns true, a new instance of the pipeline handler will
  * be created and its match() function called.
  *
+ * \context This function is called from the CameraManager thread.
+ *
  * \return true if media devices have been acquired and camera instances
  * created, or false otherwise
  */
@@ -181,6 +191,8 @@ PipelineHandler::~PipelineHandler()
  * the media device is acquired and returned. The caller shall not release the
  * device explicitly, it will be automatically released when the pipeline
  * handler is destroyed.
+ *
+ * \context This function shall be called from the CameraManager thread.
  *
  * \return A pointer to the matching MediaDevice, or nullptr if no match is found
  */
@@ -205,6 +217,8 @@ MediaDevice *PipelineHandler::acquireMediaDevice(DeviceEnumerator *enumerator,
  * This method shall not be called from pipeline handler implementation, as the
  * Camera class handles locking directly.
  *
+ * \context This function is \threadsafe.
+ *
  * \return True if the devices could be locked, false otherwise
  * \sa unlock()
  * \sa MediaDevice::lock()
@@ -227,6 +241,8 @@ bool PipelineHandler::lock()
  * This method shall not be called from pipeline handler implementation, as the
  * Camera class handles locking directly.
  *
+ * \context This function is \threadsafe.
+ *
  * \sa lock()
  */
 void PipelineHandler::unlock()
@@ -238,12 +254,24 @@ void PipelineHandler::unlock()
 /**
  * \brief Retrieve the list of controls for a camera
  * \param[in] camera The camera
+ * \context This function is \threadsafe.
  * \return A ControlInfoMap listing the controls support by \a camera
  */
 const ControlInfoMap &PipelineHandler::controls(Camera *camera)
 {
 	CameraData *data = cameraData(camera);
 	return data->controlInfo_;
+}
+
+/**
+ * \brief Retrieve the list of properties for a camera
+ * \param[in] camera The camera
+ * \return A ControlList of properties supported by \a camera
+ */
+const ControlList &PipelineHandler::properties(Camera *camera)
+{
+	CameraData *data = cameraData(camera);
+	return data->properties_;
 }
 
 /**
@@ -260,6 +288,10 @@ const ControlInfoMap &PipelineHandler::controls(Camera *camera)
  *
  * The intended companion to this is \a configure() which can be used to change
  * the group of streams parameters.
+ *
+ * \context This function may be called from any thread and shall be
+ * \threadsafe. It shall not modify the state of the \a camera in the pipeline
+ * handler.
  *
  * \return A valid CameraConfiguration if the requested roles can be satisfied,
  * or a null pointer otherwise. The ownership of the returned configuration is
@@ -286,12 +318,14 @@ const ControlInfoMap &PipelineHandler::controls(Camera *camera)
  * instance to each StreamConfiguration entry in the CameraConfiguration using
  * the StreamConfiguration::setStream() method.
  *
+ * \context This function is called from the CameraManager thread.
+ *
  * \return 0 on success or a negative error code otherwise
  */
 
 /**
  * \fn PipelineHandler::exportFrameBuffers()
- * \brief Allocate buffers for \a stream
+ * \brief Allocate and export buffers for \a stream
  * \param[in] camera The camera
  * \param[in] stream The stream to allocate buffers for
  * \param[out] buffers Array of buffers successfully allocated
@@ -303,62 +337,14 @@ const ControlInfoMap &PipelineHandler::controls(Camera *camera)
  *
  * The method may only be called after the Camera has been configured and before
  * it gets started, or after it gets stopped. It shall be called only for
- * streams that are part of the active camera configuration, and at most once
- * per stream until buffers for the stream are freed with freeFrameBuffers().
+ * streams that are part of the active camera configuration.
  *
- * exportFrameBuffers() shall also allocate all other resources required by
- * the pipeline handler for the stream to prepare for starting the Camera. This
- * responsibility is shared with importFrameBuffers(), and one and only one of
- * those two methods shall be called for each stream until the buffers are
- * freed. The pipeline handler shall support all combinations of
- * exportFrameBuffers() and importFrameBuffers() for the streams contained in
- * any camera configuration.
+ * The only intended caller is Camera::exportFrameBuffers().
  *
- * The only intended caller is the FrameBufferAllocator helper.
+ * \context This function is called from the CameraManager thread.
  *
- * \return 0 on success or a negative error code otherwise
- */
-
-/**
- * \fn PipelineHandler::importFrameBuffers()
- * \brief Prepare \a stream to use external buffers
- * \param[in] camera The camera
- * \param[in] stream The stream to prepare for import
- *
- * This method prepares the pipeline handler to use buffers provided by the
- * application for the \a stream.
- *
- * The method may only be called after the Camera has been configured and before
- * it gets started, or after it gets stopped. It shall be called only for
- * streams that are part of the active camera configuration, and at most once
- * per stream until buffers for the stream are freed with freeFrameBuffers().
- *
- * importFrameBuffers() shall also allocate all other resources required by the
- * pipeline handler for the stream to prepare for starting the Camera. This
- * responsibility is shared with exportFrameBuffers(), and one and only one of
- * those two methods shall be called for each stream until the buffers are
- * freed. The pipeline handler shall support all combinations of
- * exportFrameBuffers() and importFrameBuffers() for the streams contained in
- * any camera configuration.
- *
- * The only intended caller is Camera::start().
- *
- * \return 0 on success or a negative error code otherwise
- */
-
-/**
- * \fn PipelineHandler::freeFrameBuffers()
- * \brief Free buffers allocated from the stream
- * \param[in] camera The camera
- * \param[in] stream The stream to free buffers for
- *
- * This method shall free all buffers and all other resources allocated for the
- * \a stream by exportFrameBuffers() or importFrameBuffers(). It shall be
- * called only after a successful call to either of these two methods, and only
- * once per stream.
- *
- * The only intended callers are Camera::stop() and the FrameBufferAllocator
- * helper.
+ * \return The number of allocated buffers on success or a negative error code
+ * otherwise
  */
 
 /**
@@ -371,6 +357,8 @@ const ControlInfoMap &PipelineHandler::controls(Camera *camera)
  * will in turn be called from the application to indicate that it has
  * configured the streams and is ready to capture.
  *
+ * \context This function is called from the CameraManager thread.
+ *
  * \return 0 on success or a negative error code otherwise
  */
 
@@ -381,6 +369,8 @@ const ControlInfoMap &PipelineHandler::controls(Camera *camera)
  *
  * This method stops capturing and processing requests immediately. All pending
  * requests are cancelled and complete immediately in an error state.
+ *
+ * \context This function is called from the CameraManager thread.
  */
 
 /**
@@ -396,6 +386,8 @@ const ControlInfoMap &PipelineHandler::controls(Camera *camera)
  * Keeping track of queued requests ensures automatic completion of all requests
  * when the pipeline handler is stopped with stop(). Request completion shall be
  * signalled by the pipeline handler using the completeRequest() method.
+ *
+ * \context This function is called from the CameraManager thread.
  *
  * \return 0 on success or a negative error code otherwise
  */
@@ -423,6 +415,8 @@ int PipelineHandler::queueRequest(Camera *camera, Request *request)
  * parameters will be applied to the frames captured in the buffers provided in
  * the request.
  *
+ * \context This function is called from the CameraManager thread.
+ *
  * \return 0 on success or a negative error code otherwise
  */
 
@@ -438,6 +432,8 @@ int PipelineHandler::queueRequest(Camera *camera, Request *request)
  * is not completed automatically when the last buffer completes to give
  * pipeline handlers a chance to perform any operation that may still be
  * needed. They shall complete requests explicitly with completeRequest().
+ *
+ * \context This function shall be called from the CameraManager thread.
  *
  * \return True if all buffers contained in the request have completed, false
  * otherwise
@@ -461,6 +457,8 @@ bool PipelineHandler::completeBuffer(Camera *camera, Request *request,
  * This method ensures that requests will be returned to the application in
  * submission order, the pipeline handler may call it on any complete request
  * without any ordering constraint.
+ *
+ * \context This function shall be called from the CameraManager thread.
  */
 void PipelineHandler::completeRequest(Camera *camera, Request *request)
 {
@@ -494,6 +492,8 @@ void PipelineHandler::completeRequest(Camera *camera, Request *request)
  * is to be associated with. This is for the V4L2 compatibility layer to map
  * device nodes to Camera instances based on the device number
  * registered by this method in \a devnum.
+ *
+ * \context This function shall be called from the CameraManager thread.
  */
 void PipelineHandler::registerCamera(std::shared_ptr<Camera> camera,
 				     std::unique_ptr<CameraData> data,
@@ -587,6 +587,7 @@ CameraData *PipelineHandler::cameraData(const Camera *camera)
 /**
  * \fn PipelineHandler::name()
  * \brief Retrieve the pipeline handler name
+ * \context This function shall be \threadsafe.
  * \return The pipeline handler name
  */
 

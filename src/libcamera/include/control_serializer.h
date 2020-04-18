@@ -24,10 +24,10 @@ public:
 
 	void reset();
 
-	static size_t binarySize(const ControlInfoMap &info);
+	static size_t binarySize(const ControlInfoMap &infoMap);
 	static size_t binarySize(const ControlList &list);
 
-	int serialize(const ControlInfoMap &info, ByteStreamBuffer &buffer);
+	int serialize(const ControlInfoMap &infoMap, ByteStreamBuffer &buffer);
 	int serialize(const ControlList &list, ByteStreamBuffer &buffer);
 
 	template<typename T>
@@ -35,13 +35,14 @@ public:
 
 private:
 	static size_t binarySize(const ControlValue &value);
-	static size_t binarySize(const ControlRange &range);
+	static size_t binarySize(const ControlInfo &info);
 
 	static void store(const ControlValue &value, ByteStreamBuffer &buffer);
-	static void store(const ControlRange &range, ByteStreamBuffer &buffer);
+	static void store(const ControlInfo &info, ByteStreamBuffer &buffer);
 
-	template<typename T>
-	T load(ControlType type, ByteStreamBuffer &b);
+	ControlValue loadControlValue(ControlType type, ByteStreamBuffer &buffer,
+				      bool isArray = false, unsigned int count = 1);
+	ControlInfo loadControlInfo(ControlType type, ByteStreamBuffer &buffer);
 
 	unsigned int serial_;
 	std::vector<std::unique_ptr<ControlId>> controlIds_;

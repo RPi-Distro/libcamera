@@ -8,13 +8,101 @@
 #include "thread.h"
 
 #include <atomic>
+#include <condition_variable>
 #include <list>
+#include <sys/syscall.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #include <libcamera/event_dispatcher.h>
 
 #include "event_dispatcher_poll.h"
 #include "log.h"
 #include "message.h"
+
+/**
+ * \page thread Thread Support
+ *
+ * libcamera supports multi-threaded applications through a threading model that
+ * sets precise rules to guarantee thread-safe usage of the API. Additionally,
+ * libcamera makes internal use of threads, and offers APIs that simplify
+ * interactions with application threads. Careful compliance with the threading
+ * model will ensure avoidance of race conditions.
+ *
+ * \section thread-objects Threads and Objects
+ *
+ * Instances of the Object class and all its derived classes are thread-aware
+ * and are bound to the thread they are created in. They are said to *live* in
+ * a thread, and they interact with the event loop of their thread for the
+ * purpose of message passing and signal delivery. Messages posted to the
+ * object with Object::postMessage() will be delivered from the event loop of
+ * the thread that the object lives in. Signals delivered to the object, unless
+ * explicitly connected with ConnectionTypeDirect, will also be delivered from
+ * the object thread's event loop.
+ *
+ * All Object instances created by libcamera are bound to an internal thread,
+ * and applications don't need to provide an event loop to support them. Object
+ * instances created by applications require an event loop. It is the
+ * responsibility of applications to provide that event loop, either explicitly
+ * through CameraManager::setEventDispatcher(), or by running the default event
+ * loop provided by CameraManager::eventDispatcher() in their main thread. The
+ * main thread of an application is the one that calls CameraManager::start().
+ *
+ * \section thread-signals Threads and Signals
+ *
+ * When sent to a receiver that does not inherit from the Object class, signals
+ * are delivered synchronously in the thread of the sender. When the receiver
+ * inherits from the Object class, delivery is by default asynchronous if the
+ * sender and receiver live in different threads. In that case, the signal is
+ * posted to the receiver's message queue and will be delivered from the
+ * receiver's event loop, running in the receiver's thread. This mechanism can
+ * be overridden by selecting a different connection type when calling
+ * Signal::connect().
+ *
+ * Asynchronous signal delivery is used internally in libcamera, but is also
+ * available to applications if desired. To use this feature, applications
+ * shall create receiver classes that inherit from the Object class, and
+ * provide an event loop to the CameraManager as explained above. Note that
+ * Object instances created by the application are limited to living in the
+ * application's main thread. Creating Object instances from another thread of
+ * an application causes undefined behaviour.
+ *
+ * \section thread-reentrancy Reentrancy and Thread-Safety
+ *
+ * Through the documentation, several terms are used to define how classes and
+ * their member functions can be used from multiple threads.
+ *
+ * - A **reentrant** function may be called simultaneously from multiple
+ *   threads if and only if each invocation uses a different instance of the
+ *   class. This is the default for all member functions not explictly marked
+ *   otherwise.
+ *
+ * - \anchor thread-safe A **thread-safe** function may be called
+ *   simultaneously from multiple threads on the same instance of a class. A
+ *   thread-safe function is thus reentrant. Thread-safe functions may also be
+ *   called simultaneously with any other reentrant function of the same class
+ *   on the same instance.
+ *
+ * - \anchor thread-bound A **thread-bound** function may be called only from
+ *   the thread that the class instances lives in (see section \ref
+ *   thread-objects). For instances of classes that do not derive from the
+ *   Object class, this is the thread in which the instance was created. A
+ *   thread-bound function is not thread-safe, and may or may not be reentrant.
+ *
+ * Neither reentrancy nor thread-safety, in this context, mean that a function
+ * may be called simultaneously from the same thread, for instance from a
+ * callback invoked by the function. This may deadlock and isn't allowed unless
+ * separately documented.
+ *
+ * A class is defined as reentrant, thread-safe or thread-bound if all its
+ * member functions are reentrant, thread-safe or thread-bound respectively.
+ * Some member functions may additionally be documented as having additional
+ * thread-related attributes.
+ *
+ * Most classes are reentrant but not thread-safe, as making them fully
+ * thread-safe would incur locking costs considered prohibitive for the
+ * expected use cases.
+ */
 
 /**
  * \file thread.h
@@ -62,11 +150,13 @@ private:
 
 	Thread *thread_;
 	bool running_;
+	pid_t tid_;
 
 	Mutex mutex_;
 
 	std::atomic<EventDispatcher *> dispatcher_;
 
+	std::condition_variable cv_;
 	std::atomic<bool> exit_;
 	int exitCode_;
 
@@ -108,6 +198,7 @@ ThreadData *ThreadData::current()
 	 * started, set it here.
 	 */
 	ThreadData *data = mainThread.data_;
+	data->tid_ = syscall(SYS_gettid);
 	currentThreadData = data;
 	return data;
 }
@@ -133,6 +224,8 @@ ThreadData *ThreadData::current()
  * called. A custom event dispatcher may be installed with
  * setEventDispatcher(), otherwise a poll-based event dispatcher is used. This
  * behaviour can be overriden by overloading the run() method.
+ *
+ * \context This class is \threadsafe.
  */
 
 /**
@@ -189,6 +282,7 @@ void Thread::startThread()
 	 */
 	thread_local ThreadCleaner cleaner(this, &Thread::finishThread);
 
+	data_->tid_ = syscall(SYS_gettid);
 	currentThreadData = data_;
 
 	run();
@@ -242,6 +336,7 @@ void Thread::finishThread()
 	data_->mutex_.unlock();
 
 	finished.emit(this);
+	data_->cv_.notify_all();
 }
 
 /**
@@ -268,14 +363,33 @@ void Thread::exit(int code)
 
 /**
  * \brief Wait for the thread to finish
+ * \param[in] duration Maximum wait duration
  *
- * This method waits until the thread finishes, or returns immediately if the
- * thread is not running.
+ * This function waits until the thread finishes or the \a duration has
+ * elapsed, whichever happens first. If \a duration is equal to
+ * utils::duration::max(), the wait never times out. If the thread is not
+ * running the function returns immediately.
+ *
+ * \return True if the thread has finished, or false if the wait timed out
  */
-void Thread::wait()
+bool Thread::wait(utils::duration duration)
 {
+	bool finished = true;
+
+	{
+		MutexLocker locker(data_->mutex_);
+
+		if (duration == utils::duration::max())
+			data_->cv_.wait(locker, [&]() { return !data_->running_; });
+		else
+			finished = data_->cv_.wait_for(locker, duration,
+						       [&]() { return !data_->running_; });
+	}
+
 	if (thread_.joinable())
 		thread_.join();
+
+	return finished;
 }
 
 /**
@@ -306,6 +420,20 @@ Thread *Thread::current()
 {
 	ThreadData *data = ThreadData::current();
 	return data->thread_;
+}
+
+/**
+ * \brief Retrieve the ID of the current thread
+ *
+ * The thread ID corresponds to the Linux thread ID (TID) as returned by the
+ * gettid system call.
+ *
+ * \return The ID of the current thread
+ */
+pid_t Thread::currentId()
+{
+	ThreadData *data = ThreadData::current();
+	return data->tid_;
 }
 
 /**

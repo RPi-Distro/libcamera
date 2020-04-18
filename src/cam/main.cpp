@@ -11,6 +11,7 @@
 #include <string.h>
 
 #include <libcamera/libcamera.h>
+#include <libcamera/property_ids.h>
 
 #include "capture.h"
 #include "event_loop.h"
@@ -36,6 +37,7 @@ public:
 private:
 	int parseOptions(int argc, char *argv[]);
 	int prepareConfig();
+	int listProperties();
 	int infoConfiguration();
 	int run();
 
@@ -153,7 +155,7 @@ int CamApp::parseOptions(int argc, char *argv[])
 {
 	KeyValueParser streamKeyValue;
 	streamKeyValue.addOption("role", OptionString,
-				 "Role for the stream (viewfinder, video, still)",
+				 "Role for the stream (viewfinder, video, still, stillraw)",
 				 ArgumentRequired);
 	streamKeyValue.addOption("width", OptionInteger, "Width in pixels",
 				 ArgumentRequired);
@@ -180,6 +182,8 @@ int CamApp::parseOptions(int argc, char *argv[])
 	parser.addOption(OptInfo, OptionNone,
 			 "Display information about stream(s)", "info");
 	parser.addOption(OptList, OptionNone, "List all cameras", "list");
+	parser.addOption(OptProps, OptionNone, "List cameras properties",
+			 "list-properties");
 
 	options_ = parser.parse(argc, argv);
 	if (!options_.valid())
@@ -205,17 +209,21 @@ int CamApp::prepareConfig()
 		for (auto const &value : streamOptions) {
 			KeyValueParser::Options opt = value.toKeyValues();
 
-			if (!opt.isSet("role")) {
-				roles.push_back(StreamRole::VideoRecording);
-			} else if (opt["role"].toString() == "viewfinder") {
+			std::string role = opt.isSet("role")
+					 ? opt["role"].toString()
+					 : "viewfinder";
+
+			if (role == "viewfinder") {
 				roles.push_back(StreamRole::Viewfinder);
-			} else if (opt["role"].toString() == "video") {
+			} else if (role == "video") {
 				roles.push_back(StreamRole::VideoRecording);
-			} else if (opt["role"].toString() == "still") {
+			} else if (role == "still") {
 				roles.push_back(StreamRole::StillCapture);
+			} else if (role == "stillraw") {
+				roles.push_back(StreamRole::StillCaptureRaw);
 			} else {
 				std::cerr << "Unknown stream role "
-					  << opt["role"].toString() << std::endl;
+					  << role << std::endl;
 				return -EINVAL;
 			}
 		}
@@ -249,7 +257,7 @@ int CamApp::prepareConfig()
 
 			/* TODO: Translate 4CC string to ID. */
 			if (opt.isSet("pixelformat"))
-				cfg.pixelFormat = opt["pixelformat"];
+				cfg.pixelFormat = PixelFormat(opt["pixelformat"]);
 		}
 	}
 
@@ -268,6 +276,25 @@ int CamApp::prepareConfig()
 	return 0;
 }
 
+int CamApp::listProperties()
+{
+	if (!camera_) {
+		std::cout << "Cannot list properties without a camera"
+			  << std::endl;
+		return -EINVAL;
+	}
+
+	for (const auto &prop : camera_->properties()) {
+		const ControlId *id = properties::properties.at(prop.first);
+		const ControlValue &value = prop.second;
+
+		std::cout << "Property: " << id->name() << " = "
+			  << value.toString() << std::endl;
+	}
+
+	return 0;
+}
+
 int CamApp::infoConfiguration()
 {
 	if (!config_) {
@@ -281,9 +308,9 @@ int CamApp::infoConfiguration()
 		std::cout << index << ": " << cfg.toString() << std::endl;
 
 		const StreamFormats &formats = cfg.formats();
-		for (unsigned int pixelformat : formats.pixelformats()) {
-			std::cout << " * Pixelformat: 0x" << std::hex
-				  << std::setw(8) << pixelformat << " "
+		for (PixelFormat pixelformat : formats.pixelformats()) {
+			std::cout << " * Pixelformat: "
+				  << pixelformat.toString() << " "
 				  << formats.range(pixelformat).toString()
 				  << std::endl;
 
@@ -310,6 +337,12 @@ int CamApp::run()
 			std::cout << index << ": " << cam->name() << std::endl;
 			index++;
 		}
+	}
+
+	if (options_.isSet(OptProps)) {
+		ret = listProperties();
+		if (ret)
+			return ret;
 	}
 
 	if (options_.isSet(OptInfo)) {

@@ -7,6 +7,7 @@
 
 #include <libcamera/camera.h>
 
+#include <atomic>
 #include <iomanip>
 
 #include <libcamera/framebuffer_allocator.h>
@@ -254,6 +255,114 @@ std::size_t CameraConfiguration::size() const
  * \brief The vector of stream configurations
  */
 
+class Camera::Private
+{
+public:
+	enum State {
+		CameraAvailable,
+		CameraAcquired,
+		CameraConfigured,
+		CameraRunning,
+	};
+
+	Private(PipelineHandler *pipe, const std::string &name,
+		const std::set<Stream *> &streams);
+	~Private();
+
+	int isAccessAllowed(State state, bool allowDisconnected = false) const;
+	int isAccessAllowed(State low, State high,
+			    bool allowDisconnected = false) const;
+
+	void disconnect();
+	void setState(State state);
+
+	std::shared_ptr<PipelineHandler> pipe_;
+	std::string name_;
+	std::set<Stream *> streams_;
+	std::set<Stream *> activeStreams_;
+
+private:
+	bool disconnected_;
+	std::atomic<State> state_;
+};
+
+Camera::Private::Private(PipelineHandler *pipe, const std::string &name,
+			 const std::set<Stream *> &streams)
+	: pipe_(pipe->shared_from_this()), name_(name), streams_(streams),
+	  disconnected_(false), state_(CameraAvailable)
+{
+}
+
+Camera::Private::~Private()
+{
+	if (state_.load(std::memory_order_acquire) != Private::CameraAvailable)
+		LOG(Camera, Error) << "Removing camera while still in use";
+}
+
+static const char *const camera_state_names[] = {
+	"Available",
+	"Acquired",
+	"Configured",
+	"Running",
+};
+
+int Camera::Private::isAccessAllowed(State state, bool allowDisconnected) const
+{
+	if (!allowDisconnected && disconnected_)
+		return -ENODEV;
+
+	State currentState = state_.load(std::memory_order_acquire);
+	if (currentState == state)
+		return 0;
+
+	ASSERT(static_cast<unsigned int>(state) < ARRAY_SIZE(camera_state_names));
+
+	LOG(Camera, Debug) << "Camera in " << camera_state_names[currentState]
+			   << " state trying operation requiring state "
+			   << camera_state_names[state];
+
+	return -EACCES;
+}
+
+int Camera::Private::isAccessAllowed(State low, State high,
+				     bool allowDisconnected) const
+{
+	if (!allowDisconnected && disconnected_)
+		return -ENODEV;
+
+	State currentState = state_.load(std::memory_order_acquire);
+	if (currentState >= low && currentState <= high)
+		return 0;
+
+	ASSERT(static_cast<unsigned int>(low) < ARRAY_SIZE(camera_state_names) &&
+	       static_cast<unsigned int>(high) < ARRAY_SIZE(camera_state_names));
+
+	LOG(Camera, Debug) << "Camera in " << camera_state_names[currentState]
+			   << " state trying operation requiring state between "
+			   << camera_state_names[low] << " and "
+			   << camera_state_names[high];
+
+	return -EACCES;
+}
+
+void Camera::Private::disconnect()
+{
+	/*
+	 * If the camera was running when the hardware was removed force the
+	 * state to Configured state to allow applications to free resources
+	 * and call release() before deleting the camera.
+	 */
+	if (state_.load(std::memory_order_acquire) == Private::CameraRunning)
+		state_.store(Private::CameraConfigured, std::memory_order_release);
+
+	disconnected_ = true;
+}
+
+void Camera::Private::setState(State state)
+{
+	state_.store(state, std::memory_order_release);
+}
+
 /**
  * \class Camera
  * \brief Camera device
@@ -283,12 +392,17 @@ std::size_t CameraConfiguration::size() const
  * An application may start and stop a camera multiple times as long as it is
  * not released. The camera may also be reconfigured.
  *
+ * Functions that affect the camera state as defined below are generally not
+ * synchronized with each other by the Camera class. The caller is responsible
+ * for ensuring their synchronization if necessary.
+ *
  * \subsection Camera States
  *
  * To help manage the sequence of operations needed to control the camera a set
  * of states are defined. Each state describes which operations may be performed
- * on the camera. Operations not listed in the state diagram are allowed in all
- * states.
+ * on the camera. Performing an operation not allowed in the camera state
+ * results in undefined behaviour. Operations not listed at all in the state
+ * diagram are allowed in all states.
  *
  * \dot
  * digraph camera_state_machine {
@@ -354,19 +468,19 @@ std::shared_ptr<Camera> Camera::create(PipelineHandler *pipe,
 		}
 	};
 
-	Camera *camera = new Camera(pipe, name);
-	camera->streams_ = streams;
+	Camera *camera = new Camera(pipe, name, streams);
 
 	return std::shared_ptr<Camera>(camera, Deleter());
 }
 
 /**
  * \brief Retrieve the name of the camera
+ * \context This function is \threadsafe.
  * \return Name of the camera device
  */
 const std::string &Camera::name() const
 {
-	return name_;
+	return p_->name_;
 }
 
 /**
@@ -392,53 +506,14 @@ const std::string &Camera::name() const
  * application API calls by returning errors immediately.
  */
 
-Camera::Camera(PipelineHandler *pipe, const std::string &name)
-	: pipe_(pipe->shared_from_this()), name_(name), disconnected_(false),
-	  state_(CameraAvailable), allocator_(nullptr)
+Camera::Camera(PipelineHandler *pipe, const std::string &name,
+	       const std::set<Stream *> &streams)
+	: p_(new Private(pipe, name, streams))
 {
 }
 
 Camera::~Camera()
 {
-	if (!stateIs(CameraAvailable))
-		LOG(Camera, Error) << "Removing camera while still in use";
-}
-
-static const char *const camera_state_names[] = {
-	"Available",
-	"Acquired",
-	"Configured",
-	"Running",
-};
-
-bool Camera::stateBetween(State low, State high) const
-{
-	if (state_ >= low && state_ <= high)
-		return true;
-
-	ASSERT(static_cast<unsigned int>(low) < ARRAY_SIZE(camera_state_names) &&
-	       static_cast<unsigned int>(high) < ARRAY_SIZE(camera_state_names));
-
-	LOG(Camera, Debug) << "Camera in " << camera_state_names[state_]
-			   << " state trying operation requiring state between "
-			   << camera_state_names[low] << " and "
-			   << camera_state_names[high];
-
-	return false;
-}
-
-bool Camera::stateIs(State state) const
-{
-	if (state_ == state)
-		return true;
-
-	ASSERT(static_cast<unsigned int>(state) < ARRAY_SIZE(camera_state_names));
-
-	LOG(Camera, Debug) << "Camera in " << camera_state_names[state_]
-			   << " state trying operation requiring state "
-			   << camera_state_names[state];
-
-	return false;
 }
 
 /**
@@ -455,18 +530,28 @@ bool Camera::stateIs(State state) const
  */
 void Camera::disconnect()
 {
-	LOG(Camera, Debug) << "Disconnecting camera " << name_;
+	LOG(Camera, Debug) << "Disconnecting camera " << name();
 
-	/*
-	 * If the camera was running when the hardware was removed force the
-	 * state to Configured state to allow applications to free resources
-	 * and call release() before deleting the camera.
-	 */
-	if (state_ == CameraRunning)
-		state_ = CameraConfigured;
-
-	disconnected_ = true;
+	p_->disconnect();
 	disconnected.emit(this);
+}
+
+int Camera::exportFrameBuffers(Stream *stream,
+			       std::vector<std::unique_ptr<FrameBuffer>> *buffers)
+{
+	int ret = p_->isAccessAllowed(Private::CameraConfigured);
+	if (ret < 0)
+		return ret;
+
+	if (streams().find(stream) == streams().end())
+		return -EINVAL;
+
+	if (p_->activeStreams_.find(stream) == p_->activeStreams_.end())
+		return -EINVAL;
+
+	return p_->pipe_->invokeMethod(&PipelineHandler::exportFrameBuffers,
+				       ConnectionTypeBlocking, this, stream,
+				       buffers);
 }
 
 /**
@@ -486,7 +571,8 @@ void Camera::disconnect()
  * Once exclusive access isn't needed anymore, the device should be released
  * with a call to the release() function.
  *
- * This function affects the state of the camera, see \ref camera_operation.
+ * \context This function is \threadsafe. It may only be called when the camera
+ * is in the Available state as defined in \ref camera_operation.
  *
  * \return 0 on success or a negative error code otherwise
  * \retval -ENODEV The camera has been disconnected from the system
@@ -494,19 +580,21 @@ void Camera::disconnect()
  */
 int Camera::acquire()
 {
-	if (disconnected_)
-		return -ENODEV;
+	/*
+	 * No manual locking is required as PipelineHandler::lock() is
+	 * thread-safe.
+	 */
+	int ret = p_->isAccessAllowed(Private::CameraAvailable);
+	if (ret < 0)
+		return ret == -EACCES ? -EBUSY : ret;
 
-	if (!stateIs(CameraAvailable))
-		return -EBUSY;
-
-	if (!pipe_->lock()) {
+	if (!p_->pipe_->lock()) {
 		LOG(Camera, Info)
 			<< "Pipeline handler in use by another process";
 		return -EBUSY;
 	}
 
-	state_ = CameraAcquired;
+	p_->setState(Private::CameraAcquired);
 
 	return 0;
 }
@@ -517,29 +605,24 @@ int Camera::acquire()
  * Releasing the camera device allows other users to acquire exclusive access
  * with the acquire() function.
  *
- * This function affects the state of the camera, see \ref camera_operation.
+ * \context This function may only be called when the camera is in the
+ * Available or Configured state as defined in \ref camera_operation, and shall
+ * be synchronized by the caller with other functions that affect the camera
+ * state.
  *
  * \return 0 on success or a negative error code otherwise
  * \retval -EBUSY The camera is running and can't be released
  */
 int Camera::release()
 {
-	if (!stateBetween(CameraAvailable, CameraConfigured))
-		return -EBUSY;
+	int ret = p_->isAccessAllowed(Private::CameraAvailable,
+				      Private::CameraConfigured, true);
+	if (ret < 0)
+		return ret == -EACCES ? -EBUSY : ret;
 
-	if (allocator_) {
-		/*
-		 * \todo Try to find a better API that would make this error
-		 * impossible.
-		 */
-		LOG(Camera, Error)
-			<< "Buffers must be freed before the camera can be reconfigured";
-		return -EBUSY;
-	}
+	p_->pipe_->unlock();
 
-	pipe_->unlock();
-
-	state_ = CameraAvailable;
+	p_->setState(Private::CameraAvailable);
 
 	return 0;
 }
@@ -547,13 +630,29 @@ int Camera::release()
 /**
  * \brief Retrieve the list of controls supported by the camera
  *
- * Camera controls remain constant through the lifetime of the camera.
+ * The list of controls supported by the camera and their associated
+ * constraints remain constant through the lifetime of the Camera object.
+ *
+ * \context This function is \threadsafe.
  *
  * \return A ControlInfoMap listing the controls supported by the camera
  */
 const ControlInfoMap &Camera::controls()
 {
-	return pipe_->controls(this);
+	return p_->pipe_->controls(this);
+}
+
+/**
+ * \brief Retrieve the list of properties of the camera
+ *
+ * Camera properties are static information that describe the capabilities of
+ * the camera. They remain constant through the lifetime of the Camera object.
+ *
+ * \return A ControlList of properties supported by the camera
+ */
+const ControlList &Camera::properties()
+{
+	return p_->pipe_->properties(this);
 }
 
 /**
@@ -563,11 +662,13 @@ const ControlInfoMap &Camera::controls()
  * information describes among other things how many streams the camera
  * supports and the capabilities of each stream.
  *
+ * \context This function is \threadsafe.
+ *
  * \return An array of all the camera's streams.
  */
 const std::set<Stream *> &Camera::streams() const
 {
-	return streams_;
+	return p_->streams_;
 }
 
 /**
@@ -580,16 +681,23 @@ const std::set<Stream *> &Camera::streams() const
  * empty list of roles is valid, and will generate an empty configuration that
  * can be filled by the caller.
  *
+ * \context This function is \threadsafe.
+ *
  * \return A CameraConfiguration if the requested roles can be satisfied, or a
  * null pointer otherwise. The ownership of the returned configuration is
  * passed to the caller.
  */
 std::unique_ptr<CameraConfiguration> Camera::generateConfiguration(const StreamRoles &roles)
 {
-	if (disconnected_ || roles.size() > streams_.size())
+	int ret = p_->isAccessAllowed(Private::CameraAvailable,
+				      Private::CameraRunning);
+	if (ret < 0)
 		return nullptr;
 
-	CameraConfiguration *config = pipe_->generateConfiguration(this, roles);
+	if (roles.size() > streams().size())
+		return nullptr;
+
+	CameraConfiguration *config = p_->pipe_->generateConfiguration(this, roles);
 	if (!config) {
 		LOG(Camera, Debug)
 			<< "Pipeline handler failed to generate configuration";
@@ -625,7 +733,10 @@ std::unique_ptr<CameraConfiguration> Camera::generateConfiguration(const StreamR
  * Exclusive access to the camera shall be ensured by a call to acquire() prior
  * to calling this function, otherwise an -EACCES error will be returned.
  *
- * This function affects the state of the camera, see \ref camera_operation.
+ * \context This function may only be called when the camera is in the Acquired
+ * or Configured state as defined in \ref camera_operation, and shall be
+ * synchronized by the caller with other functions that affect the camera
+ * state.
  *
  * Upon return the StreamConfiguration entries in \a config are associated with
  * Stream instances which can be retrieved with StreamConfiguration::stream().
@@ -637,19 +748,10 @@ std::unique_ptr<CameraConfiguration> Camera::generateConfiguration(const StreamR
  */
 int Camera::configure(CameraConfiguration *config)
 {
-	int ret;
-
-	if (disconnected_)
-		return -ENODEV;
-
-	if (!stateBetween(CameraAcquired, CameraConfigured))
-		return -EACCES;
-
-	if (allocator_ && allocator_->allocated()) {
-		LOG(Camera, Error)
-			<< "Allocator must be deleted before camera can be reconfigured";
-		return -EBUSY;
-	}
+	int ret = p_->isAccessAllowed(Private::CameraAcquired,
+				      Private::CameraConfigured);
+	if (ret < 0)
+		return ret;
 
 	if (config->validate() != CameraConfiguration::Valid) {
 		LOG(Camera, Error)
@@ -667,11 +769,12 @@ int Camera::configure(CameraConfiguration *config)
 
 	LOG(Camera, Info) << msg.str();
 
-	ret = pipe_->configure(this, config);
+	ret = p_->pipe_->invokeMethod(&PipelineHandler::configure,
+				      ConnectionTypeBlocking, this, config);
 	if (ret)
 		return ret;
 
-	activeStreams_.clear();
+	p_->activeStreams_.clear();
 	for (const StreamConfiguration &cfg : *config) {
 		Stream *stream = cfg.stream();
 		if (!stream)
@@ -679,10 +782,10 @@ int Camera::configure(CameraConfiguration *config)
 				<< "Pipeline handler failed to update stream configuration";
 
 		stream->configuration_ = cfg;
-		activeStreams_.insert(stream);
+		p_->activeStreams_.insert(stream);
 	}
 
-	state_ = CameraConfigured;
+	p_->setState(Private::CameraConfigured);
 
 	return 0;
 }
@@ -702,14 +805,16 @@ int Camera::configure(CameraConfiguration *config)
  * The ownership of the returned request is passed to the caller, which is
  * responsible for either queueing the request or deleting it.
  *
- * This function shall only be called when the camera is in the Configured
- * or Running state, see \ref camera_operation.
+ * \context This function is \threadsafe. It may only be called when the camera
+ * is in the Configured or Running state as defined in \ref camera_operation.
  *
  * \return A pointer to the newly created request, or nullptr on error
  */
 Request *Camera::createRequest(uint64_t cookie)
 {
-	if (disconnected_ || !stateBetween(CameraConfigured, CameraRunning))
+	int ret = p_->isAccessAllowed(Private::CameraConfigured,
+				      Private::CameraRunning);
+	if (ret < 0)
 		return nullptr;
 
 	return new Request(this, cookie);
@@ -731,6 +836,9 @@ Request *Camera::createRequest(uint64_t cookie)
  * Ownership of the request is transferred to the camera. It will be deleted
  * automatically after it completes.
  *
+ * \context This function is \threadsafe. It may only be called when the camera
+ * is in the Running state as defined in \ref camera_operation.
+ *
  * \return 0 on success or a negative error code otherwise
  * \retval -ENODEV The camera has been disconnected from the system
  * \retval -EACCES The camera is not running so requests can't be queued
@@ -739,11 +847,15 @@ Request *Camera::createRequest(uint64_t cookie)
  */
 int Camera::queueRequest(Request *request)
 {
-	if (disconnected_)
-		return -ENODEV;
+	int ret = p_->isAccessAllowed(Private::CameraRunning);
+	if (ret < 0)
+		return ret;
 
-	if (!stateIs(CameraRunning))
-		return -EACCES;
+	/*
+	 * The camera state may chance until the end of the function. No locking
+	 * is however needed as PipelineHandler::queueRequest() will handle
+	 * this.
+	 */
 
 	if (request->buffers().empty()) {
 		LOG(Camera, Error) << "Request contains no buffers";
@@ -753,13 +865,14 @@ int Camera::queueRequest(Request *request)
 	for (auto const &it : request->buffers()) {
 		Stream *stream = it.first;
 
-		if (activeStreams_.find(stream) == activeStreams_.end()) {
+		if (p_->activeStreams_.find(stream) == p_->activeStreams_.end()) {
 			LOG(Camera, Error) << "Invalid request";
 			return -EINVAL;
 		}
 	}
 
-	return pipe_->queueRequest(this, request);
+	return p_->pipe_->invokeMethod(&PipelineHandler::queueRequest,
+				       ConnectionTypeQueued, this, request);
 }
 
 /**
@@ -769,7 +882,10 @@ int Camera::queueRequest(Request *request)
  * can queue requests to the camera to process and return to the application
  * until the capture session is terminated with \a stop().
  *
- * This function affects the state of the camera, see \ref camera_operation.
+ * \context This function may only be called when the camera is in the
+ * Configured state as defined in \ref camera_operation, and shall be
+ * synchronized by the caller with other functions that affect the camera
+ * state.
  *
  * \return 0 on success or a negative error code otherwise
  * \retval -ENODEV The camera has been disconnected from the system
@@ -777,26 +893,18 @@ int Camera::queueRequest(Request *request)
  */
 int Camera::start()
 {
-	if (disconnected_)
-		return -ENODEV;
-
-	if (!stateIs(CameraConfigured))
-		return -EACCES;
+	int ret = p_->isAccessAllowed(Private::CameraConfigured);
+	if (ret < 0)
+		return ret;
 
 	LOG(Camera, Debug) << "Starting capture";
 
-	for (Stream *stream : activeStreams_) {
-		if (allocator_ && !allocator_->buffers(stream).empty())
-			continue;
-
-		pipe_->importFrameBuffers(this, stream);
-	}
-
-	int ret = pipe_->start(this);
+	ret = p_->pipe_->invokeMethod(&PipelineHandler::start,
+				      ConnectionTypeBlocking, this);
 	if (ret)
 		return ret;
 
-	state_ = CameraRunning;
+	p_->setState(Private::CameraRunning);
 
 	return 0;
 }
@@ -807,7 +915,9 @@ int Camera::start()
  * This method stops capturing and processing requests immediately. All pending
  * requests are cancelled and complete synchronously in an error state.
  *
- * This function affects the state of the camera, see \ref camera_operation.
+ * \context This function may only be called when the camera is in the Running
+ * state as defined in \ref camera_operation, and shall be synchronized by the
+ * caller with other functions that affect the camera state.
  *
  * \return 0 on success or a negative error code otherwise
  * \retval -ENODEV The camera has been disconnected from the system
@@ -815,24 +925,16 @@ int Camera::start()
  */
 int Camera::stop()
 {
-	if (disconnected_)
-		return -ENODEV;
-
-	if (!stateIs(CameraRunning))
-		return -EACCES;
+	int ret = p_->isAccessAllowed(Private::CameraRunning);
+	if (ret < 0)
+		return ret;
 
 	LOG(Camera, Debug) << "Stopping capture";
 
-	state_ = CameraConfigured;
+	p_->setState(Private::CameraConfigured);
 
-	pipe_->stop(this);
-
-	for (Stream *stream : activeStreams_) {
-		if (allocator_ && !allocator_->buffers(stream).empty())
-			continue;
-
-		pipe_->freeFrameBuffers(this, stream);
-	}
+	p_->pipe_->invokeMethod(&PipelineHandler::stop, ConnectionTypeBlocking,
+				this);
 
 	return 0;
 }

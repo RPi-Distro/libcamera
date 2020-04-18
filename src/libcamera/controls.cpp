@@ -10,6 +10,7 @@
 #include <iomanip>
 #include <sstream>
 #include <string>
+#include <string.h>
 
 #include "control_validator.h"
 #include "log.h"
@@ -47,6 +48,20 @@ namespace libcamera {
 
 LOG_DEFINE_CATEGORY(Controls)
 
+namespace {
+
+static constexpr size_t ControlValueSize[] = {
+	[ControlTypeNone]		= 0,
+	[ControlTypeBool]		= sizeof(bool),
+	[ControlTypeByte]		= sizeof(uint8_t),
+	[ControlTypeInteger32]		= sizeof(int32_t),
+	[ControlTypeInteger64]		= sizeof(int64_t),
+	[ControlTypeFloat]		= sizeof(float),
+	[ControlTypeString]		= sizeof(char),
+};
+
+} /* namespace */
+
 /**
  * \enum ControlType
  * \brief Define the data type of a Control
@@ -54,10 +69,16 @@ LOG_DEFINE_CATEGORY(Controls)
  * Invalid type, for empty values
  * \var ControlTypeBool
  * The control stores a boolean value
+ * \var ControlTypeByte
+ * The control stores a byte value as an unsigned 8-bit integer
  * \var ControlTypeInteger32
  * The control stores a 32-bit integer value
  * \var ControlTypeInteger64
  * The control stores a 64-bit integer value
+ * \var ControlTypeFloat
+ * The control stores a 32-bit floating point value
+ * \var ControlTypeString
+ * The control stores a string value as an array of char
  */
 
 /**
@@ -65,39 +86,65 @@ LOG_DEFINE_CATEGORY(Controls)
  * \brief Abstract type representing the value of a control
  */
 
+/** \todo Revisit the ControlValue layout when stabilizing the ABI */
+static_assert(sizeof(ControlValue) == 16, "Invalid size of ControlValue class");
+
 /**
  * \brief Construct an empty ControlValue.
  */
 ControlValue::ControlValue()
-	: type_(ControlTypeNone)
+	: type_(ControlTypeNone), isArray_(false), numElements_(0)
 {
 }
 
 /**
- * \brief Construct a Boolean ControlValue
- * \param[in] value Boolean value to store
+ * \fn template<typename T> T ControlValue::ControlValue(const T &value)
+ * \brief Construct a ControlValue of type T
+ * \param[in] value Initial value
+ *
+ * This function constructs a new instance of ControlValue and stores the \a
+ * value inside it. If the type \a T is equivalent to Span<R>, the instance
+ * stores an array of values of type \a R. Otherwise the instance stores a
+ * single value of type \a T. The numElements() and type() are updated to
+ * reflect the stored value.
  */
-ControlValue::ControlValue(bool value)
-	: type_(ControlTypeBool), bool_(value)
+
+void ControlValue::release()
 {
+	std::size_t size = numElements_ * ControlValueSize[type_];
+
+	if (size > sizeof(value_)) {
+		delete[] reinterpret_cast<uint8_t *>(storage_);
+		storage_ = nullptr;
+	}
+}
+
+ControlValue::~ControlValue()
+{
+	release();
 }
 
 /**
- * \brief Construct an integer ControlValue
- * \param[in] value Integer value to store
+ * \brief Construct a ControlValue with the content of \a other
+ * \param[in] other The ControlValue to copy content from
  */
-ControlValue::ControlValue(int32_t value)
-	: type_(ControlTypeInteger32), integer32_(value)
+ControlValue::ControlValue(const ControlValue &other)
+	: type_(ControlTypeNone), numElements_(0)
 {
+	*this = other;
 }
 
 /**
- * \brief Construct a 64 bit integer ControlValue
- * \param[in] value Integer value to store
+ * \brief Replace the content of the ControlValue with a copy of the content
+ * of \a other
+ * \param[in] other The ControlValue to copy content from
+ * \return The ControlValue with its content replaced with the one of \a other
  */
-ControlValue::ControlValue(int64_t value)
-	: type_(ControlTypeInteger64), integer64_(value)
+ControlValue &ControlValue::operator=(const ControlValue &other)
 {
+	set(other.type_, other.isArray_, other.data().data(),
+	    other.numElements_, ControlValueSize[other.type_]);
+	return *this;
 }
 
 /**
@@ -113,67 +160,43 @@ ControlValue::ControlValue(int64_t value)
  */
 
 /**
- * \fn template<typename T> const T &ControlValue::get() const
- * \brief Get the control value
- *
- * The control value type shall match the type T, otherwise the behaviour is
- * undefined.
- *
- * \return The control value
+ * \fn ControlValue::isArray()
+ * \brief Determine if the value stores an array
+ * \return True if the value stores an array, false otherwise
  */
 
 /**
- * \fn template<typename T> void ControlValue::set(const T &value)
- * \brief Set the control value to \a value
- * \param[in] value The control value
+ * \fn ControlValue::numElements()
+ * \brief Retrieve the number of elements stored in the ControlValue
+ *
+ * For instances storing an array, this function returns the number of elements
+ * in the array. For instances storing a string, it returns the length of the
+ * string, not counting the terminating '\0'. Otherwise, it returns 1.
+ *
+ * \return The number of elements stored in the ControlValue
  */
 
-#ifndef __DOXYGEN__
-template<>
-const bool &ControlValue::get<bool>() const
+/**
+ * \brief Retrieve the raw data of a control value
+ * \return The raw data of the control value as a span of uint8_t
+ */
+Span<const uint8_t> ControlValue::data() const
 {
-	ASSERT(type_ == ControlTypeBool);
-
-	return bool_;
+	std::size_t size = numElements_ * ControlValueSize[type_];
+	const uint8_t *data = size > sizeof(value_)
+			    ? reinterpret_cast<const uint8_t *>(storage_)
+			    : reinterpret_cast<const uint8_t *>(&value_);
+	return { data, size };
 }
 
-template<>
-const int32_t &ControlValue::get<int32_t>() const
+/**
+ * \copydoc ControlValue::data() const
+ */
+Span<uint8_t> ControlValue::data()
 {
-	ASSERT(type_ == ControlTypeInteger32 || type_ == ControlTypeInteger64);
-
-	return integer32_;
+	Span<const uint8_t> data = const_cast<const ControlValue *>(this)->data();
+	return { const_cast<uint8_t *>(data.data()), data.size() };
 }
-
-template<>
-const int64_t &ControlValue::get<int64_t>() const
-{
-	ASSERT(type_ == ControlTypeInteger32 || type_ == ControlTypeInteger64);
-
-	return integer64_;
-}
-
-template<>
-void ControlValue::set<bool>(const bool &value)
-{
-	type_ = ControlTypeBool;
-	bool_ = value;
-}
-
-template<>
-void ControlValue::set<int32_t>(const int32_t &value)
-{
-	type_ = ControlTypeInteger32;
-	integer32_ = value;
-}
-
-template<>
-void ControlValue::set<int64_t>(const int64_t &value)
-{
-	type_ = ControlTypeInteger64;
-	integer64_ = value;
-}
-#endif /* __DOXYGEN__ */
 
 /**
  * \brief Assemble and return a string describing the value
@@ -181,18 +204,59 @@ void ControlValue::set<int64_t>(const int64_t &value)
  */
 std::string ControlValue::toString() const
 {
-	switch (type_) {
-	case ControlTypeNone:
-		return "<None>";
-	case ControlTypeBool:
-		return bool_ ? "True" : "False";
-	case ControlTypeInteger32:
-		return std::to_string(integer32_);
-	case ControlTypeInteger64:
-		return std::to_string(integer64_);
+	if (type_ == ControlTypeNone)
+		return "<ValueType Error>";
+
+	const uint8_t *data = ControlValue::data().data();
+
+	if (type_ == ControlTypeString)
+		return std::string(reinterpret_cast<const char *>(data),
+				   numElements_);
+
+	std::string str(isArray_ ? "[ " : "");
+
+	for (unsigned int i = 0; i < numElements_; ++i) {
+		switch (type_) {
+		case ControlTypeBool: {
+			const bool *value = reinterpret_cast<const bool *>(data);
+			str += *value ? "true" : "false";
+			break;
+		}
+		case ControlTypeByte: {
+			const uint8_t *value = reinterpret_cast<const uint8_t *>(data);
+			str += std::to_string(*value);
+			break;
+		}
+		case ControlTypeInteger32: {
+			const int32_t *value = reinterpret_cast<const int32_t *>(data);
+			str += std::to_string(*value);
+			break;
+		}
+		case ControlTypeInteger64: {
+			const int64_t *value = reinterpret_cast<const int64_t *>(data);
+			str += std::to_string(*value);
+			break;
+		}
+		case ControlTypeFloat: {
+			const float *value = reinterpret_cast<const float *>(data);
+			str += std::to_string(*value);
+			break;
+		}
+		case ControlTypeNone:
+		case ControlTypeString:
+			break;
+		}
+
+		if (i + 1 != numElements_)
+			str += ", ";
+
+		data += ControlValueSize[type_];
 	}
 
-	return "<ValueType Error>";
+	if (isArray_)
+		str += " ]";
+
+	return str;
 }
 
 /**
@@ -204,16 +268,13 @@ bool ControlValue::operator==(const ControlValue &other) const
 	if (type_ != other.type_)
 		return false;
 
-	switch (type_) {
-	case ControlTypeBool:
-		return bool_ == other.bool_;
-	case ControlTypeInteger32:
-		return integer32_ == other.integer32_;
-	case ControlTypeInteger64:
-		return integer64_ == other.integer64_;
-	default:
+	if (numElements_ != other.numElements())
 		return false;
-	}
+
+	if (isArray_ != other.isArray_)
+		return false;
+
+	return memcmp(data().data(), other.data().data(), data().size()) == 0;
 }
 
 /**
@@ -221,6 +282,84 @@ bool ControlValue::operator==(const ControlValue &other) const
  * \brief Compare ControlValue instances for non equality
  * \return False if the values have identical types and values, true otherwise
  */
+
+/**
+ * \fn template<typename T> T ControlValue::get() const
+ * \brief Get the control value
+ *
+ * This function returns the contained value as an instance of \a T. If the
+ * ControlValue instance stores a single value, the type \a T shall match the
+ * stored value type(). If the instance stores an array of values, the type
+ * \a T should be equal to Span<const R>, and the type \a R shall match the
+ * stored value type(). The behaviour is undefined otherwise.
+ *
+ * Note that a ControlValue instance that stores a non-array value is not
+ * equivalent to an instance that stores an array value containing a single
+ * element. The latter shall be accessed through a Span<const R> type, while
+ * the former shall be accessed through a type \a T corresponding to type().
+ *
+ * \return The control value
+ */
+
+/**
+ * \fn template<typename T> void ControlValue::set(const T &value)
+ * \brief Set the control value to \a value
+ * \param[in] value The control value
+ *
+ * This function stores the \a value in the instance. If the type \a T is
+ * equivalent to Span<R>, the instance stores an array of values of type \a R.
+ * Otherwise the instance stores a single value of type \a T. The numElements()
+ * and type() are updated to reflect the stored value.
+ *
+ * The entire content of \a value is copied to the instance, no reference to \a
+ * value or to the data it references is retained. This may be an expensive
+ * operation for Span<> values that refer to large arrays.
+ */
+
+void ControlValue::set(ControlType type, bool isArray, const void *data,
+		       std::size_t numElements, std::size_t elementSize)
+{
+	ASSERT(elementSize == ControlValueSize[type]);
+
+	reserve(type, isArray, numElements);
+
+	Span<uint8_t> storage = ControlValue::data();
+	memcpy(storage.data(), data, storage.size());
+}
+
+/**
+ * \brief Set the control type and reserve memory
+ * \param[in] type The control type
+ * \param[in] isArray True to make the value an array
+ * \param[in] numElements The number of elements
+ *
+ * This function sets the type of the control value to \a type, and reserves
+ * memory to store the control value. If \a isArray is true, the instance
+ * becomes an array control and storage for \a numElements is reserved.
+ * Otherwise the instance becomes a simple control, numElements is ignored, and
+ * storage for the single element is reserved.
+ */
+void ControlValue::reserve(ControlType type, bool isArray, std::size_t numElements)
+{
+	if (!isArray)
+		numElements = 1;
+
+	std::size_t oldSize = numElements_ * ControlValueSize[type_];
+	std::size_t newSize = numElements * ControlValueSize[type];
+
+	if (oldSize != newSize)
+		release();
+
+	type_ = type;
+	isArray_ = isArray;
+	numElements_ = numElements;
+
+	if (oldSize == newSize)
+		return;
+
+	if (newSize > sizeof(value_))
+		storage_ = reinterpret_cast<void *>(new uint8_t[newSize]);
+}
 
 /**
  * \class ControlId
@@ -294,9 +433,9 @@ bool ControlValue::operator==(const ControlValue &other) const
  * instead of Control.
  *
  * Controls of any type can be defined through template specialisation, but
- * libcamera only supports the bool, int32_t and int64_t types natively (this
- * includes types that are equivalent to the supported types, such as int and
- * long int).
+ * libcamera only supports the bool, uint8_t, int32_t, int64_t and float types
+ * natively (this includes types that are equivalent to the supported types,
+ * such as int and long int).
  *
  * Controls IDs shall be unique. While nothing prevents multiple instances of
  * the Control class to be created with the same ID for the same object, doing
@@ -317,69 +456,61 @@ bool ControlValue::operator==(const ControlValue &other) const
  * \brief The Control template type T
  */
 
-#ifndef __DOXYGEN__
-template<>
-Control<void>::Control(unsigned int id, const char *name)
-	: ControlId(id, name, ControlTypeNone)
-{
-}
-
-template<>
-Control<bool>::Control(unsigned int id, const char *name)
-	: ControlId(id, name, ControlTypeBool)
-{
-}
-
-template<>
-Control<int32_t>::Control(unsigned int id, const char *name)
-	: ControlId(id, name, ControlTypeInteger32)
-{
-}
-
-template<>
-Control<int64_t>::Control(unsigned int id, const char *name)
-	: ControlId(id, name, ControlTypeInteger64)
-{
-}
-#endif /* __DOXYGEN__ */
-
 /**
- * \class ControlRange
+ * \class ControlInfo
  * \brief Describe the limits of valid values for a Control
  *
- * The ControlRange expresses the constraints on valid values for a control.
+ * The ControlInfo expresses the constraints on valid values for a control.
  * The constraints depend on the object the control applies to, and are
  * constant for the lifetime of that object. They are typically constructed by
  * pipeline handlers to describe the controls they support.
  */
 
 /**
- * \brief Construct a ControlRange with minimum and maximum range parameters
+ * \brief Construct a ControlInfo with minimum and maximum range parameters
  * \param[in] min The control minimum value
  * \param[in] max The control maximum value
+ * \param[in] def The control default value
  */
-ControlRange::ControlRange(const ControlValue &min,
-			   const ControlValue &max)
-	: min_(min), max_(max)
+ControlInfo::ControlInfo(const ControlValue &min,
+			 const ControlValue &max,
+			 const ControlValue &def)
+	: min_(min), max_(max), def_(def)
 {
 }
 
 /**
- * \fn ControlRange::min()
+ * \fn ControlInfo::min()
  * \brief Retrieve the minimum value of the control
+ *
+ * For string controls, this is the minimum length of the string, not counting
+ * the terminating '\0'. For all other control types, this is the minimum value
+ * of each element.
+ *
  * \return A ControlValue with the minimum value for the control
  */
 
 /**
- * \fn ControlRange::max()
+ * \fn ControlInfo::max()
  * \brief Retrieve the maximum value of the control
+ *
+ * For string controls, this is the maximum length of the string, not counting
+ * the terminating '\0'. For all other control types, this is the maximum value
+ * of each element.
+ *
  * \return A ControlValue with the maximum value for the control
  */
 
 /**
- * \brief Provide a string representation of the ControlRange
+ * \fn ControlInfo::def()
+ * \brief Retrieve the default value of the control
+ * \return A ControlValue with the default value for the control
  */
-std::string ControlRange::toString() const
+
+/**
+ * \brief Provide a string representation of the ControlInfo
+ */
+std::string ControlInfo::toString() const
 {
 	std::stringstream ss;
 
@@ -389,15 +520,15 @@ std::string ControlRange::toString() const
 }
 
 /**
- * \fn bool ControlRange::operator==()
- * \brief Compare ControlRange instances for equality
- * \return True if the ranges have identical min and max, false otherwise
+ * \fn bool ControlInfo::operator==()
+ * \brief Compare ControlInfo instances for equality
+ * \return True if the constraints have identical min and max, false otherwise
  */
 
 /**
- * \fn bool ControlRange::operator!=()
- * \brief Compare ControlRange instances for non equality
- * \return False if the ranges have identical min and max, true otherwise
+ * \fn bool ControlInfo::operator!=()
+ * \brief Compare ControlInfo instances for non equality
+ * \return True if the constraints have different min and max, false otherwise
  */
 
 /**
@@ -411,10 +542,10 @@ std::string ControlRange::toString() const
 
 /**
  * \class ControlInfoMap
- * \brief A map of ControlId to ControlRange
+ * \brief A map of ControlId to ControlInfo
  *
  * The ControlInfoMap class describes controls supported by an object as an
- * unsorted map of ControlId pointers to ControlRange instances. Unlike the
+ * unsorted map of ControlId pointers to ControlInfo instances. Unlike the
  * standard std::unsorted_map<> class, it is designed the be immutable once
  * constructed, and thus only exposes the read accessors of the
  * std::unsorted_map<> base class.
@@ -575,10 +706,19 @@ void ControlInfoMap::generateIdmap()
 	idmap_.clear();
 
 	for (const auto &ctrl : *this) {
-		if (ctrl.first->type() != ctrl.second.min().type()) {
+		/*
+		 * For string controls, min and max define the valid
+		 * range for the string size, not for the individual
+		 * values.
+		 */
+		ControlType rangeType = ctrl.first->type() == ControlTypeString
+				      ? ControlTypeInteger32 : ctrl.first->type();
+		const ControlInfo &info = ctrl.second;
+
+		if (info.min().type() != rangeType) {
 			LOG(Controls, Error)
 				<< "Control " << utils::hex(ctrl.first->id())
-				<< " type and range type mismatch";
+				<< " type and info type mismatch";
 			idmap_.clear();
 			clear();
 			return;
@@ -628,11 +768,11 @@ ControlList::ControlList(const ControlIdMap &idmap, ControlValidator *validator)
 
 /**
  * \brief Construct a ControlList with the idmap of a control info map
- * \param[in] info The ControlInfoMap for the control list target object
+ * \param[in] infoMap The ControlInfoMap for the control list target object
  * \param[in] validator The validator (may be null)
  */
-ControlList::ControlList(const ControlInfoMap &info, ControlValidator *validator)
-	: validator_(validator), idmap_(&info.idmap()), infoMap_(&info)
+ControlList::ControlList(const ControlInfoMap &infoMap, ControlValidator *validator)
+	: validator_(validator), idmap_(&infoMap.idmap()), infoMap_(&infoMap)
 {
 }
 
@@ -712,7 +852,7 @@ bool ControlList::contains(unsigned int id) const
 }
 
 /**
- * \fn template<typename T> const T &ControlList::get(const Control<T> &ctrl) const
+ * \fn template<typename T> T ControlList::get(const Control<T> &ctrl) const
  * \brief Get the value of control \a ctrl
  * \param[in] ctrl The control
  *
@@ -727,7 +867,7 @@ bool ControlList::contains(unsigned int id) const
  */
 
 /**
- * \fn template<typename T> void ControlList::set(const Control<T> &ctrl, const T &value)
+ * \fn template<typename T, typename V> void ControlList::set(const Control<T> &ctrl, const V &value)
  * \brief Set the control \a ctrl value to \a value
  * \param[in] ctrl The control
  * \param[in] value The control value
@@ -738,6 +878,12 @@ bool ControlList::contains(unsigned int id) const
  *
  * The behaviour is undefined if the control \a ctrl is not supported by the
  * object that the list refers to.
+ */
+
+/**
+ * \fn template<typename T, typename V> \
+ * void ControlList::set(const Control<T> &ctrl, const std::initializer_list<V> &value)
+ * \copydoc ControlList::set(const Control<T> &ctrl, const V &value)
  */
 
 /**
@@ -752,7 +898,7 @@ bool ControlList::contains(unsigned int id) const
  */
 const ControlValue &ControlList::get(unsigned int id) const
 {
-	static ControlValue zero;
+	static const ControlValue zero;
 
 	const ControlValue *val = find(id);
 	if (!val)

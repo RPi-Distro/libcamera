@@ -12,7 +12,7 @@
 #include <string.h>
 #include <sys/types.h>
 
-#include "ipa_context_wrapper.h"
+#include "file.h"
 #include "ipa_module.h"
 #include "ipa_proxy.h"
 #include "log.h"
@@ -96,42 +96,47 @@ LOG_DEFINE_CATEGORY(IPAManager)
 IPAManager::IPAManager()
 {
 	unsigned int ipaCount = 0;
-	int ret;
 
-	ret = addDir(IPA_MODULE_DIR);
-	if (ret > 0)
-		ipaCount += ret;
-
+	/* User-specified paths take precedence. */
 	const char *modulePaths = utils::secure_getenv("LIBCAMERA_IPA_MODULE_PATH");
-	if (!modulePaths) {
-		if (!ipaCount)
-			LOG(IPAManager, Warning)
-				<< "No IPA found in '" IPA_MODULE_DIR "'";
-		return;
-	}
+	if (modulePaths) {
+		for (const auto &dir : utils::split(modulePaths, ":")) {
+			if (dir.empty())
+				continue;
 
-	const char *paths = modulePaths;
-	while (1) {
-		const char *delim = strchrnul(paths, ':');
-		size_t count = delim - paths;
-
-		if (count) {
-			std::string path(paths, count);
-			ret = addDir(path.c_str());
-			if (ret > 0)
-				ipaCount += ret;
+			ipaCount += addDir(dir.c_str());
 		}
 
-		if (*delim == '\0')
-			break;
-
-		paths += count + 1;
+		if (!ipaCount)
+			LOG(IPAManager, Warning)
+				<< "No IPA found in '" << modulePaths << "'";
 	}
+
+	/*
+	 * When libcamera is used before it is installed, load IPAs from the
+	 * same build directory as the libcamera library itself. This requires
+	 * identifying the path of the libcamera.so, and referencing a relative
+	 * path for the IPA from that point. We need to recurse one level of
+	 * sub-directories to match the build tree.
+	 */
+	std::string root = utils::libcameraBuildPath();
+	if (!root.empty()) {
+		std::string ipaBuildPath = root + "src/ipa";
+		constexpr int maxDepth = 1;
+
+		LOG(IPAManager, Info)
+			<< "libcamera is not installed. Adding '"
+			<< ipaBuildPath << "' to the IPA search path";
+
+		ipaCount += addDir(ipaBuildPath.c_str(), maxDepth);
+	}
+
+	/* Finally try to load IPAs from the installed system path. */
+	ipaCount += addDir(IPA_MODULE_DIR);
 
 	if (!ipaCount)
 		LOG(IPAManager, Warning)
-			<< "No IPA found in '" IPA_MODULE_DIR "' and '"
-			<< modulePaths << "'";
+			<< "No IPA found in '" IPA_MODULE_DIR "'";
 }
 
 IPAManager::~IPAManager()
@@ -156,48 +161,83 @@ IPAManager *IPAManager::instance()
 }
 
 /**
- * \brief Load IPA modules from a directory
- * \param[in] libDir directory to search for IPA modules
+ * \brief Identify shared library objects within a directory
+ * \param[in] libDir The directory to search for shared objects
+ * \param[in] maxDepth The maximum depth of sub-directories to parse
+ * \param[out] files A vector of paths to shared object library files
  *
- * This method tries to create an IPAModule instance for every shared object
- * found in \a libDir, and skips invalid IPA modules.
+ * Search a directory for .so files, allowing recursion down to sub-directories
+ * no further than the depth specified by \a maxDepth.
  *
- * \return Number of modules loaded by this call, or a negative error code
- * otherwise
+ * Discovered shared objects are added to the \a files vector.
  */
-int IPAManager::addDir(const char *libDir)
+void IPAManager::parseDir(const char *libDir, unsigned int maxDepth,
+			  std::vector<std::string> &files)
 {
 	struct dirent *ent;
 	DIR *dir;
 
 	dir = opendir(libDir);
 	if (!dir)
-		return -errno;
+		return;
 
-	std::vector<std::string> paths;
 	while ((ent = readdir(dir)) != nullptr) {
+		if (ent->d_type == DT_DIR && maxDepth) {
+			if (strcmp(ent->d_name, ".") == 0 ||
+			    strcmp(ent->d_name, "..") == 0)
+				continue;
+
+			std::string subdir = std::string(libDir) + "/" + ent->d_name;
+
+			/* Recursion is limited to maxDepth. */
+			parseDir(subdir.c_str(), maxDepth - 1, files);
+
+			continue;
+		}
+
 		int offset = strlen(ent->d_name) - 3;
 		if (offset < 0)
 			continue;
 		if (strcmp(&ent->d_name[offset], ".so"))
 			continue;
 
-		paths.push_back(std::string(libDir) + "/" + ent->d_name);
+		files.push_back(std::string(libDir) + "/" + ent->d_name);
 	}
+
 	closedir(dir);
+}
+
+/**
+ * \brief Load IPA modules from a directory
+ * \param[in] libDir The directory to search for IPA modules
+ * \param[in] maxDepth The maximum depth of sub-directories to search
+ *
+ * This method tries to create an IPAModule instance for every shared object
+ * found in \a libDir, and skips invalid IPA modules.
+ *
+ * Sub-directories are searched up to a depth of \a maxDepth. A \a maxDepth
+ * value of 0 only searches the directory specified in \a libDir.
+ *
+ * \return Number of modules loaded by this call
+ */
+unsigned int IPAManager::addDir(const char *libDir, unsigned int maxDepth)
+{
+	std::vector<std::string> files;
+
+	parseDir(libDir, maxDepth, files);
 
 	/* Ensure a stable ordering of modules. */
-	std::sort(paths.begin(), paths.end());
+	std::sort(files.begin(), files.end());
 
 	unsigned int count = 0;
-	for (const std::string &path : paths) {
-		IPAModule *ipaModule = new IPAModule(path);
+	for (const std::string &file : files) {
+		IPAModule *ipaModule = new IPAModule(file);
 		if (!ipaModule->isValid()) {
 			delete ipaModule;
 			continue;
 		}
 
-		LOG(IPAManager, Debug) << "Loaded IPA module '" << path << "'";
+		LOG(IPAManager, Debug) << "Loaded IPA module '" << file << "'";
 
 		modules_.push_back(ipaModule);
 		count++;
@@ -231,40 +271,58 @@ std::unique_ptr<IPAInterface> IPAManager::createIPA(PipelineHandler *pipe,
 	if (!m)
 		return nullptr;
 
-	if (!m->isOpenSource()) {
-		IPAProxyFactory *pf = nullptr;
-		std::vector<IPAProxyFactory *> &factories = IPAProxyFactory::factories();
+	/*
+	 * Load and run the IPA module in a thread if it has a valid signature,
+	 * or isolate it in a separate process otherwise.
+	 *
+	 * \todo Implement a better proxy selection
+	 */
+	const char *proxyName = isSignatureValid(m)
+			      ? "IPAProxyThread" : "IPAProxyLinux";
+	IPAProxyFactory *pf = nullptr;
 
-		for (IPAProxyFactory *factory : factories) {
-			/* TODO: Better matching */
-			if (!strcmp(factory->name().c_str(), "IPAProxyLinux")) {
-				pf = factory;
-				break;
-			}
+	for (IPAProxyFactory *factory : IPAProxyFactory::factories()) {
+		if (!strcmp(factory->name().c_str(), proxyName)) {
+			pf = factory;
+			break;
 		}
-
-		if (!pf) {
-			LOG(IPAManager, Error) << "Failed to get proxy factory";
-			return nullptr;
-		}
-
-		std::unique_ptr<IPAProxy> proxy = pf->create(m);
-		if (!proxy->isValid()) {
-			LOG(IPAManager, Error) << "Failed to load proxy";
-			return nullptr;
-		}
-
-		return proxy;
 	}
 
-	if (!m->load())
+	if (!pf) {
+		LOG(IPAManager, Error) << "Failed to get proxy factory";
 		return nullptr;
+	}
 
-	struct ipa_context *ctx = m->createContext();
-	if (!ctx)
+	std::unique_ptr<IPAProxy> proxy = pf->create(m);
+	if (!proxy->isValid()) {
+		LOG(IPAManager, Error) << "Failed to load proxy";
 		return nullptr;
+	}
 
-	return std::make_unique<IPAContextWrapper>(ctx);
+	return proxy;
+}
+
+bool IPAManager::isSignatureValid(IPAModule *ipa) const
+{
+#if HAVE_IPA_PUBKEY
+	File file{ ipa->path() };
+	if (!file.open(File::ReadOnly))
+		return false;
+
+	Span<uint8_t> data = file.map();
+	if (data.empty())
+		return false;
+
+	bool valid = pubKey_.verify(data, ipa->signature());
+
+	LOG(IPAManager, Debug)
+		<< "IPA module " << ipa->path() << " signature is "
+		<< (valid ? "valid" : "not valid");
+
+	return valid;
+#else
+	return false;
+#endif
 }
 
 } /* namespace libcamera */

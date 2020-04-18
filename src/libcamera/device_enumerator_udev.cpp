@@ -76,14 +76,35 @@ int DeviceEnumeratorUdev::addUdevDevice(struct udev_device *dev)
 		return -ENODEV;
 
 	if (!strcmp(subsystem, "media")) {
-		std::shared_ptr<MediaDevice> media =
+		std::unique_ptr<MediaDevice> media =
 			createDevice(udev_device_get_devnode(dev));
 		if (!media)
 			return -ENODEV;
 
-		int ret = populateMediaDevice(media);
-		if (ret == 0)
-			addDevice(media);
+		DependencyMap deps;
+		int ret = populateMediaDevice(media.get(), &deps);
+		if (ret < 0) {
+			LOG(DeviceEnumerator, Warning)
+				<< "Failed to populate media device "
+				<< media->deviceNode()
+				<< " (" << media->driver() << "), skipping";
+			return ret;
+		}
+
+		if (!deps.empty()) {
+			LOG(DeviceEnumerator, Debug)
+				<< "Defer media device " << media->deviceNode()
+				<< " due to " << ret << " missing dependencies";
+
+			pending_.emplace_back(std::move(media), std::move(deps));
+			MediaDeviceDeps *mediaDeps = &pending_.back();
+			for (const auto &dep : mediaDeps->deps_)
+				devMap_[dep.first] = mediaDeps;
+
+			return 0;
+		}
+
+		addDevice(std::move(media));
 		return 0;
 	}
 
@@ -141,14 +162,18 @@ int DeviceEnumeratorUdev::enumerate()
 		devnode = udev_device_get_devnode(dev);
 		if (!devnode) {
 			udev_device_unref(dev);
-			ret = -ENODEV;
-			goto done;
+			LOG(DeviceEnumerator, Warning)
+				<< "Failed to get device node for '"
+				<< syspath << "', skipping";
+			continue;
 		}
 
-		ret = addUdevDevice(dev);
+		if (addUdevDevice(dev) < 0)
+			LOG(DeviceEnumerator, Warning)
+				<< "Failed to add device for '"
+				<< syspath << "', skipping";
+
 		udev_device_unref(dev);
-		if (ret < 0)
-			break;
 	}
 
 done:
@@ -167,10 +192,9 @@ done:
 	return 0;
 }
 
-int DeviceEnumeratorUdev::populateMediaDevice(const std::shared_ptr<MediaDevice> &media)
+int DeviceEnumeratorUdev::populateMediaDevice(MediaDevice *media, DependencyMap *deps)
 {
 	std::set<dev_t> children;
-	DependencyMap deps;
 
 	/* Associate entities to device node paths. */
 	for (MediaEntity *entity : media->entities()) {
@@ -185,7 +209,7 @@ int DeviceEnumeratorUdev::populateMediaDevice(const std::shared_ptr<MediaDevice>
 		 * dependencies.
 		 */
 		if (orphans_.find(devnum) == orphans_.end()) {
-			deps[devnum].push_back(entity);
+			(*deps)[devnum].push_back(entity);
 			continue;
 		}
 
@@ -213,17 +237,7 @@ int DeviceEnumeratorUdev::populateMediaDevice(const std::shared_ptr<MediaDevice>
 			++it;
 	}
 
-	/*
-	 * If the media device has unmet dependencies, add it to the pending
-	 * list and update the devnum map accordingly.
-	 */
-	if (!deps.empty()) {
-		pending_.emplace_back(media, deps);
-		for (const auto &dep : deps)
-			devMap_[dep.first] = &pending_.back();
-	}
-
-	return deps.size();
+	return 0;
 }
 
 /**
@@ -302,7 +316,10 @@ int DeviceEnumeratorUdev::addV4L2Device(dev_t devnum)
 	deps->deps_.erase(devnum);
 
 	if (deps->deps_.empty()) {
-		addDevice(deps->media_);
+		LOG(DeviceEnumerator, Debug)
+			<< "All dependencies for media device "
+			<< deps->media_->deviceNode() << " found";
+		addDevice(std::move(deps->media_));
 		pending_.remove(*deps);
 	}
 

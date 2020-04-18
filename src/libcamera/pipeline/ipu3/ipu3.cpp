@@ -8,9 +8,9 @@
 #include <algorithm>
 #include <iomanip>
 #include <memory>
+#include <queue>
 #include <vector>
 
-#include <linux/drm_fourcc.h>
 #include <linux/media-bus-format.h>
 
 #include <libcamera/camera.h>
@@ -32,6 +32,13 @@ namespace libcamera {
 LOG_DEFINE_CATEGORY(IPU3)
 
 class IPU3CameraData;
+
+static const std::map<uint32_t, PixelFormat> sensorMbusToPixel = {
+	{ MEDIA_BUS_FMT_SBGGR10_1X10, PixelFormat(DRM_FORMAT_SBGGR10, IPU3_FORMAT_MOD_PACKED) },
+	{ MEDIA_BUS_FMT_SGBRG10_1X10, PixelFormat(DRM_FORMAT_SGBRG10, IPU3_FORMAT_MOD_PACKED) },
+	{ MEDIA_BUS_FMT_SGRBG10_1X10, PixelFormat(DRM_FORMAT_SGRBG10, IPU3_FORMAT_MOD_PACKED) },
+	{ MEDIA_BUS_FMT_SRGGB10_1X10, PixelFormat(DRM_FORMAT_SRGGB10, IPU3_FORMAT_MOD_PACKED) },
+};
 
 class ImgUDevice
 {
@@ -72,6 +79,7 @@ public:
 	int configureOutput(ImgUOutput *output,
 			    const StreamConfiguration &cfg);
 
+	int allocateBuffers(IPU3CameraData *data, unsigned int bufferCount);
 	void freeBuffers(IPU3CameraData *data);
 
 	int start();
@@ -118,10 +126,13 @@ public:
 	int allocateBuffers();
 	void freeBuffers();
 
+	FrameBuffer *getBuffer();
+	void putBuffer(FrameBuffer *buffer);
+
 	int start();
 	int stop();
 
-	static int mediaBusToFormat(unsigned int code);
+	static V4L2PixelFormat mediaBusToFormat(unsigned int code);
 
 	V4L2VideoDevice *output_;
 	V4L2Subdevice *csi2_;
@@ -129,17 +140,19 @@ public:
 
 private:
 	std::vector<std::unique_ptr<FrameBuffer>> buffers_;
+	std::queue<FrameBuffer *> availableBuffers_;
 };
 
 class IPU3Stream : public Stream
 {
 public:
 	IPU3Stream()
-		: active_(false), device_(nullptr)
+		: active_(false), raw_(false), device_(nullptr)
 	{
 	}
 
 	bool active_;
+	bool raw_;
 	std::string name_;
 	ImgUDevice::ImgUOutput *device_;
 };
@@ -161,6 +174,7 @@ public:
 
 	IPU3Stream outStream_;
 	IPU3Stream vfStream_;
+	IPU3Stream rawStream_;
 };
 
 class IPU3CameraConfiguration : public CameraConfiguration
@@ -175,6 +189,7 @@ public:
 
 private:
 	static constexpr unsigned int IPU3_BUFFER_COUNT = 4;
+	static constexpr unsigned int IPU3_MAX_STREAMS = 3;
 
 	void adjustStream(StreamConfiguration &cfg, bool scale);
 
@@ -208,8 +223,6 @@ public:
 
 	int exportFrameBuffers(Camera *camera, Stream *stream,
 			       std::vector<std::unique_ptr<FrameBuffer>> *buffers) override;
-	int importFrameBuffers(Camera *camera, Stream *stream) override;
-	void freeFrameBuffers(Camera *camera, Stream *stream) override;
 
 	int start(Camera *camera) override;
 	void stop(Camera *camera) override;
@@ -247,7 +260,7 @@ IPU3CameraConfiguration::IPU3CameraConfiguration(Camera *camera,
 void IPU3CameraConfiguration::adjustStream(StreamConfiguration &cfg, bool scale)
 {
 	/* The only pixel format the driver supports is NV12. */
-	cfg.pixelFormat = DRM_FORMAT_NV12;
+	cfg.pixelFormat = PixelFormat(DRM_FORMAT_NV12);
 
 	if (scale) {
 		/*
@@ -288,8 +301,6 @@ void IPU3CameraConfiguration::adjustStream(StreamConfiguration &cfg, bool scale)
 		cfg.size.width &= ~7;
 		cfg.size.height &= ~3;
 	}
-
-	cfg.bufferCount = IPU3_BUFFER_COUNT;
 }
 
 CameraConfiguration::Status IPU3CameraConfiguration::validate()
@@ -301,8 +312,8 @@ CameraConfiguration::Status IPU3CameraConfiguration::validate()
 		return Invalid;
 
 	/* Cap the number of entries to the available streams. */
-	if (config_.size() > 2) {
-		config_.resize(2);
+	if (config_.size() > IPU3_MAX_STREAMS) {
+		config_.resize(IPU3_MAX_STREAMS);
 		status = Adjusted;
 	}
 
@@ -342,6 +353,7 @@ CameraConfiguration::Status IPU3CameraConfiguration::validate()
 	std::set<const IPU3Stream *> availableStreams = {
 		&data_->outStream_,
 		&data_->vfStream_,
+		&data_->rawStream_,
 	};
 
 	streams_.clear();
@@ -349,11 +361,13 @@ CameraConfiguration::Status IPU3CameraConfiguration::validate()
 
 	for (unsigned int i = 0; i < config_.size(); ++i) {
 		StreamConfiguration &cfg = config_[i];
-		const unsigned int pixelFormat = cfg.pixelFormat;
+		const PixelFormat pixelFormat = cfg.pixelFormat;
 		const Size size = cfg.size;
 		const IPU3Stream *stream;
 
-		if (cfg.size == sensorFormat_.size)
+		if (cfg.pixelFormat.modifier() == IPU3_FORMAT_MOD_PACKED)
+			stream = &data_->rawStream_;
+		else if (cfg.size == sensorFormat_.size)
 			stream = &data_->outStream_;
 		else
 			stream = &data_->vfStream_;
@@ -364,8 +378,20 @@ CameraConfiguration::Status IPU3CameraConfiguration::validate()
 		LOG(IPU3, Debug)
 			<< "Assigned '" << stream->name_ << "' to stream " << i;
 
-		bool scale = stream == &data_->vfStream_;
-		adjustStream(config_[i], scale);
+		if (stream->raw_) {
+			const auto &itFormat =
+				sensorMbusToPixel.find(sensorFormat_.mbus_code);
+			if (itFormat == sensorMbusToPixel.end())
+				return Invalid;
+
+			cfg.pixelFormat = itFormat->second;
+			cfg.size = sensorFormat_.size;
+		} else {
+			bool scale = stream == &data_->vfStream_;
+			adjustStream(config_[i], scale);
+		}
+
+		cfg.bufferCount = IPU3_BUFFER_COUNT;
 
 		if (cfg.pixelFormat != pixelFormat || cfg.size != size) {
 			LOG(IPU3, Debug)
@@ -394,6 +420,7 @@ CameraConfiguration *PipelineHandlerIPU3::generateConfiguration(Camera *camera,
 	std::set<IPU3Stream *> streams = {
 		&data->outStream_,
 		&data->vfStream_,
+		&data->rawStream_,
 	};
 
 	config = new IPU3CameraConfiguration(camera, data);
@@ -402,7 +429,7 @@ CameraConfiguration *PipelineHandlerIPU3::generateConfiguration(Camera *camera,
 		StreamConfiguration cfg = {};
 		IPU3Stream *stream = nullptr;
 
-		cfg.pixelFormat = DRM_FORMAT_NV12;
+		cfg.pixelFormat = PixelFormat(DRM_FORMAT_NV12);
 
 		switch (role) {
 		case StreamRole::StillCapture:
@@ -434,6 +461,29 @@ CameraConfiguration *PipelineHandlerIPU3::generateConfiguration(Camera *camera,
 			cfg.size = { 2560, 1920 };
 
 			break;
+
+		case StreamRole::StillCaptureRaw: {
+			if (streams.find(&data->rawStream_) == streams.end()) {
+				LOG(IPU3, Error)
+					<< "No stream available for requested role "
+					<< role;
+				break;
+			}
+
+			stream = &data->rawStream_;
+
+			cfg.size = data->cio2_.sensor_->resolution();
+
+			V4L2SubdeviceFormat sensorFormat =
+				data->cio2_.sensor_->getFormat({ MEDIA_BUS_FMT_SBGGR10_1X10,
+								 MEDIA_BUS_FMT_SGBRG10_1X10,
+								 MEDIA_BUS_FMT_SGRBG10_1X10,
+								 MEDIA_BUS_FMT_SRGGB10_1X10 },
+							       cfg.size);
+			cfg.pixelFormat =
+				sensorMbusToPixel.at(sensorFormat.mbus_code);
+			break;
+		}
 
 		case StreamRole::Viewfinder:
 		case StreamRole::VideoRecording: {
@@ -532,6 +582,9 @@ int PipelineHandlerIPU3::configure(Camera *camera, CameraConfiguration *c)
 	/*
 	 * \todo: Enable links selectively based on the requested streams.
 	 * As of now, enable all links unconditionally.
+	 * \todo Don't configure the ImgU at all if we only have a single
+	 * stream which is for raw capture, in which case no buffers will
+	 * ever be queued to the ImgU.
 	 */
 	ret = data->imgu_->enableLinks(true);
 	if (ret)
@@ -567,6 +620,13 @@ int PipelineHandlerIPU3::configure(Camera *camera, CameraConfiguration *c)
 
 		stream->active_ = true;
 		cfg.setStream(stream);
+
+		/*
+		 * The RAW still capture stream just copies buffers from the
+		 * internal queue and doesn't need any specific configuration.
+		 */
+		if (stream->raw_)
+			continue;
 
 		ret = imgu->configureOutput(stream->device_, cfg);
 		if (ret)
@@ -618,28 +678,17 @@ int PipelineHandlerIPU3::configure(Camera *camera, CameraConfiguration *c)
 int PipelineHandlerIPU3::exportFrameBuffers(Camera *camera, Stream *stream,
 					    std::vector<std::unique_ptr<FrameBuffer>> *buffers)
 {
+	IPU3CameraData *data = cameraData(camera);
 	IPU3Stream *ipu3stream = static_cast<IPU3Stream *>(stream);
-	V4L2VideoDevice *video = ipu3stream->device_->dev;
 	unsigned int count = stream->configuration().bufferCount;
+	V4L2VideoDevice *video;
+
+	if (ipu3stream->raw_)
+		video = data->cio2_.output_;
+	else
+		video = ipu3stream->device_->dev;
 
 	return video->exportBuffers(count, buffers);
-}
-
-int PipelineHandlerIPU3::importFrameBuffers(Camera *camera, Stream *stream)
-{
-	IPU3Stream *ipu3stream = static_cast<IPU3Stream *>(stream);
-	V4L2VideoDevice *video = ipu3stream->device_->dev;
-	unsigned int count = stream->configuration().bufferCount;
-
-	return video->importBuffers(count);
-}
-
-void PipelineHandlerIPU3::freeFrameBuffers(Camera *camera, Stream *stream)
-{
-	IPU3Stream *ipu3stream = static_cast<IPU3Stream *>(stream);
-	V4L2VideoDevice *video = ipu3stream->device_->dev;
-
-	video->releaseBuffers();
 }
 
 /**
@@ -653,69 +702,24 @@ void PipelineHandlerIPU3::freeFrameBuffers(Camera *camera, Stream *stream)
 int PipelineHandlerIPU3::allocateBuffers(Camera *camera)
 {
 	IPU3CameraData *data = cameraData(camera);
-	IPU3Stream *outStream = &data->outStream_;
-	IPU3Stream *vfStream = &data->vfStream_;
 	CIO2Device *cio2 = &data->cio2_;
 	ImgUDevice *imgu = data->imgu_;
 	unsigned int bufferCount;
 	int ret;
 
-	/* Share buffers between CIO2 output and ImgU input. */
 	ret = cio2->allocateBuffers();
 	if (ret < 0)
 		return ret;
 
 	bufferCount = ret;
 
-	ret = imgu->input_->importBuffers(bufferCount);
-	if (ret) {
-		LOG(IPU3, Error) << "Failed to import ImgU input buffers";
-		goto error;
-	}
-
-	/*
-	 * Use for the stat's internal pool the same number of buffers as for
-	 * the input pool.
-	 * \todo To be revised when we'll actually use the stat node.
-	 */
-	ret = imgu->stat_.dev->exportBuffers(bufferCount, &imgu->stat_.buffers);
+	ret = imgu->allocateBuffers(data, bufferCount);
 	if (ret < 0) {
-		LOG(IPU3, Error) << "Failed to allocate ImgU stat buffers";
-		goto error;
-	}
-
-	/*
-	 * Allocate buffers also on non-active outputs; use the same number
-	 * of buffers as the active ones.
-	 */
-	if (!outStream->active_) {
-		ImgUDevice::ImgUOutput *output = outStream->device_;
-
-		ret = output->dev->exportBuffers(bufferCount, &output->buffers);
-		if (ret < 0) {
-			LOG(IPU3, Error) << "Failed to allocate ImgU "
-					 << output->name << " buffers";
-			goto error;
-		}
-	}
-
-	if (!vfStream->active_) {
-		ImgUDevice::ImgUOutput *output = vfStream->device_;
-
-		ret = output->dev->exportBuffers(bufferCount, &output->buffers);
-		if (ret < 0) {
-			LOG(IPU3, Error) << "Failed to allocate ImgU "
-					 << output->name << " buffers";
-			goto error;
-		}
+		cio2->freeBuffers();
+		return ret;
 	}
 
 	return 0;
-
-error:
-	freeBuffers(camera);
-
-	return ret;
 }
 
 int PipelineHandlerIPU3::freeBuffers(Camera *camera)
@@ -780,11 +784,25 @@ void PipelineHandlerIPU3::stop(Camera *camera)
 
 int PipelineHandlerIPU3::queueRequestDevice(Camera *camera, Request *request)
 {
+	IPU3CameraData *data = cameraData(camera);
+	FrameBuffer *buffer;
 	int error = 0;
+
+	/* Get a CIO2 buffer, associate it with the request and queue it. */
+	buffer = data->cio2_.getBuffer();
+	if (!buffer)
+		return -EINVAL;
+
+	buffer->setRequest(request);
+	data->cio2_.output_->queueBuffer(buffer);
 
 	for (auto it : request->buffers()) {
 		IPU3Stream *stream = static_cast<IPU3Stream *>(it.first);
-		FrameBuffer *buffer = it.second;
+		buffer = it.second;
+
+		/* Skip raw streams, they are copied from the CIO2 buffer. */
+		if (stream->raw_)
+			continue;
 
 		int ret = stream->device_->dev->queueBuffer(buffer);
 		if (ret < 0)
@@ -880,12 +898,16 @@ int PipelineHandlerIPU3::registerCameras()
 		std::set<Stream *> streams = {
 			&data->outStream_,
 			&data->vfStream_,
+			&data->rawStream_,
 		};
 		CIO2Device *cio2 = &data->cio2_;
 
 		ret = cio2->init(cio2MediaDev_, id);
 		if (ret)
 			continue;
+
+		/* Initialize the camera properties. */
+		data->properties_ = cio2->sensor_->properties();
 
 		/**
 		 * \todo Dynamically assign ImgU and output devices to each
@@ -898,6 +920,8 @@ int PipelineHandlerIPU3::registerCameras()
 		data->outStream_.name_ = "output";
 		data->vfStream_.device_ = &data->imgu_->viewfinder_;
 		data->vfStream_.name_ = "viewfinder";
+		data->rawStream_.raw_ = true;
+		data->rawStream_.name_ = "raw";
 
 		/*
 		 * Connect video devices' 'bufferReady' signals to their
@@ -953,7 +977,7 @@ void IPU3CameraData::imguInputBufferReady(FrameBuffer *buffer)
 	if (buffer->metadata().status == FrameMetadata::FrameCancelled)
 		return;
 
-	cio2_.output_->queueBuffer(buffer);
+	cio2_.putBuffer(buffer);
 }
 
 /**
@@ -987,7 +1011,28 @@ void IPU3CameraData::cio2BufferReady(FrameBuffer *buffer)
 	if (buffer->metadata().status == FrameMetadata::FrameCancelled)
 		return;
 
-	imgu_->input_->queueBuffer(buffer);
+	Request *request = buffer->request();
+	FrameBuffer *raw = request->findBuffer(&rawStream_);
+
+	if (!raw) {
+		/* No RAW buffers present, just queue to IMGU. */
+		imgu_->input_->queueBuffer(buffer);
+		return;
+	}
+
+	/* RAW buffers present, special care is needed. */
+	if (request->buffers().size() > 1)
+		imgu_->input_->queueBuffer(buffer);
+
+	if (raw->copyFrom(buffer))
+		LOG(IPU3, Debug) << "Copy of FrameBuffer failed";
+
+	pipe_->completeBuffer(camera_, request, raw);
+
+	if (request->buffers().size() == 1) {
+		cio2_.putBuffer(buffer);
+		pipe_->completeRequest(camera_, request);
+	}
 }
 
 /* -----------------------------------------------------------------------------
@@ -1139,7 +1184,7 @@ int ImgUDevice::configureOutput(ImgUOutput *output,
 		return 0;
 
 	V4L2DeviceFormat outputFormat = {};
-	outputFormat.fourcc = dev->toV4L2Fourcc(DRM_FORMAT_NV12);
+	outputFormat.fourcc = dev->toV4L2PixelFormat(PixelFormat(DRM_FORMAT_NV12));
 	outputFormat.size = cfg.size;
 	outputFormat.planesCount = 2;
 
@@ -1154,27 +1199,82 @@ int ImgUDevice::configureOutput(ImgUOutput *output,
 }
 
 /**
+ * \brief Allocate buffers for all the ImgU video devices
+ */
+int ImgUDevice::allocateBuffers(IPU3CameraData *data, unsigned int bufferCount)
+{
+	IPU3Stream *outStream = &data->outStream_;
+	IPU3Stream *vfStream = &data->vfStream_;
+
+	/* Share buffers between CIO2 output and ImgU input. */
+	int ret = input_->importBuffers(bufferCount);
+	if (ret) {
+		LOG(IPU3, Error) << "Failed to import ImgU input buffers";
+		return ret;
+	}
+
+	/*
+	 * Use for the stat's internal pool the same number of buffers as for
+	 * the input pool.
+	 * \todo To be revised when we'll actually use the stat node.
+	 */
+	ret = stat_.dev->allocateBuffers(bufferCount, &stat_.buffers);
+	if (ret < 0) {
+		LOG(IPU3, Error) << "Failed to allocate ImgU stat buffers";
+		goto error;
+	}
+
+	/*
+	 * Allocate buffers for both outputs. If an output is active, prepare
+	 * for buffer import, otherwise allocate internal buffers. Use the same
+	 * number of buffers in either case.
+	 */
+	if (outStream->active_)
+		ret = output_.dev->importBuffers(bufferCount);
+	else
+		ret = output_.dev->allocateBuffers(bufferCount,
+						   &output_.buffers);
+	if (ret < 0) {
+		LOG(IPU3, Error) << "Failed to allocate ImgU output buffers";
+		goto error;
+	}
+
+	if (vfStream->active_)
+		ret = viewfinder_.dev->importBuffers(bufferCount);
+	else
+		ret = viewfinder_.dev->allocateBuffers(bufferCount,
+						       &viewfinder_.buffers);
+	if (ret < 0) {
+		LOG(IPU3, Error) << "Failed to allocate ImgU viewfinder buffers";
+		goto error;
+	}
+
+	return 0;
+
+error:
+	freeBuffers(data);
+
+	return ret;
+}
+
+/**
  * \brief Release buffers for all the ImgU video devices
  */
 void ImgUDevice::freeBuffers(IPU3CameraData *data)
 {
 	int ret;
 
-	if (!data->outStream_.active_) {
-		ret = output_.dev->releaseBuffers();
-		if (ret)
-			LOG(IPU3, Error) << "Failed to release ImgU output buffers";
-	}
+	ret = output_.dev->releaseBuffers();
+	if (ret)
+		LOG(IPU3, Error) << "Failed to release ImgU output buffers";
 
 	ret = stat_.dev->releaseBuffers();
 	if (ret)
 		LOG(IPU3, Error) << "Failed to release ImgU stat buffers";
 
-	if (!data->vfStream_.active_) {
-		ret = viewfinder_.dev->releaseBuffers();
-		if (ret)
-			LOG(IPU3, Error) << "Failed to release ImgU viewfinder buffers";
-	}
+	ret = viewfinder_.dev->releaseBuffers();
+	if (ret)
+		LOG(IPU3, Error) << "Failed to release ImgU viewfinder buffers";
 
 	ret = input_->releaseBuffers();
 	if (ret)
@@ -1420,31 +1520,48 @@ int CIO2Device::configure(const Size &size,
  */
 int CIO2Device::allocateBuffers()
 {
-	int ret = output_->exportBuffers(CIO2_BUFFER_COUNT, &buffers_);
+	int ret = output_->allocateBuffers(CIO2_BUFFER_COUNT, &buffers_);
 	if (ret < 0)
-		LOG(IPU3, Error) << "Failed to export CIO2 buffers";
+		return ret;
+
+	for (std::unique_ptr<FrameBuffer> &buffer : buffers_)
+		availableBuffers_.push(buffer.get());
 
 	return ret;
 }
 
 void CIO2Device::freeBuffers()
 {
+	/* The default std::queue constructor is explicit with gcc 5 and 6. */
+	availableBuffers_ = std::queue<FrameBuffer *>{};
+
 	buffers_.clear();
 
 	if (output_->releaseBuffers())
 		LOG(IPU3, Error) << "Failed to release CIO2 buffers";
 }
 
-int CIO2Device::start()
+FrameBuffer *CIO2Device::getBuffer()
 {
-	for (const std::unique_ptr<FrameBuffer> &buffer : buffers_) {
-		int ret = output_->queueBuffer(buffer.get());
-		if (ret) {
-			LOG(IPU3, Error) << "Failed to queue CIO2 buffer";
-			return ret;
-		}
+	if (availableBuffers_.empty()) {
+		LOG(IPU3, Error) << "CIO2 buffer underrun";
+		return nullptr;
 	}
 
+	FrameBuffer *buffer = availableBuffers_.front();
+
+	availableBuffers_.pop();
+
+	return buffer;
+}
+
+void CIO2Device::putBuffer(FrameBuffer *buffer)
+{
+	availableBuffers_.push(buffer);
+}
+
+int CIO2Device::start()
+{
 	return output_->streamOn();
 }
 
@@ -1453,19 +1570,19 @@ int CIO2Device::stop()
 	return output_->streamOff();
 }
 
-int CIO2Device::mediaBusToFormat(unsigned int code)
+V4L2PixelFormat CIO2Device::mediaBusToFormat(unsigned int code)
 {
 	switch (code) {
 	case MEDIA_BUS_FMT_SBGGR10_1X10:
-		return V4L2_PIX_FMT_IPU3_SBGGR10;
+		return V4L2PixelFormat(V4L2_PIX_FMT_IPU3_SBGGR10);
 	case MEDIA_BUS_FMT_SGBRG10_1X10:
-		return V4L2_PIX_FMT_IPU3_SGBRG10;
+		return V4L2PixelFormat(V4L2_PIX_FMT_IPU3_SGBRG10);
 	case MEDIA_BUS_FMT_SGRBG10_1X10:
-		return V4L2_PIX_FMT_IPU3_SGRBG10;
+		return V4L2PixelFormat(V4L2_PIX_FMT_IPU3_SGRBG10);
 	case MEDIA_BUS_FMT_SRGGB10_1X10:
-		return V4L2_PIX_FMT_IPU3_SRGGB10;
+		return V4L2PixelFormat(V4L2_PIX_FMT_IPU3_SRGGB10);
 	default:
-		return -EINVAL;
+		return {};
 	}
 }
 

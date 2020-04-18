@@ -7,11 +7,13 @@
 #ifndef __LIBCAMERA_V4L2_VIDEODEVICE_H__
 #define __LIBCAMERA_V4L2_VIDEODEVICE_H__
 
+#include <atomic>
+#include <memory>
+#include <stdint.h>
 #include <string>
 #include <vector>
 
 #include <linux/videodev2.h>
-#include <memory>
 
 #include <libcamera/buffer.h>
 #include <libcamera/geometry.h>
@@ -120,11 +122,12 @@ private:
 	{
 	public:
 		Entry();
-		Entry(bool free, const FrameBuffer &buffer);
+		Entry(bool free, uint64_t lastUsed, const FrameBuffer &buffer);
 
-		bool operator==(const FrameBuffer &buffer);
+		bool operator==(const FrameBuffer &buffer) const;
 
 		bool free;
+		uint64_t lastUsed;
 
 	private:
 		struct Plane {
@@ -140,15 +143,39 @@ private:
 		std::vector<Plane> planes_;
 	};
 
+	std::atomic<uint64_t> lastUsedCounter_;
 	std::vector<Entry> cache_;
 	/* \todo Expose the miss counter through an instrumentation API. */
 	unsigned int missCounter_;
 };
 
+class V4L2PixelFormat
+{
+public:
+	V4L2PixelFormat()
+		: fourcc_(0)
+	{
+	}
+
+	explicit V4L2PixelFormat(uint32_t fourcc)
+		: fourcc_(fourcc)
+	{
+	}
+
+	bool isValid() const { return fourcc_ != 0; }
+	uint32_t fourcc() const { return fourcc_; }
+	operator uint32_t() const { return fourcc_; }
+
+	std::string toString() const;
+
+private:
+	uint32_t fourcc_;
+};
+
 class V4L2DeviceFormat
 {
 public:
-	uint32_t fourcc;
+	V4L2PixelFormat fourcc;
 	Size size;
 
 	struct {
@@ -178,10 +205,17 @@ public:
 	const char *deviceName() const { return caps_.card(); }
 	const char *busName() const { return caps_.bus_info(); }
 
+	const V4L2Capability &caps() const { return caps_; }
+
 	int getFormat(V4L2DeviceFormat *format);
 	int setFormat(V4L2DeviceFormat *format);
-	ImageFormats formats();
+	std::map<V4L2PixelFormat, std::vector<SizeRange>> formats();
 
+	int setCrop(Rectangle *rect);
+	int setCompose(Rectangle *rect);
+
+	int allocateBuffers(unsigned int count,
+			    std::vector<std::unique_ptr<FrameBuffer>> *buffers);
 	int exportBuffers(unsigned int count,
 			  std::vector<std::unique_ptr<FrameBuffer>> *buffers);
 	int importBuffers(unsigned int count);
@@ -196,9 +230,10 @@ public:
 	static V4L2VideoDevice *fromEntityName(const MediaDevice *media,
 					       const std::string &entity);
 
-	static PixelFormat toPixelFormat(uint32_t v4l2Fourcc);
-	uint32_t toV4L2Fourcc(PixelFormat pixelFormat);
-	static uint32_t toV4L2Fourcc(PixelFormat pixelFormat, bool multiplanar);
+	static PixelFormat toPixelFormat(V4L2PixelFormat v4l2Fourcc);
+	V4L2PixelFormat toV4L2PixelFormat(const PixelFormat &pixelFormat);
+	static V4L2PixelFormat toV4L2PixelFormat(const PixelFormat &pixelFormat,
+						 bool multiplanar);
 
 protected:
 	std::string logPrefix() const;
@@ -213,11 +248,15 @@ private:
 	int getFormatSingleplane(V4L2DeviceFormat *format);
 	int setFormatSingleplane(V4L2DeviceFormat *format);
 
-	std::vector<unsigned int> enumPixelformats();
-	std::vector<SizeRange> enumSizes(unsigned int pixelFormat);
+	std::vector<V4L2PixelFormat> enumPixelformats();
+	std::vector<SizeRange> enumSizes(V4L2PixelFormat pixelFormat);
 
-	int requestBuffers(unsigned int count);
-	std::unique_ptr<FrameBuffer> createBuffer(const struct v4l2_buffer &buf);
+	int setSelection(unsigned int target, Rectangle *rect);
+
+	int requestBuffers(unsigned int count, enum v4l2_memory memoryType);
+	int createBuffers(unsigned int count,
+			  std::vector<std::unique_ptr<FrameBuffer>> *buffers);
+	std::unique_ptr<FrameBuffer> createBuffer(unsigned int index);
 	FileDescriptor exportDmabufFd(unsigned int index, unsigned int plane);
 
 	void bufferAvailable(EventNotifier *notifier);

@@ -127,7 +127,7 @@ std::vector<PixelFormat> StreamFormats::pixelformats() const
  *
  * \return A list of frame sizes or an empty list on error
  */
-std::vector<Size> StreamFormats::sizes(PixelFormat pixelformat) const
+std::vector<Size> StreamFormats::sizes(const PixelFormat &pixelformat) const
 {
 	/*
 	 * Sizes to try and extract from ranges.
@@ -240,7 +240,7 @@ std::vector<Size> StreamFormats::sizes(PixelFormat pixelformat) const
  *
  * \return A range of valid image sizes or an empty range on error
  */
-SizeRange StreamFormats::range(PixelFormat pixelformat) const
+SizeRange StreamFormats::range(const PixelFormat &pixelformat) const
 {
 	auto const it = formats_.find(pixelformat);
 	if (it == formats_.end())
@@ -251,7 +251,7 @@ SizeRange StreamFormats::range(PixelFormat pixelformat) const
 		return ranges[0];
 
 	LOG(Stream, Debug) << "Building range from discrete sizes";
-	SizeRange range(UINT_MAX, UINT_MAX, 0, 0);
+	SizeRange range({ UINT_MAX, UINT_MAX }, { 0, 0 });
 	for (const SizeRange &limit : ranges) {
 		if (limit.min < range.min)
 			range.min = limit.min;
@@ -347,9 +347,7 @@ StreamConfiguration::StreamConfiguration(const StreamFormats &formats)
  */
 std::string StreamConfiguration::toString() const
 {
-	std::stringstream ss;
-	ss << size.toString() << "-" << utils::hex(pixelFormat);
-	return ss.str();
+	return size.toString() + "-" + pixelFormat.toString();
 }
 
 /**
@@ -363,6 +361,9 @@ std::string StreamConfiguration::toString() const
  * \var StillCapture
  * The stream is intended to capture high-resolution, high-quality still images
  * with low frame rate. The captured frames may be exposed with flash.
+ * \var StillCaptureRaw
+ * The stream is intended to capture high-resolution, raw still images with low
+ * frame rate.
  * \var VideoRecording
  * The stream is intended to capture video for the purpose of recording or
  * streaming. The video stream may produce a high frame rate and may be

@@ -9,13 +9,16 @@
 
 #include <stddef.h>
 
+#include <QSize>
+
+#include <libcamera/pixelformats.h>
+
 class QImage;
 
 class FormatConverter
 {
 public:
-	int configure(unsigned int format, unsigned int width,
-		      unsigned int height);
+	int configure(const libcamera::PixelFormat &format, const QSize &size);
 
 	void convert(const unsigned char *src, size_t size, QImage *dst);
 
@@ -31,7 +34,7 @@ private:
 	void convertRGB(const unsigned char *src, unsigned char *dst);
 	void convertYUV(const unsigned char *src, unsigned char *dst);
 
-	unsigned int format_;
+	libcamera::PixelFormat format_;
 	unsigned int width_;
 	unsigned int height_;
 

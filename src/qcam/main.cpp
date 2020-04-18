@@ -5,21 +5,20 @@
  * main.cpp - cam - The libcamera swiss army knife
  */
 
-#include <iostream>
 #include <signal.h>
 #include <string.h>
 
 #include <QApplication>
+#include <QtDebug>
 
 #include <libcamera/camera_manager.h>
 
 #include "main_window.h"
 #include "../cam/options.h"
-#include "qt_event_dispatcher.h"
 
 void signalHandler(int signal)
 {
-	std::cout << "Exiting" << std::endl;
+	qInfo() << "Exiting";
 	qApp->quit();
 }
 
@@ -62,14 +61,12 @@ int main(int argc, char **argv)
 	sa.sa_handler = &signalHandler;
 	sigaction(SIGINT, &sa, nullptr);
 
-	std::unique_ptr<EventDispatcher> dispatcher(new QtEventDispatcher());
 	CameraManager *cm = new CameraManager();
-	cm->setEventDispatcher(std::move(dispatcher));
 
 	ret = cm->start();
 	if (ret) {
-		std::cout << "Failed to start camera manager: "
-			  << strerror(-ret) << std::endl;
+		qInfo() << "Failed to start camera manager:"
+			<< strerror(-ret);
 		return EXIT_FAILURE;
 	}
 

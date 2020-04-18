@@ -7,6 +7,10 @@
 
 #include <iostream>
 #include <sstream>
+#include <string>
+#include <vector>
+
+#include <libcamera/geometry.h>
 
 #include "test.h"
 #include "utils.h"
@@ -17,8 +21,59 @@ using namespace libcamera;
 class UtilsTest : public Test
 {
 protected:
+	int testDirname()
+	{
+		static const std::vector<std::string> paths = {
+			"",
+			"///",
+			"/bin",
+			"/usr/bin",
+			"//etc////",
+			"//tmp//d//",
+			"current_file",
+			"./current_file",
+			"./current_dir/",
+			"current_dir/",
+		};
+
+		static const std::vector<std::string> expected = {
+			".",
+			"/",
+			"/",
+			"/usr",
+			"/",
+			"//tmp",
+			".",
+			".",
+			".",
+			".",
+		};
+
+		std::vector<std::string> results;
+
+		for (const auto &path : paths)
+			results.push_back(utils::dirname(path));
+
+		if (results != expected) {
+			cerr << "utils::dirname() tests failed" << endl;
+
+			cerr << "expected: " << endl;
+			for (const auto &path : expected)
+				cerr << "\t" << path << endl;
+
+			cerr << "results: " << endl;
+			for (const auto &path : results)
+				cerr << "\t" << path << endl;
+
+			return TestFail;
+		}
+
+		return TestPass;
+	}
+
 	int run()
 	{
+		/* utils::hex() test. */
 		std::ostringstream os;
 		std::string ref;
 
@@ -45,6 +100,48 @@ protected:
 			     << "', got '" << s << "'";
 			return TestFail;
 		}
+
+		/* utils::join() and utils::split() test. */
+		std::vector<std::string> elements = {
+			"/bin",
+			"/usr/bin",
+			"",
+			"",
+		};
+
+		std::string path;
+		for (const auto &element : elements)
+			path += (path.empty() ? "" : ":") + element;
+
+		if (path != utils::join(elements, ":")) {
+			cerr << "utils::join() test failed" << endl;
+			return TestFail;
+		}
+
+		std::vector<std::string> dirs;
+
+		for (const auto &dir : utils::split(path, ":"))
+			dirs.push_back(dir);
+
+		if (dirs != elements) {
+			cerr << "utils::split() test failed" << endl;
+			return TestFail;
+		}
+
+		/* utils::join() with conversion function test. */
+		std::vector<Size> sizes = { { 0, 0 }, { 100, 100 } };
+		s = utils::join(sizes, "/", [](const Size &size) {
+					return size.toString();
+				});
+
+		if (s != "0x0/100x100") {
+			cerr << "utils::join() with conversion test failed" << endl;
+			return TestFail;
+		}
+
+		/* utils::dirname() tests. */
+		if (TestPass != testDirname())
+			return TestFail;
 
 		return TestPass;
 	}

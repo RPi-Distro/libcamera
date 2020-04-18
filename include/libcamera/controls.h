@@ -8,8 +8,12 @@
 #ifndef __LIBCAMERA_CONTROLS_H__
 #define __LIBCAMERA_CONTROLS_H__
 
+#include <assert.h>
+#include <stdint.h>
 #include <string>
 #include <unordered_map>
+
+#include <libcamera/span.h>
 
 namespace libcamera {
 
@@ -18,25 +22,100 @@ class ControlValidator;
 enum ControlType {
 	ControlTypeNone,
 	ControlTypeBool,
+	ControlTypeByte,
 	ControlTypeInteger32,
 	ControlTypeInteger64,
+	ControlTypeFloat,
+	ControlTypeString,
 };
+
+namespace details {
+
+template<typename T>
+struct control_type {
+};
+
+template<>
+struct control_type<void> {
+	static constexpr ControlType value = ControlTypeNone;
+};
+
+template<>
+struct control_type<bool> {
+	static constexpr ControlType value = ControlTypeBool;
+};
+
+template<>
+struct control_type<uint8_t> {
+	static constexpr ControlType value = ControlTypeByte;
+};
+
+template<>
+struct control_type<int32_t> {
+	static constexpr ControlType value = ControlTypeInteger32;
+};
+
+template<>
+struct control_type<int64_t> {
+	static constexpr ControlType value = ControlTypeInteger64;
+};
+
+template<>
+struct control_type<float> {
+	static constexpr ControlType value = ControlTypeFloat;
+};
+
+template<>
+struct control_type<std::string> {
+	static constexpr ControlType value = ControlTypeString;
+};
+
+template<typename T, std::size_t N>
+struct control_type<Span<T, N>> : public control_type<std::remove_cv_t<T>> {
+};
+
+} /* namespace details */
 
 class ControlValue
 {
 public:
 	ControlValue();
-	ControlValue(bool value);
-	ControlValue(int32_t value);
-	ControlValue(int64_t value);
+
+#ifndef __DOXYGEN__
+	template<typename T, typename std::enable_if_t<!details::is_span<T>::value &&
+						       !std::is_same<std::string, std::remove_cv_t<T>>::value,
+						       std::nullptr_t> = nullptr>
+	ControlValue(const T &value)
+		: type_(ControlTypeNone), numElements_(0)
+	{
+		set(details::control_type<std::remove_cv_t<T>>::value, false,
+		    &value, 1, sizeof(T));
+	}
+
+	template<typename T, typename std::enable_if_t<details::is_span<T>::value ||
+						       std::is_same<std::string, std::remove_cv_t<T>>::value,
+						       std::nullptr_t> = nullptr>
+#else
+	template<typename T>
+#endif
+	ControlValue(const T &value)
+		: type_(ControlTypeNone), numElements_(0)
+	{
+		set(details::control_type<std::remove_cv_t<T>>::value, true,
+		    value.data(), value.size(), sizeof(typename T::value_type));
+	}
+
+	~ControlValue();
+
+	ControlValue(const ControlValue &other);
+	ControlValue &operator=(const ControlValue &other);
 
 	ControlType type() const { return type_; }
 	bool isNone() const { return type_ == ControlTypeNone; }
-
-	template<typename T>
-	const T &get() const;
-	template<typename T>
-	void set(const T &value);
+	bool isArray() const { return isArray_; }
+	std::size_t numElements() const { return numElements_; }
+	Span<const uint8_t> data() const;
+	Span<uint8_t> data();
 
 	std::string toString() const;
 
@@ -46,14 +125,71 @@ public:
 		return !(*this == other);
 	}
 
-private:
-	ControlType type_;
+#ifndef __DOXYGEN__
+	template<typename T, typename std::enable_if_t<!details::is_span<T>::value &&
+						       !std::is_same<std::string, std::remove_cv_t<T>>::value,
+						       std::nullptr_t> = nullptr>
+	T get() const
+	{
+		assert(type_ == details::control_type<std::remove_cv_t<T>>::value);
+		assert(!isArray_);
 
+		return *reinterpret_cast<const T *>(data().data());
+	}
+
+	template<typename T, typename std::enable_if_t<details::is_span<T>::value ||
+						       std::is_same<std::string, std::remove_cv_t<T>>::value,
+						       std::nullptr_t> = nullptr>
+#else
+	template<typename T>
+#endif
+	T get() const
+	{
+		assert(type_ == details::control_type<std::remove_cv_t<T>>::value);
+		assert(isArray_);
+
+		using V = typename T::value_type;
+		const V *value = reinterpret_cast<const V *>(data().data());
+		return { value, numElements_ };
+	}
+
+#ifndef __DOXYGEN__
+	template<typename T, typename std::enable_if_t<!details::is_span<T>::value &&
+						       !std::is_same<std::string, std::remove_cv_t<T>>::value,
+						       std::nullptr_t> = nullptr>
+	void set(const T &value)
+	{
+		set(details::control_type<std::remove_cv_t<T>>::value, false,
+		    reinterpret_cast<const void *>(&value), 1, sizeof(T));
+	}
+
+	template<typename T, typename std::enable_if_t<details::is_span<T>::value ||
+						       std::is_same<std::string, std::remove_cv_t<T>>::value,
+						       std::nullptr_t> = nullptr>
+#else
+	template<typename T>
+#endif
+	void set(const T &value)
+	{
+		set(details::control_type<std::remove_cv_t<T>>::value, true,
+		    value.data(), value.size(), sizeof(typename T::value_type));
+	}
+
+	void reserve(ControlType type, bool isArray = false,
+		     std::size_t numElements = 1);
+
+private:
+	ControlType type_ : 8;
+	bool isArray_;
+	std::size_t numElements_ : 32;
 	union {
-		bool bool_;
-		int32_t integer32_;
-		int64_t integer64_;
+		uint64_t value_;
+		void *storage_;
 	};
+
+	void release();
+	void set(ControlType type, bool isArray, const void *data,
+		 std::size_t numElements, std::size_t elementSize);
 };
 
 class ControlId
@@ -103,30 +239,35 @@ class Control : public ControlId
 public:
 	using type = T;
 
-	Control(unsigned int id, const char *name);
+	Control(unsigned int id, const char *name)
+		: ControlId(id, name, details::control_type<std::remove_cv_t<T>>::value)
+	{
+	}
 
 private:
 	Control(const Control &) = delete;
 	Control &operator=(const Control &) = delete;
 };
 
-class ControlRange
+class ControlInfo
 {
 public:
-	explicit ControlRange(const ControlValue &min = 0,
-			      const ControlValue &max = 0);
+	explicit ControlInfo(const ControlValue &min = 0,
+			     const ControlValue &max = 0,
+			     const ControlValue &def = 0);
 
 	const ControlValue &min() const { return min_; }
 	const ControlValue &max() const { return max_; }
+	const ControlValue &def() const { return def_; }
 
 	std::string toString() const;
 
-	bool operator==(const ControlRange &other) const
+	bool operator==(const ControlInfo &other) const
 	{
 		return min_ == other.min_ && max_ == other.max_;
 	}
 
-	bool operator!=(const ControlRange &other) const
+	bool operator!=(const ControlInfo &other) const
 	{
 		return !(*this == other);
 	}
@@ -134,14 +275,15 @@ public:
 private:
 	ControlValue min_;
 	ControlValue max_;
+	ControlValue def_;
 };
 
 using ControlIdMap = std::unordered_map<unsigned int, const ControlId *>;
 
-class ControlInfoMap : private std::unordered_map<const ControlId *, ControlRange>
+class ControlInfoMap : private std::unordered_map<const ControlId *, ControlInfo>
 {
 public:
-	using Map = std::unordered_map<const ControlId *, ControlRange>;
+	using Map = std::unordered_map<const ControlId *, ControlInfo>;
 
 	ControlInfoMap() = default;
 	ControlInfoMap(const ControlInfoMap &other) = default;
@@ -191,7 +333,7 @@ private:
 public:
 	ControlList();
 	ControlList(const ControlIdMap &idmap, ControlValidator *validator = nullptr);
-	ControlList(const ControlInfoMap &info, ControlValidator *validator = nullptr);
+	ControlList(const ControlInfoMap &infoMap, ControlValidator *validator = nullptr);
 
 	using iterator = ControlListMap::iterator;
 	using const_iterator = ControlListMap::const_iterator;
@@ -209,25 +351,33 @@ public:
 	bool contains(unsigned int id) const;
 
 	template<typename T>
-	const T &get(const Control<T> &ctrl) const
+	T get(const Control<T> &ctrl) const
 	{
 		const ControlValue *val = find(ctrl.id());
-		if (!val) {
-			static T t(0);
-			return t;
-		}
+		if (!val)
+			return T{};
 
 		return val->get<T>();
 	}
 
-	template<typename T>
-	void set(const Control<T> &ctrl, const T &value)
+	template<typename T, typename V>
+	void set(const Control<T> &ctrl, const V &value)
 	{
 		ControlValue *val = find(ctrl.id());
 		if (!val)
 			return;
 
 		val->set<T>(value);
+	}
+
+	template<typename T, typename V>
+	void set(const Control<T> &ctrl, const std::initializer_list<V> &value)
+	{
+		ControlValue *val = find(ctrl.id());
+		if (!val)
+			return;
+
+		val->set<T>(Span<const typename std::remove_cv_t<V>>{ value.begin(), value.size() });
 	}
 
 	const ControlValue &get(unsigned int id) const;

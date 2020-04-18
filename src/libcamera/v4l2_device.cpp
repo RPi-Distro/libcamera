@@ -176,13 +176,38 @@ int V4L2Device::getControls(ControlList *ctrls)
 	memset(v4l2Ctrls, 0, sizeof(v4l2Ctrls));
 
 	unsigned int i = 0;
-	for (const auto &ctrl : *ctrls) {
+	for (auto &ctrl : *ctrls) {
 		unsigned int id = ctrl.first;
 		const auto iter = controls_.find(id);
 		if (iter == controls_.end()) {
 			LOG(V4L2, Error)
 				<< "Control " << utils::hex(id) << " not found";
 			return -EINVAL;
+		}
+
+		const struct v4l2_query_ext_ctrl &info = controlInfo_[id];
+		ControlValue &value = ctrl.second;
+
+		if (info.flags & V4L2_CTRL_FLAG_HAS_PAYLOAD) {
+			ControlType type;
+
+			switch (info.type) {
+			case V4L2_CTRL_TYPE_U8:
+				type = ControlTypeByte;
+				break;
+
+			default:
+				LOG(V4L2, Error)
+					<< "Unsupported payload control type "
+					<< info.type;
+				return -EINVAL;
+			}
+
+			value.reserve(type, true, info.elems);
+			Span<uint8_t> data = value.data();
+
+			v4l2Ctrls[i].p_u8 = data.data();
+			v4l2Ctrls[i].size = data.size();
 		}
 
 		v4l2Ctrls[i].id = id;
@@ -201,13 +226,13 @@ int V4L2Device::getControls(ControlList *ctrls)
 		/* Generic validation error. */
 		if (errorIdx == 0 || errorIdx >= count) {
 			LOG(V4L2, Error) << "Unable to read controls: "
-					 << strerror(ret);
+					 << strerror(-ret);
 			return -EINVAL;
 		}
 
 		/* A specific control failed. */
 		LOG(V4L2, Error) << "Unable to read control " << errorIdx
-				 << ": " << strerror(ret);
+				 << ": " << strerror(-ret);
 		count = errorIdx - 1;
 		ret = errorIdx;
 	}
@@ -250,7 +275,7 @@ int V4L2Device::setControls(ControlList *ctrls)
 	memset(v4l2Ctrls, 0, sizeof(v4l2Ctrls));
 
 	unsigned int i = 0;
-	for (const auto &ctrl : *ctrls) {
+	for (auto &ctrl : *ctrls) {
 		unsigned int id = ctrl.first;
 		const auto iter = controls_.find(id);
 		if (iter == controls_.end()) {
@@ -262,16 +287,29 @@ int V4L2Device::setControls(ControlList *ctrls)
 		v4l2Ctrls[i].id = id;
 
 		/* Set the v4l2_ext_control value for the write operation. */
-		const ControlValue &value = ctrl.second;
+		ControlValue &value = ctrl.second;
 		switch (iter->first->type()) {
 		case ControlTypeInteger64:
 			v4l2Ctrls[i].value64 = value.get<int64_t>();
 			break;
+
+		case ControlTypeByte: {
+			if (!value.isArray()) {
+				LOG(V4L2, Error)
+					<< "Control " << utils::hex(id)
+					<< " requires an array value";
+				return -EINVAL;
+			}
+
+			Span<uint8_t> data = value.data();
+			v4l2Ctrls[i].p_u8 = data.data();
+			v4l2Ctrls[i].size = data.size();
+
+			break;
+		}
+
 		default:
-			/*
-			 * \todo To be changed when support for string and
-			 * compound controls will be added.
-			 */
+			/* \todo To be changed to support strings. */
 			v4l2Ctrls[i].value = value.get<int32_t>();
 			break;
 		}
@@ -291,13 +329,13 @@ int V4L2Device::setControls(ControlList *ctrls)
 		/* Generic validation error. */
 		if (errorIdx == 0 || errorIdx >= count) {
 			LOG(V4L2, Error) << "Unable to set controls: "
-					 << strerror(ret);
+					 << strerror(-ret);
 			return -EINVAL;
 		}
 
 		/* A specific control failed. */
 		LOG(V4L2, Error) << "Unable to set control " << errorIdx
-				 << ": " << strerror(ret);
+				 << ": " << strerror(-ret);
 		count = errorIdx - 1;
 		ret = errorIdx;
 	}
@@ -348,20 +386,14 @@ void V4L2Device::listControls()
 
 	/* \todo Add support for menu and compound controls. */
 	while (1) {
-		ctrl.id |= V4L2_CTRL_FLAG_NEXT_CTRL;
+		ctrl.id |= V4L2_CTRL_FLAG_NEXT_CTRL |
+			   V4L2_CTRL_FLAG_NEXT_COMPOUND;
 		if (ioctl(VIDIOC_QUERY_EXT_CTRL, &ctrl))
 			break;
 
 		if (ctrl.type == V4L2_CTRL_TYPE_CTRL_CLASS ||
 		    ctrl.flags & V4L2_CTRL_FLAG_DISABLED)
 			continue;
-
-		if (ctrl.elems != 1 || ctrl.nr_of_dims) {
-			LOG(V4L2, Debug)
-				<< "Array control " << utils::hex(ctrl.id)
-				<< " not supported";
-			continue;
-		}
 
 		switch (ctrl.type) {
 		case V4L2_CTRL_TYPE_INTEGER:
@@ -371,8 +403,9 @@ void V4L2Device::listControls()
 		case V4L2_CTRL_TYPE_INTEGER64:
 		case V4L2_CTRL_TYPE_BITMASK:
 		case V4L2_CTRL_TYPE_INTEGER_MENU:
+		case V4L2_CTRL_TYPE_U8:
 			break;
-		/* \todo Support compound controls. */
+		/* \todo Support other control types. */
 		default:
 			LOG(V4L2, Debug)
 				<< "Control " << utils::hex(ctrl.id)
@@ -381,7 +414,9 @@ void V4L2Device::listControls()
 		}
 
 		controlIds_.emplace_back(std::make_unique<V4L2ControlId>(ctrl));
-		ctrls.emplace(controlIds_.back().get(), V4L2ControlRange(ctrl));
+		controlInfo_.emplace(ctrl.id, ctrl);
+
+		ctrls.emplace(controlIds_.back().get(), V4L2ControlInfo(ctrl));
 	}
 
 	controls_ = std::move(ctrls);
@@ -412,6 +447,14 @@ void V4L2Device::updateControls(ControlList *ctrls,
 		case ControlTypeInteger64:
 			value.set<int64_t>(v4l2Ctrl->value64);
 			break;
+
+		case ControlTypeByte:
+			/*
+			 * No action required, the VIDIOC_[GS]_EXT_CTRLS ioctl
+			 * accessed the ControlValue storage directly.
+			 */
+			break;
+
 		default:
 			/*
 			 * \todo To be changed when support for string and

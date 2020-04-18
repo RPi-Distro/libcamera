@@ -40,7 +40,7 @@ int V4L2Camera::open()
 		return -EINVAL;
 	}
 
-	bufferAllocator_ = FrameBufferAllocator::create(camera_);
+	bufferAllocator_ = new FrameBufferAllocator(camera_);
 
 	return 0;
 }
@@ -88,7 +88,7 @@ void V4L2Camera::requestComplete(Request *request)
 }
 
 int V4L2Camera::configure(StreamConfiguration *streamConfigOut,
-			  const Size &size, PixelFormat pixelformat,
+			  const Size &size, const PixelFormat &pixelformat,
 			  unsigned int bufferCount)
 {
 	StreamConfiguration &streamConfig = config_->at(0);

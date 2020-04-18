@@ -76,7 +76,12 @@ Object::Object(Object *parent)
  */
 Object::~Object()
 {
-	for (SignalBase *signal : signals_)
+	/*
+	 * Move signals to a private list to avoid concurrent iteration and
+	 * deletion of items from Signal::disconnect().
+	 */
+	std::list<SignalBase *> signals(std::move(signals_));
+	for (SignalBase *signal : signals)
 		signal->disconnect(this);
 
 	if (pendingMessages_)
@@ -105,6 +110,8 @@ Object::~Object()
  * Messages are delivered through the thread's event loop. If the thread is not
  * running its event loop the message will not be delivered until the event
  * loop gets started.
+ *
+ * \context This function is \threadsafe.
  */
 void Object::postMessage(std::unique_ptr<Message> msg)
 {
@@ -157,6 +164,8 @@ void Object::message(Message *msg)
  * are passed untouched. The caller shall ensure that any pointer argument
  * remains valid until the method is invoked.
  *
+ * \context This function is \threadsafe.
+ *
  * \return For connection types ConnectionTypeDirect and
  * ConnectionTypeBlocking, return the return value of the invoked method. For
  * connection type ConnectionTypeQueued, return a default-constructed R value.
@@ -165,6 +174,7 @@ void Object::message(Message *msg)
 /**
  * \fn Object::thread()
  * \brief Retrieve the thread the object is bound to
+ * \context This function is \threadsafe.
  * \return The thread the object is bound to
  */
 
@@ -173,8 +183,7 @@ void Object::message(Message *msg)
  * \param[in] thread The target thread
  *
  * This method moves the object and all its children from the current thread to
- * the new \a thread. It shall be called from the thread in which the object
- * currently lives, otherwise the behaviour is undefined.
+ * the new \a thread.
  *
  * Before the object is moved, a Message::ThreadMoveMessage message is sent to
  * it. The message() method can be reimplement in derived classes to be notified
@@ -182,6 +191,8 @@ void Object::message(Message *msg)
  *
  * Moving an object that has a parent is not allowed, and causes undefined
  * behaviour.
+ *
+ * \context This function is thread-bound.
  */
 void Object::moveToThread(Thread *thread)
 {
