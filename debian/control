@@ -14,7 +14,7 @@ Build-Depends: debhelper-compat (= 12),
                python3-yaml,
                libjs-jquery,
                libjs-underscore
-Standards-Version: 4.4.1
+Standards-Version: 4.5.0
 Rules-Requires-Root: no
 Section: libs
 Homepage: https://libcamera.org/
