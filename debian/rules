@@ -6,6 +6,9 @@ export DH_VERBOSE = 1
 %:
 	dh $@
 
+override_dh_install:
+	dh_install -X/.doctrees/
+
 override_dh_auto_test:
 
 .PHONY: override_dh_auto_test
