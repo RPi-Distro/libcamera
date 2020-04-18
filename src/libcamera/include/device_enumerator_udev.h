@@ -43,9 +43,9 @@ private:
 	using DependencyMap = std::map<dev_t, std::list<MediaEntity *>>;
 
 	struct MediaDeviceDeps {
-		MediaDeviceDeps(const std::shared_ptr<MediaDevice> &media,
-				const DependencyMap &deps)
-			: media_(media), deps_(deps)
+		MediaDeviceDeps(std::unique_ptr<MediaDevice> &&media,
+				DependencyMap &&deps)
+			: media_(std::move(media)), deps_(std::move(deps))
 		{
 		}
 
@@ -54,7 +54,7 @@ private:
 			return media_ == other.media_;
 		}
 
-		std::shared_ptr<MediaDevice> media_;
+		std::unique_ptr<MediaDevice> media_;
 		DependencyMap deps_;
 	};
 
@@ -63,7 +63,7 @@ private:
 	std::map<dev_t, MediaDeviceDeps *> devMap_;
 
 	int addUdevDevice(struct udev_device *dev);
-	int populateMediaDevice(const std::shared_ptr<MediaDevice> &media);
+	int populateMediaDevice(MediaDevice *media, DependencyMap *deps);
 	std::string lookupDeviceNode(dev_t devnum);
 
 	int addV4L2Device(dev_t devnum);

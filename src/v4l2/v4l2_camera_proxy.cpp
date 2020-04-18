@@ -10,7 +10,6 @@
 #include <algorithm>
 #include <array>
 #include <errno.h>
-#include <linux/drm_fourcc.h>
 #include <linux/videodev2.h>
 #include <string.h>
 #include <sys/mman.h>
@@ -41,8 +40,7 @@ int V4L2CameraProxy::open(bool nonBlocking)
 {
 	LOG(V4L2Compat, Debug) << "Servicing open";
 
-	int ret = vcam_->invokeMethod(&V4L2Camera::open,
-				      ConnectionTypeBlocking);
+	int ret = vcam_->open();
 	if (ret < 0) {
 		errno = -ret;
 		return -1;
@@ -50,8 +48,7 @@ int V4L2CameraProxy::open(bool nonBlocking)
 
 	nonBlocking_ = nonBlocking;
 
-	vcam_->invokeMethod(&V4L2Camera::getStreamConfig,
-			    ConnectionTypeBlocking, &streamConfig_);
+	vcam_->getStreamConfig(&streamConfig_);
 	setFmtFromConfig(streamConfig_);
 	sizeimage_ = calculateSizeImage(streamConfig_);
 
@@ -72,7 +69,7 @@ void V4L2CameraProxy::close()
 	if (--refcount_ > 0)
 		return;
 
-	vcam_->invokeMethod(&V4L2Camera::close, ConnectionTypeBlocking);
+	vcam_->close();
 }
 
 void *V4L2CameraProxy::mmap(void *addr, size_t length, int prot, int flags,
@@ -87,7 +84,8 @@ void *V4L2CameraProxy::mmap(void *addr, size_t length, int prot, int flags,
 	}
 
 	unsigned int index = offset / sizeimage_;
-	if (index * sizeimage_ != offset || length != sizeimage_) {
+	if (static_cast<off_t>(index * sizeimage_) != offset ||
+	    length != sizeimage_) {
 		errno = EINVAL;
 		return MAP_FAILED;
 	}
@@ -179,7 +177,7 @@ void V4L2CameraProxy::querycap(std::shared_ptr<Camera> camera)
 		       sizeof(capabilities_.bus_info));
 	/* \todo Put this in a header/config somewhere. */
 	capabilities_.version = KERNEL_VERSION(5, 2, 0);
-	capabilities_.device_caps = V4L2_CAP_VIDEO_CAPTURE;
+	capabilities_.device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
 	capabilities_.capabilities = capabilities_.device_caps
 				   | V4L2_CAP_DEVICE_CAPS;
 	memset(capabilities_.reserved, 0, sizeof(capabilities_.reserved));
@@ -284,11 +282,9 @@ int V4L2CameraProxy::vidioc_s_fmt(struct v4l2_format *arg)
 	tryFormat(arg);
 
 	Size size(arg->fmt.pix.width, arg->fmt.pix.height);
-	int ret = vcam_->invokeMethod(&V4L2Camera::configure,
-				      ConnectionTypeBlocking,
-				      &streamConfig_, size,
-				      v4l2ToDrm(arg->fmt.pix.pixelformat),
-				      bufferCount_);
+	int ret = vcam_->configure(&streamConfig_, size,
+				   v4l2ToDrm(arg->fmt.pix.pixelformat),
+				   bufferCount_);
 	if (ret < 0)
 		return -EINVAL;
 
@@ -319,13 +315,12 @@ int V4L2CameraProxy::freeBuffers()
 {
 	LOG(V4L2Compat, Debug) << "Freeing libcamera bufs";
 
-	int ret = vcam_->invokeMethod(&V4L2Camera::streamOff,
-				      ConnectionTypeBlocking);
+	int ret = vcam_->streamOff();
 	if (ret < 0) {
 		LOG(V4L2Compat, Error) << "Failed to stop stream";
 		return ret;
 	}
-	vcam_->invokeMethod(&V4L2Camera::freeBuffers, ConnectionTypeBlocking);
+	vcam_->freeBuffers();
 	bufferCount_ = 0;
 
 	return 0;
@@ -349,11 +344,9 @@ int V4L2CameraProxy::vidioc_reqbufs(struct v4l2_requestbuffers *arg)
 		return freeBuffers();
 
 	Size size(curV4L2Format_.fmt.pix.width, curV4L2Format_.fmt.pix.height);
-	ret = vcam_->invokeMethod(&V4L2Camera::configure,
-				  ConnectionTypeBlocking,
-				  &streamConfig_, size,
-				  v4l2ToDrm(curV4L2Format_.fmt.pix.pixelformat),
-				  arg->count);
+	ret = vcam_->configure(&streamConfig_, size,
+			       v4l2ToDrm(curV4L2Format_.fmt.pix.pixelformat),
+			       arg->count);
 	if (ret < 0)
 		return -EINVAL;
 
@@ -366,8 +359,7 @@ int V4L2CameraProxy::vidioc_reqbufs(struct v4l2_requestbuffers *arg)
 	arg->count = streamConfig_.bufferCount;
 	bufferCount_ = arg->count;
 
-	ret = vcam_->invokeMethod(&V4L2Camera::allocBuffers,
-				  ConnectionTypeBlocking, arg->count);
+	ret = vcam_->allocBuffers(arg->count);
 	if (ret < 0) {
 		arg->count = 0;
 		return ret;
@@ -415,8 +407,7 @@ int V4L2CameraProxy::vidioc_qbuf(struct v4l2_buffer *arg)
 	    arg->index >= bufferCount_)
 		return -EINVAL;
 
-	int ret = vcam_->invokeMethod(&V4L2Camera::qbuf, ConnectionTypeBlocking,
-				      arg->index);
+	int ret = vcam_->qbuf(arg->index);
 	if (ret < 0)
 		return ret;
 
@@ -459,10 +450,7 @@ int V4L2CameraProxy::vidioc_streamon(int *arg)
 	if (!validateBufferType(*arg))
 		return -EINVAL;
 
-	int ret = vcam_->invokeMethod(&V4L2Camera::streamOn,
-				      ConnectionTypeBlocking);
-
-	return ret;
+	return vcam_->streamOn();
 }
 
 int V4L2CameraProxy::vidioc_streamoff(int *arg)
@@ -472,8 +460,7 @@ int V4L2CameraProxy::vidioc_streamoff(int *arg)
 	if (!validateBufferType(*arg))
 		return -EINVAL;
 
-	int ret = vcam_->invokeMethod(&V4L2Camera::streamOff,
-				      ConnectionTypeBlocking);
+	int ret = vcam_->streamOff();
 
 	for (struct v4l2_buffer &buf : buffers_)
 		buf.flags &= ~(V4L2_BUF_FLAG_QUEUED | V4L2_BUF_FLAG_DONE);
@@ -546,23 +533,23 @@ struct PixelFormatInfo {
 
 namespace {
 
-constexpr std::array<PixelFormatInfo, 13> pixelFormatInfo = {{
+static const std::array<PixelFormatInfo, 13> pixelFormatInfo = {{
 	/* RGB formats. */
-	{ DRM_FORMAT_RGB888,	V4L2_PIX_FMT_BGR24,	1, {{ { 24, 1, 1 }, {  0, 0, 0 }, {  0, 0, 0 } }} },
-	{ DRM_FORMAT_BGR888,	V4L2_PIX_FMT_RGB24,	1, {{ { 24, 1, 1 }, {  0, 0, 0 }, {  0, 0, 0 } }} },
-	{ DRM_FORMAT_BGRA8888,	V4L2_PIX_FMT_ARGB32,	1, {{ { 32, 1, 1 }, {  0, 0, 0 }, {  0, 0, 0 } }} },
+	{ PixelFormat(DRM_FORMAT_RGB888),	V4L2_PIX_FMT_BGR24,	1, {{ { 24, 1, 1 }, {  0, 0, 0 }, {  0, 0, 0 } }} },
+	{ PixelFormat(DRM_FORMAT_BGR888),	V4L2_PIX_FMT_RGB24,	1, {{ { 24, 1, 1 }, {  0, 0, 0 }, {  0, 0, 0 } }} },
+	{ PixelFormat(DRM_FORMAT_BGRA8888),	V4L2_PIX_FMT_ARGB32,	1, {{ { 32, 1, 1 }, {  0, 0, 0 }, {  0, 0, 0 } }} },
 	/* YUV packed formats. */
-	{ DRM_FORMAT_UYVY,	V4L2_PIX_FMT_UYVY,	1, {{ { 16, 1, 1 }, {  0, 0, 0 }, {  0, 0, 0 } }} },
-	{ DRM_FORMAT_VYUY,	V4L2_PIX_FMT_VYUY,	1, {{ { 16, 1, 1 }, {  0, 0, 0 }, {  0, 0, 0 } }} },
-	{ DRM_FORMAT_YUYV,	V4L2_PIX_FMT_YUYV,	1, {{ { 16, 1, 1 }, {  0, 0, 0 }, {  0, 0, 0 } }} },
-	{ DRM_FORMAT_YVYU,	V4L2_PIX_FMT_YVYU,	1, {{ { 16, 1, 1 }, {  0, 0, 0 }, {  0, 0, 0 } }} },
+	{ PixelFormat(DRM_FORMAT_UYVY),		V4L2_PIX_FMT_UYVY,	1, {{ { 16, 1, 1 }, {  0, 0, 0 }, {  0, 0, 0 } }} },
+	{ PixelFormat(DRM_FORMAT_VYUY),		V4L2_PIX_FMT_VYUY,	1, {{ { 16, 1, 1 }, {  0, 0, 0 }, {  0, 0, 0 } }} },
+	{ PixelFormat(DRM_FORMAT_YUYV),		V4L2_PIX_FMT_YUYV,	1, {{ { 16, 1, 1 }, {  0, 0, 0 }, {  0, 0, 0 } }} },
+	{ PixelFormat(DRM_FORMAT_YVYU),		V4L2_PIX_FMT_YVYU,	1, {{ { 16, 1, 1 }, {  0, 0, 0 }, {  0, 0, 0 } }} },
 	/* YUY planar formats. */
-	{ DRM_FORMAT_NV12,	V4L2_PIX_FMT_NV12,	2, {{ {  8, 1, 1 }, { 16, 2, 2 }, {  0, 0, 0 } }} },
-	{ DRM_FORMAT_NV21,	V4L2_PIX_FMT_NV21,	2, {{ {  8, 1, 1 }, { 16, 2, 2 }, {  0, 0, 0 } }} },
-	{ DRM_FORMAT_NV16,	V4L2_PIX_FMT_NV16,	2, {{ {  8, 1, 1 }, { 16, 2, 1 }, {  0, 0, 0 } }} },
-	{ DRM_FORMAT_NV61,	V4L2_PIX_FMT_NV61,	2, {{ {  8, 1, 1 }, { 16, 2, 1 }, {  0, 0, 0 } }} },
-	{ DRM_FORMAT_NV24,	V4L2_PIX_FMT_NV24,	2, {{ {  8, 1, 1 }, { 16, 2, 1 }, {  0, 0, 0 } }} },
-	{ DRM_FORMAT_NV42,	V4L2_PIX_FMT_NV42,	2, {{ {  8, 1, 1 }, { 16, 1, 1 }, {  0, 0, 0 } }} },
+	{ PixelFormat(DRM_FORMAT_NV12),		V4L2_PIX_FMT_NV12,	2, {{ {  8, 1, 1 }, { 16, 2, 2 }, {  0, 0, 0 } }} },
+	{ PixelFormat(DRM_FORMAT_NV21),		V4L2_PIX_FMT_NV21,	2, {{ {  8, 1, 1 }, { 16, 2, 2 }, {  0, 0, 0 } }} },
+	{ PixelFormat(DRM_FORMAT_NV16),		V4L2_PIX_FMT_NV16,	2, {{ {  8, 1, 1 }, { 16, 2, 1 }, {  0, 0, 0 } }} },
+	{ PixelFormat(DRM_FORMAT_NV61),		V4L2_PIX_FMT_NV61,	2, {{ {  8, 1, 1 }, { 16, 2, 1 }, {  0, 0, 0 } }} },
+	{ PixelFormat(DRM_FORMAT_NV24),		V4L2_PIX_FMT_NV24,	2, {{ {  8, 1, 1 }, { 16, 2, 1 }, {  0, 0, 0 } }} },
+	{ PixelFormat(DRM_FORMAT_NV42),		V4L2_PIX_FMT_NV42,	2, {{ {  8, 1, 1 }, { 16, 1, 1 }, {  0, 0, 0 } }} },
 }};
 
 } /* namespace */
@@ -606,12 +593,12 @@ PixelFormat V4L2CameraProxy::v4l2ToDrm(uint32_t format)
 					 return info.v4l2Format == format;
 				 });
 	if (info == pixelFormatInfo.end())
-		return format;
+		return PixelFormat();
 
 	return info->format;
 }
 
-uint32_t V4L2CameraProxy::drmToV4L2(PixelFormat format)
+uint32_t V4L2CameraProxy::drmToV4L2(const PixelFormat &format)
 {
 	auto info = std::find_if(pixelFormatInfo.begin(), pixelFormatInfo.end(),
 				 [format](const PixelFormatInfo &info) {

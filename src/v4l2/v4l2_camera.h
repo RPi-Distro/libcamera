@@ -21,7 +21,7 @@
 
 using namespace libcamera;
 
-class V4L2Camera : public Object
+class V4L2Camera
 {
 public:
 	struct Buffer {
@@ -43,7 +43,7 @@ public:
 	std::vector<Buffer> completedBuffers();
 
 	int configure(StreamConfiguration *streamConfigOut,
-		      const Size &size, PixelFormat pixelformat,
+		      const Size &size, const PixelFormat &pixelformat,
 		      unsigned int bufferCount);
 
 	int allocBuffers(unsigned int count);

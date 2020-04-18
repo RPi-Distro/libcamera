@@ -5,13 +5,11 @@
  * format_convert.cpp - qcam - Convert buffer to RGB
  */
 
+#include "format_converter.h"
+
 #include <errno.h>
 
-#include <linux/drm_fourcc.h>
-
 #include <QImage>
-
-#include "format_converter.h"
 
 #define RGBSHIFT		8
 #ifndef MAX
@@ -27,8 +25,8 @@
 #define CLIP(x)			CLAMP(x,0,255)
 #endif
 
-int FormatConverter::configure(unsigned int format, unsigned int width,
-			       unsigned int height)
+int FormatConverter::configure(const libcamera::PixelFormat &format,
+			       const QSize &size)
 {
 	switch (format) {
 	case DRM_FORMAT_NV12:
@@ -67,6 +65,7 @@ int FormatConverter::configure(unsigned int format, unsigned int width,
 		vertSubSample_ = 1;
 		nvSwap_ = true;
 		break;
+
 	case DRM_FORMAT_RGB888:
 		formatFamily_ = RGB;
 		r_pos_ = 2;
@@ -81,6 +80,27 @@ int FormatConverter::configure(unsigned int format, unsigned int width,
 		b_pos_ = 2;
 		bpp_ = 3;
 		break;
+	case DRM_FORMAT_ARGB8888:
+		formatFamily_ = RGB;
+		r_pos_ = 2;
+		g_pos_ = 1;
+		b_pos_ = 0;
+		bpp_ = 4;
+		break;
+	case DRM_FORMAT_RGBA8888:
+		formatFamily_ = RGB;
+		r_pos_ = 3;
+		g_pos_ = 2;
+		b_pos_ = 1;
+		bpp_ = 4;
+		break;
+	case DRM_FORMAT_ABGR8888:
+		formatFamily_ = RGB;
+		r_pos_ = 0;
+		g_pos_ = 1;
+		b_pos_ = 2;
+		bpp_ = 4;
+		break;
 	case DRM_FORMAT_BGRA8888:
 		formatFamily_ = RGB;
 		r_pos_ = 1;
@@ -88,6 +108,7 @@ int FormatConverter::configure(unsigned int format, unsigned int width,
 		b_pos_ = 3;
 		bpp_ = 4;
 		break;
+
 	case DRM_FORMAT_VYUY:
 		formatFamily_ = YUV;
 		y_pos_ = 1;
@@ -108,16 +129,18 @@ int FormatConverter::configure(unsigned int format, unsigned int width,
 		y_pos_ = 0;
 		cb_pos_ = 1;
 		break;
+
 	case DRM_FORMAT_MJPEG:
 		formatFamily_ = MJPEG;
 		break;
+
 	default:
 		return -EINVAL;
 	};
 
 	format_ = format;
-	width_ = width;
-	height_ = height;
+	width_ = size.width();
+	height_ = size.height();
 
 	return 0;
 }

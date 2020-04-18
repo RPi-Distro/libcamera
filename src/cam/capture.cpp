@@ -30,16 +30,16 @@ int Capture::run(EventLoop *loop, const OptionsParser::Options &options)
 		return -ENODEV;
 	}
 
-	streamName_.clear();
-	for (unsigned int index = 0; index < config_->size(); ++index) {
-		StreamConfiguration &cfg = config_->at(index);
-		streamName_[cfg.stream()] = "stream" + std::to_string(index);
-	}
-
 	ret = camera_->configure(config_);
 	if (ret < 0) {
 		std::cout << "Failed to configure camera" << std::endl;
 		return ret;
+	}
+
+	streamName_.clear();
+	for (unsigned int index = 0; index < config_->size(); ++index) {
+		StreamConfiguration &cfg = config_->at(index);
+		streamName_[cfg.stream()] = "stream" + std::to_string(index);
 	}
 
 	camera_->requestCompleted.connect(this, &Capture::requestComplete);
@@ -52,7 +52,7 @@ int Capture::run(EventLoop *loop, const OptionsParser::Options &options)
 	}
 
 
-	FrameBufferAllocator *allocator = FrameBufferAllocator::create(camera_);
+	FrameBufferAllocator *allocator = new FrameBufferAllocator(camera_);
 
 	ret = capture(loop, allocator);
 

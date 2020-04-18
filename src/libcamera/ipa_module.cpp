@@ -13,13 +13,16 @@
 #include <elf.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <link.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <tuple>
 #include <unistd.h>
 
+#include <libcamera/span.h>
+
+#include "file.h"
 #include "log.h"
 #include "pipeline_handler.h"
 #include "utils.h"
@@ -41,27 +44,26 @@ LOG_DEFINE_CATEGORY(IPAModule)
 namespace {
 
 template<typename T>
-typename std::remove_extent<T>::type *elfPointer(void *map, off_t offset,
-						 size_t fileSize, size_t objSize)
+typename std::remove_extent_t<T> *elfPointer(Span<uint8_t> elf, off_t offset,
+					     size_t objSize)
 {
 	size_t size = offset + objSize;
-	if (size > fileSize || size < objSize)
+	if (size > elf.size() || size < objSize)
 		return nullptr;
 
-	return reinterpret_cast<typename std::remove_extent<T>::type *>
-		(static_cast<char *>(map) + offset);
+	return reinterpret_cast<typename std::remove_extent_t<T> *>
+		(reinterpret_cast<char *>(elf.data()) + offset);
 }
 
 template<typename T>
-typename std::remove_extent<T>::type *elfPointer(void *map, off_t offset,
-						 size_t fileSize)
+typename std::remove_extent_t<T> *elfPointer(Span<uint8_t> elf, off_t offset)
 {
-	return elfPointer<T>(map, offset, fileSize, sizeof(T));
+	return elfPointer<T>(elf, offset, sizeof(T));
 }
 
-int elfVerifyIdent(void *map, size_t soSize)
+int elfVerifyIdent(Span<uint8_t> elf)
 {
-	char *e_ident = elfPointer<char[EI_NIDENT]>(map, 0, soSize);
+	char *e_ident = elfPointer<char[EI_NIDENT]>(elf, 0);
 	if (!e_ident)
 		return -ENOEXEC;
 
@@ -87,39 +89,36 @@ int elfVerifyIdent(void *map, size_t soSize)
 
 /**
  * \brief Retrieve address and size of a symbol from an mmap'ed ELF file
- * \param[in] map Address of mmap'ed ELF file
- * \param[in] soSize Size of mmap'ed ELF file (in bytes)
+ * \param[in] elf Address and size of mmap'ed ELF file
  * \param[in] symbol Symbol name
  *
- * \return zero or error code, address or nullptr, size of symbol or zero,
- * respectively
+ * \return The memory region storing the symbol on success, or an empty span
+ * otherwise
  */
-template<class ElfHeader, class SecHeader, class SymHeader>
-std::tuple<void *, size_t>
-elfLoadSymbol(void *map, size_t soSize, const char *symbol)
+Span<uint8_t> elfLoadSymbol(Span<uint8_t> elf, const char *symbol)
 {
-	ElfHeader *eHdr = elfPointer<ElfHeader>(map, 0, soSize);
+	ElfW(Ehdr) *eHdr = elfPointer<ElfW(Ehdr)>(elf, 0);
 	if (!eHdr)
-		return std::make_tuple(nullptr, 0);
+		return {};
 
 	off_t offset = eHdr->e_shoff + eHdr->e_shentsize * eHdr->e_shstrndx;
-	SecHeader *sHdr = elfPointer<SecHeader>(map, offset, soSize);
+	ElfW(Shdr) *sHdr = elfPointer<ElfW(Shdr)>(elf, offset);
 	if (!sHdr)
-		return std::make_tuple(nullptr, 0);
+		return {};
 	off_t shnameoff = sHdr->sh_offset;
 
 	/* Locate .dynsym section header. */
-	SecHeader *dynsym = nullptr;
+	ElfW(Shdr) *dynsym = nullptr;
 	for (unsigned int i = 0; i < eHdr->e_shnum; i++) {
 		offset = eHdr->e_shoff + eHdr->e_shentsize * i;
-		sHdr = elfPointer<SecHeader>(map, offset, soSize);
+		sHdr = elfPointer<ElfW(Shdr)>(elf, offset);
 		if (!sHdr)
-			return std::make_tuple(nullptr, 0);
+			return {};
 
 		offset = shnameoff + sHdr->sh_name;
-		char *name = elfPointer<char[8]>(map, offset, soSize);
+		char *name = elfPointer<char[8]>(elf, offset);
 		if (!name)
-			return std::make_tuple(nullptr, 0);
+			return {};
 
 		if (sHdr->sh_type == SHT_DYNSYM && !strcmp(name, ".dynsym")) {
 			dynsym = sHdr;
@@ -129,29 +128,28 @@ elfLoadSymbol(void *map, size_t soSize, const char *symbol)
 
 	if (dynsym == nullptr) {
 		LOG(IPAModule, Error) << "ELF has no .dynsym section";
-		return std::make_tuple(nullptr, 0);
+		return {};
 	}
 
 	offset = eHdr->e_shoff + eHdr->e_shentsize * dynsym->sh_link;
-	sHdr = elfPointer<SecHeader>(map, offset, soSize);
+	sHdr = elfPointer<ElfW(Shdr)>(elf, offset);
 	if (!sHdr)
-		return std::make_tuple(nullptr, 0);
+		return {};
 	off_t dynsym_nameoff = sHdr->sh_offset;
 
 	/* Locate symbol in the .dynsym section. */
-	SymHeader *targetSymbol = nullptr;
+	ElfW(Sym) *targetSymbol = nullptr;
 	unsigned int dynsym_num = dynsym->sh_size / dynsym->sh_entsize;
 	for (unsigned int i = 0; i < dynsym_num; i++) {
 		offset = dynsym->sh_offset + dynsym->sh_entsize * i;
-		SymHeader *sym = elfPointer<SymHeader>(map, offset, soSize);
+		ElfW(Sym) *sym = elfPointer<ElfW(Sym)>(elf, offset);
 		if (!sym)
-			return std::make_tuple(nullptr, 0);
+			return {};
 
 		offset = dynsym_nameoff + sym->st_name;
-		char *name = elfPointer<char>(map, offset, soSize,
-					      strlen(symbol) + 1);
+		char *name = elfPointer<char>(elf, offset, strlen(symbol) + 1);
 		if (!name)
-			return std::make_tuple(nullptr, 0);
+			return {};
 
 		if (!strcmp(name, symbol) &&
 		    sym->st_info & STB_GLOBAL) {
@@ -162,22 +160,22 @@ elfLoadSymbol(void *map, size_t soSize, const char *symbol)
 
 	if (targetSymbol == nullptr) {
 		LOG(IPAModule, Error) << "Symbol " << symbol << " not found";
-		return std::make_tuple(nullptr, 0);
+		return {};
 	}
 
 	/* Locate and return data of symbol. */
 	if (targetSymbol->st_shndx >= eHdr->e_shnum)
-		return std::make_tuple(nullptr, 0);
+		return {};
 	offset = eHdr->e_shoff + targetSymbol->st_shndx * eHdr->e_shentsize;
-	sHdr = elfPointer<SecHeader>(map, offset, soSize);
+	sHdr = elfPointer<ElfW(Shdr)>(elf, offset);
 	if (!sHdr)
-		return std::make_tuple(nullptr, 0);
+		return {};
 	offset = sHdr->sh_offset + (targetSymbol->st_value - sHdr->sh_addr);
-	char *data = elfPointer<char>(map, offset, soSize, targetSymbol->st_size);
+	uint8_t *data = elfPointer<uint8_t>(elf, offset, targetSymbol->st_size);
 	if (!data)
-		return std::make_tuple(nullptr, 0);
+		return {};
 
-	return std::make_tuple(data, targetSymbol->st_size);
+	return { data, targetSymbol->st_size };
 }
 
 } /* namespace */
@@ -217,27 +215,6 @@ elfLoadSymbol(void *map, size_t soSize, const char *symbol)
  *
  * \var IPAModuleInfo::name
  * \brief The name of the IPA module
- *
- * \var IPAModuleInfo::license
- * \brief License of the IPA module
- *
- * This license is used to determine whether to force isolation of the IPA in
- * a separate process. If the license is "Proprietary", then the IPA will
- * be isolated. If the license is open-source, then the IPA will be allowed to
- * run without isolation if the user enables it. The license should be an
- * SPDX license string. The following licenses are currently available to
- * allow the IPA to run unisolated:
- *
- * - GPL-2.0-only
- * - GPL-2.0-or-later
- * - GPL-3.0-only
- * - GPL-3.0-or-later
- * - LGPL-2.1-only
- * - LGPL-2.1-or-later
- * - LGPL-3.0-only
- * - LGPL-3.0-or-later
- *
- * Any other license will cause the IPA to be run isolated.
  *
  * \todo Allow user to choose to isolate open source IPAs
  */
@@ -283,62 +260,48 @@ IPAModule::~IPAModule()
 
 int IPAModule::loadIPAModuleInfo()
 {
-	int fd = open(libPath_.c_str(), O_RDONLY);
-	if (fd < 0) {
-		int ret = -errno;
+	File file{ libPath_ };
+	if (!file.open(File::ReadOnly)) {
 		LOG(IPAModule, Error) << "Failed to open IPA library: "
-				      << strerror(-ret);
+				      << strerror(-file.error());
+		return file.error();
+	}
+
+	Span<uint8_t> data = file.map(0, -1, File::MapPrivate);
+	int ret = elfVerifyIdent(data);
+	if (ret) {
+		LOG(IPAModule, Error) << "IPA module is not an ELF file";
 		return ret;
 	}
 
-	void *data = nullptr;
-	size_t dataSize;
-	void *map;
-	size_t soSize;
-	struct stat st;
-	int ret = fstat(fd, &st);
-	if (ret < 0)
-		goto close;
-	soSize = st.st_size;
-	map = mmap(NULL, soSize, PROT_READ, MAP_PRIVATE, fd, 0);
-	if (map == MAP_FAILED) {
-		ret = -errno;
-		goto close;
+	Span<uint8_t> info = elfLoadSymbol(data, "ipaModuleInfo");
+	if (info.size() != sizeof(info_)) {
+		LOG(IPAModule, Error) << "IPA module has no valid info";
+		return -EINVAL;
 	}
 
-	ret = elfVerifyIdent(map, soSize);
-	if (ret)
-		goto unmap;
-
-	if (sizeof(unsigned long) == 4)
-		std::tie(data, dataSize) =
-			elfLoadSymbol<Elf32_Ehdr, Elf32_Shdr, Elf32_Sym>
-				     (map, soSize, "ipaModuleInfo");
-	else
-		std::tie(data, dataSize) =
-			elfLoadSymbol<Elf64_Ehdr, Elf64_Shdr, Elf64_Sym>
-				     (map, soSize, "ipaModuleInfo");
-
-	if (data && dataSize == sizeof(info_))
-		memcpy(&info_, data, dataSize);
-
-	if (!data)
-		goto unmap;
+	memcpy(&info_, info.data(), info.size());
 
 	if (info_.moduleAPIVersion != IPA_MODULE_API_VERSION) {
 		LOG(IPAModule, Error) << "IPA module API version mismatch";
-		ret = -EINVAL;
+		return -EINVAL;
 	}
 
-unmap:
-	munmap(map, soSize);
-close:
-	if (ret || !data)
-		LOG(IPAModule, Error)
-			<< "Error loading IPA module info for " << libPath_;
+	/* Load the signature. Failures are not fatal. */
+	File sign{ libPath_ + ".sign" };
+	if (!sign.open(File::ReadOnly)) {
+		LOG(IPAModule, Debug)
+			<< "IPA module " << libPath_ << " is not signed";
+		return 0;
+	}
 
-	close(fd);
-	return ret;
+	data = sign.map(0, -1, File::MapPrivate);
+	signature_.resize(data.size());
+	memcpy(signature_.data(), data.data(), data.size());
+
+	LOG(IPAModule, Debug) << "IPA module " << libPath_ << " is signed";
+
+	return 0;
 }
 
 /**
@@ -367,6 +330,21 @@ bool IPAModule::isValid() const
 const struct IPAModuleInfo &IPAModule::info() const
 {
 	return info_;
+}
+
+/**
+ * \brief Retrieve the IPA module signature
+ *
+ * The IPA module signature is stored alongside the IPA module in a file with a
+ * '.sign' suffix, and is loaded when the IPAModule instance is created. This
+ * function returns the signature without verifying it. If the signature is
+ * missing, the returned vector will be empty.
+ *
+ * \return The IPA module signature
+ */
+const std::vector<uint8_t> IPAModule::signature() const
+{
+	return signature_;
 }
 
 /**
@@ -471,31 +449,6 @@ bool IPAModule::match(PipelineHandler *pipe,
 	return info_.pipelineVersion >= minVersion &&
 	       info_.pipelineVersion <= maxVersion &&
 	       !strcmp(info_.pipelineName, pipe->name());
-}
-
-/**
- * \brief Verify if the IPA module is open source
- *
- * \sa IPAModuleInfo::license
- */
-bool IPAModule::isOpenSource() const
-{
-	static const char *osLicenses[] = {
-		"GPL-2.0-only",
-		"GPL-2.0-or-later",
-		"GPL-3.0-only",
-		"GPL-3.0-or-later",
-		"LGPL-2.1-only",
-		"LGPL-2.1-or-later",
-		"LGPL-3.0-only",
-		"LGPL-3.0-or-later",
-	};
-
-	for (unsigned int i = 0; i < ARRAY_SIZE(osLicenses); i++)
-		if (!strcmp(osLicenses[i], info_.license))
-			return true;
-
-	return false;
 }
 
 } /* namespace libcamera */

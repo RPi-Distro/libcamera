@@ -11,6 +11,7 @@
 #include <chrono>
 #include <memory>
 #include <ostream>
+#include <sstream>
 #include <string>
 #include <string.h>
 #include <sys/time.h>
@@ -33,6 +34,7 @@ namespace utils {
 const char *basename(const char *path);
 
 char *secure_getenv(const char *name);
+std::string dirname(const std::string &path);
 
 template<class InputIt1, class InputIt2>
 unsigned int set_overlap(InputIt1 first1, InputIt1 last1,
@@ -107,6 +109,85 @@ inline _hex hex<uint64_t>(uint64_t value, unsigned int width)
 #endif
 
 size_t strlcpy(char *dst, const char *src, size_t size);
+
+#ifndef __DOXYGEN__
+template<typename Container, typename UnaryOp>
+std::string join(const Container &items, const std::string &sep, UnaryOp op)
+{
+	std::ostringstream ss;
+	bool first = true;
+
+	for (typename Container::const_iterator it = std::begin(items);
+	     it != std::end(items); ++it) {
+		if (!first)
+			ss << sep;
+		else
+			first = false;
+
+		ss << op(*it);
+	}
+
+	return ss.str();
+}
+
+template<typename Container>
+std::string join(const Container &items, const std::string &sep)
+{
+	std::ostringstream ss;
+	bool first = true;
+
+	for (typename Container::const_iterator it = std::begin(items);
+	     it != std::end(items); ++it) {
+		if (!first)
+			ss << sep;
+		else
+			first = false;
+
+		ss << *it;
+	}
+
+	return ss.str();
+}
+#else
+template<typename Container, typename UnaryOp>
+std::string join(const Container &items, const std::string &sep, UnaryOp op = nullptr);
+#endif
+
+namespace details {
+
+class StringSplitter
+{
+public:
+	StringSplitter(const std::string &str, const std::string &delim);
+
+	class iterator
+	{
+	public:
+		iterator(const StringSplitter *ss, std::string::size_type pos);
+
+		iterator &operator++();
+		std::string operator*() const;
+		bool operator!=(const iterator &other) const;
+
+	private:
+		const StringSplitter *ss_;
+		std::string::size_type pos_;
+		std::string::size_type next_;
+	};
+
+	iterator begin() const;
+	iterator end() const;
+
+private:
+	std::string str_;
+	std::string delim_;
+};
+
+} /* namespace details */
+
+details::StringSplitter split(const std::string &str, const std::string &delim);
+
+std::string libcameraBuildPath();
 
 } /* namespace utils */
 

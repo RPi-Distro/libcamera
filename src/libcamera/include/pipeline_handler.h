@@ -12,11 +12,12 @@
 #include <memory>
 #include <set>
 #include <string>
-#include <sys/sysmacros.h>
+#include <sys/types.h>
 #include <vector>
 
 #include <ipa/ipa_interface.h>
 #include <libcamera/controls.h>
+#include <libcamera/object.h>
 #include <libcamera/stream.h>
 
 namespace libcamera {
@@ -44,6 +45,7 @@ public:
 	PipelineHandler *pipe_;
 	std::list<Request *> queuedRequests_;
 	ControlInfoMap controlInfo_;
+	ControlList properties_;
 	std::unique_ptr<IPAInterface> ipa_;
 
 private:
@@ -51,7 +53,8 @@ private:
 	CameraData &operator=(const CameraData &) = delete;
 };
 
-class PipelineHandler : public std::enable_shared_from_this<PipelineHandler>
+class PipelineHandler : public std::enable_shared_from_this<PipelineHandler>,
+			public Object
 {
 public:
 	PipelineHandler(CameraManager *manager);
@@ -65,6 +68,7 @@ public:
 	void unlock();
 
 	const ControlInfoMap &controls(Camera *camera);
+	const ControlList &properties(Camera *camera);
 
 	virtual CameraConfiguration *generateConfiguration(Camera *camera,
 		const StreamRoles &roles) = 0;
@@ -72,8 +76,6 @@ public:
 
 	virtual int exportFrameBuffers(Camera *camera, Stream *stream,
 				       std::vector<std::unique_ptr<FrameBuffer>> *buffers) = 0;
-	virtual int importFrameBuffers(Camera *camera, Stream *stream) = 0;
-	virtual void freeFrameBuffers(Camera *camera, Stream *stream) = 0;
 
 	virtual int start(Camera *camera) = 0;
 	virtual void stop(Camera *camera) = 0;

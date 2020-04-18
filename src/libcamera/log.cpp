@@ -22,6 +22,7 @@
 
 #include <libcamera/logging.h>
 
+#include "thread.h"
 #include "utils.h"
 
 /**
@@ -83,10 +84,10 @@ static int log_severity_to_syslog(LogSeverity severity)
 static const char *log_severity_name(LogSeverity severity)
 {
 	static const char *const names[] = {
-		"  DBG",
+		"DEBUG",
 		" INFO",
 		" WARN",
-		"  ERR",
+		"ERROR",
 		"FATAL",
 	};
 
@@ -196,7 +197,8 @@ void LogOutput::write(const LogMessage &msg)
 		break;
 	case LoggingTargetStream:
 	case LoggingTargetFile:
-		str = "[" + utils::time_point_to_string(msg.timestamp()) + "]"
+		str = "[" + utils::time_point_to_string(msg.timestamp()) + "] ["
+		    + std::to_string(Thread::currentId()) + "] "
 		    + log_severity_name(msg.severity()) + " "
 		    + msg.category().name() + " " + msg.fileInfo() + " "
 		    + msg.msg();
@@ -747,7 +749,7 @@ void LogCategory::setSeverity(LogSeverity severity)
  */
 const LogCategory &LogCategory::defaultCategory()
 {
-	static LogCategory category("default");
+	static const LogCategory category("default");
 	return category;
 }
 

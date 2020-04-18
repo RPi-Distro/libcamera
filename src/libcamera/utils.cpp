@@ -7,7 +7,10 @@
 
 #include "utils.h"
 
+#include <dlfcn.h>
+#include <elf.h>
 #include <iomanip>
+#include <link.h>
 #include <sstream>
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +20,9 @@
  * \file utils.h
  * \brief Miscellaneous utility functions
  */
+
+/* musl doesn't declare _DYNAMIC in link.h, declare it manually. */
+extern ElfW(Dyn) _DYNAMIC[];
 
 namespace libcamera {
 
@@ -55,7 +61,7 @@ const char *basename(const char *path)
  * avoid vulnerabilities that could occur if set-user-ID or set-group-ID
  * programs accidentally trust the environment.
  *
- * \returns A pointer to the value in the environment or NULL if the requested
+ * \return A pointer to the value in the environment or NULL if the requested
  * environment variable doesn't exist or if secure execution is required.
  */
 char *secure_getenv(const char *name)
@@ -68,6 +74,54 @@ char *secure_getenv(const char *name)
 
 	return getenv(name);
 #endif
+}
+
+/**
+ * \brief Identify the dirname portion of a path
+ * \param[in] path The full path to parse
+ *
+ * This function conforms with the behaviour of the %dirname() function as
+ * defined by POSIX.
+ *
+ * \return A string of the directory component of the path
+ */
+std::string dirname(const std::string &path)
+{
+	if (path.empty())
+		return ".";
+
+	/*
+	 * Skip all trailing slashes. If the path is only made of slashes,
+	 * return "/".
+	 */
+	size_t pos = path.size() - 1;
+	while (path[pos] == '/') {
+		if (!pos)
+			return "/";
+		pos--;
+	}
+
+	/*
+	 * Find the previous slash. If the path contains no non-trailing slash,
+	 * return ".".
+	 */
+	while (path[pos] != '/') {
+		if (!pos)
+			return ".";
+		pos--;
+	}
+
+	/*
+	 * Return the directory name up to (but not including) any trailing
+	 * slash. If this would result in an empty string, return "/".
+	 */
+	while (path[pos] == '/') {
+		if (!pos)
+			return "/";
+		pos--;
+	}
+
+	return path.substr(0, pos + 1);
 }
 
 /**
@@ -197,6 +251,138 @@ size_t strlcpy(char *dst, const char *src, size_t size)
 	}
 
 	return strlen(src);
+}
+
+details::StringSplitter::StringSplitter(const std::string &str, const std::string &delim)
+	: str_(str), delim_(delim)
+{
+}
+
+details::StringSplitter::iterator::iterator(const details::StringSplitter *ss, std::string::size_type pos)
+	: ss_(ss), pos_(pos)
+{
+	next_ = ss_->str_.find(ss_->delim_, pos_);
+}
+
+details::StringSplitter::iterator &details::StringSplitter::iterator::operator++()
+{
+	pos_ = next_;
+	if (pos_ != std::string::npos) {
+		pos_ += ss_->delim_.length();
+		next_ = ss_->str_.find(ss_->delim_, pos_);
+	}
+
+	return *this;
+}
+
+std::string details::StringSplitter::iterator::operator*() const
+{
+	std::string::size_type count;
+	count = next_ != std::string::npos ? next_ - pos_ : next_;
+	return ss_->str_.substr(pos_, count);
+}
+
+bool details::StringSplitter::iterator::operator!=(const details::StringSplitter::iterator &other) const
+{
+	return pos_ != other.pos_;
+}
+
+details::StringSplitter::iterator details::StringSplitter::begin() const
+{
+	return iterator(this, 0);
+}
+
+details::StringSplitter::iterator details::StringSplitter::end() const
+{
+	return iterator(this, std::string::npos);
+}
+
+/**
+ * \fn template<typename Container, typename UnaryOp> \
+ * std::string utils::join(const Container &items, const std::string &sep, UnaryOp op)
+ * \brief Join elements of a container in a string with a separator
+ * \param[in] items The container
+ * \param[in] sep The separator to add between elements
+ * \param[in] op A function that converts individual elements to strings
+ *
+ * This function joins all elements in the \a items container into a string and
+ * returns it. The \a sep separator is added between elements. If the container
+ * elements are not implicitly convertible to std::string, the \a op function
+ * shall be provided to perform conversion of elements to std::string.
+ *
+ * \return A string that concatenates all elements in the container
+ */
+
+/**
+ * \fn split(const std::string &str, const std::string &delim)
+ * \brief Split a string based on a delimiter
+ * \param[in] str The string to split
+ * \param[in] delim The delimiter string
+ *
+ * This function splits the string \a str into substrings based on the
+ * delimiter \a delim. It returns an object of unspecified type that can be
+ * used in a range-based for loop and yields the substrings in sequence.
+ *
+ * \return An object that can be used in a range-based for loop to iterate over
+ * the substrings
+ */
+details::StringSplitter split(const std::string &str, const std::string &delim)
+{
+	/** \todo Try to avoid copies of str and delim */
+	return details::StringSplitter(str, delim);
+}
+
+/**
+ * \brief Check if libcamera is installed or not
+ *
+ * Utilise the build_rpath dynamic tag which is stripped out by meson at
+ * install time to determine at runtime if the library currently executing
+ * has been installed or not.
+ *
+ * \return True if libcamera is installed, false otherwise
+ */
+bool isLibcameraInstalled()
+{
+	/*
+	 * DT_RUNPATH (DT_RPATH when the linker uses old dtags) is removed on
+	 * install.
+	 */
+	for (const ElfW(Dyn) *dyn = _DYNAMIC; dyn->d_tag != DT_NULL; ++dyn) {
+		if (dyn->d_tag == DT_RUNPATH || dyn->d_tag == DT_RPATH)
+			return false;
+	}
+
+	return true;
+}
+
+/**
+ * \brief Retrieve the path to the build directory
+ *
+ * During development, it is useful to run libcamera binaries directly from the
+ * build directory without installing them. This function helps components that
+ * need to locate resources, such as IPA modules or IPA proxy workers, by
+ * providing them with the path to the root of the build directory. Callers can
+ * then use it to complement or override searches in system-wide directories.
+ *
+ * If libcamera has been installed, the build directory path is not available
+ * and this function returns an empty string.
+ *
+ * \return The path to the build directory if running from a build, or an empty
+ * string otherwise
+ */
+std::string libcameraBuildPath()
+{
+	if (isLibcameraInstalled())
+		return std::string();
+
+	Dl_info info;
+
+	/* Look up our own symbol. */
+	int ret = dladdr(reinterpret_cast<void *>(libcameraBuildPath), &info);
+	if (ret == 0)
+		return std::string();
+
+	return dirname(info.dli_fname) + "/../../";
 }
 
 } /* namespace utils */

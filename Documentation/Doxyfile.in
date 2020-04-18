@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: CC-BY-SA-4.0
 # Doxyfile 1.8.14
 
 # This file describes the settings to be used by the documentation system
@@ -239,7 +240,9 @@ TAB_SIZE               = 4
 # newlines (in the resulting output). You can put ^^ in the value part of an
 # alias to insert a newline as if a physical newline was in the original file.
 
-ALIASES                =
+ALIASES                = "context=\xrefitem context \"Thread Safety\" \"Thread Safety\""
+ALIASES               += "threadbound=\ref thread-bound \"thread-bound\""
+ALIASES               += "threadsafe=\ref thread-safe \"thread-safe\""
 
 # This tag can be used to specify a number of word-keyword mappings (TCL only).
 # A mapping has the form "name=value". For example adding "class=itcl::class"
@@ -838,7 +841,8 @@ RECURSIVE              = YES
 # Note that relative paths are relative to the directory from which doxygen is
 # run.
 
-EXCLUDE                = @TOP_SRCDIR@/src/libcamera/device_enumerator_sysfs.cpp \
+EXCLUDE                = @TOP_SRCDIR@/include/libcamera/span.h \
+			 @TOP_SRCDIR@/src/libcamera/device_enumerator_sysfs.cpp \
 			 @TOP_SRCDIR@/src/libcamera/device_enumerator_udev.cpp \
 			 @TOP_SRCDIR@/src/libcamera/include/device_enumerator_sysfs.h \
 			 @TOP_SRCDIR@/src/libcamera/include/device_enumerator_udev.h \
@@ -877,6 +881,8 @@ EXCLUDE_SYMBOLS        = libcamera::BoundMethodArgs \
                          libcamera::BoundMethodPackBase \
                          libcamera::BoundMethodStatic \
                          libcamera::SignalBase \
+                         libcamera::*::Private \
+                         *::details::* \
                          std::*
 
 # The EXAMPLE_PATH tag can be used to specify one or more files or directories

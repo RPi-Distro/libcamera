@@ -11,7 +11,6 @@
 #include <memory>
 #include <queue>
 
-#include <linux/drm_fourcc.h>
 #include <linux/media-bus-format.h>
 
 #include <ipa/rkisp1.h>
@@ -65,6 +64,7 @@ public:
 
 	RkISP1FrameInfo *create(unsigned int frame, Request *request, Stream *stream);
 	int destroy(unsigned int frame);
+	void clear();
 
 	RkISP1FrameInfo *find(unsigned int frame);
 	RkISP1FrameInfo *find(FrameBuffer *buffer);
@@ -175,8 +175,6 @@ public:
 
 	int exportFrameBuffers(Camera *camera, Stream *stream,
 			       std::vector<std::unique_ptr<FrameBuffer>> *buffers) override;
-	int importFrameBuffers(Camera *camera, Stream *stream) override;
-	void freeFrameBuffers(Camera *camera, Stream *stream) override;
 
 	int start(Camera *camera) override;
 	void stop(Camera *camera) override;
@@ -207,8 +205,8 @@ private:
 	int freeBuffers(Camera *camera);
 
 	MediaDevice *media_;
-	V4L2Subdevice *dphy_;
 	V4L2Subdevice *isp_;
+	V4L2Subdevice *resizer_;
 	V4L2VideoDevice *video_;
 	V4L2VideoDevice *param_;
 	V4L2VideoDevice *stat_;
@@ -280,6 +278,20 @@ int RkISP1Frames::destroy(unsigned int frame)
 	delete info;
 
 	return 0;
+}
+
+void RkISP1Frames::clear()
+{
+	for (const auto &entry : frameInfo_) {
+		RkISP1FrameInfo *info = entry.second;
+
+		pipe_->availableParamBuffers_.push(info->paramBuffer);
+		pipe_->availableStatBuffers_.push(info->statBuffer);
+
+		delete info;
+	}
+
+	frameInfo_.clear();
 }
 
 RkISP1FrameInfo *RkISP1Frames::find(unsigned int frame)
@@ -354,13 +366,23 @@ protected:
 		if (!info)
 			LOG(RkISP1, Fatal) << "Frame not known";
 
-		if (info->paramFilled)
-			pipe_->param_->queueBuffer(info->paramBuffer);
-		else
+		/*
+		 * \todo: If parameters are not filled a better method to handle
+		 * the situation than queuing a buffer with unknown content
+		 * should be used.
+		 *
+		 * It seems excessive to keep an internal zeroed scratch
+		 * parameters buffer around as this should not happen unless the
+		 * devices is under too much load. Perhaps failing the request
+		 * and returning it to the application with an error code is
+		 * better than queue it to hardware?
+		 */
+		if (!info->paramFilled)
 			LOG(RkISP1, Error)
 				<< "Parameters not ready on time for frame "
-				<< frame() << ", ignore parameters.";
+				<< frame();
 
+		pipe_->param_->queueBuffer(info->paramBuffer);
 		pipe_->stat_->queueBuffer(info->statBuffer);
 		pipe_->video_->queueBuffer(info->videoBuffer);
 	}
@@ -378,6 +400,8 @@ int RkISP1CameraData::loadIPA()
 
 	ipa_->queueFrameAction.connect(this,
 				       &RkISP1CameraData::queueFrameAction);
+
+	ipa_->init();
 
 	return 0;
 }
@@ -433,14 +457,14 @@ RkISP1CameraConfiguration::RkISP1CameraConfiguration(Camera *camera,
 
 CameraConfiguration::Status RkISP1CameraConfiguration::validate()
 {
-	static const std::array<unsigned int, 8> formats{
-		DRM_FORMAT_YUYV,
-		DRM_FORMAT_YVYU,
-		DRM_FORMAT_VYUY,
-		DRM_FORMAT_NV16,
-		DRM_FORMAT_NV61,
-		DRM_FORMAT_NV21,
-		DRM_FORMAT_NV12,
+	static const std::array<PixelFormat, 8> formats{
+		PixelFormat(DRM_FORMAT_YUYV),
+		PixelFormat(DRM_FORMAT_YVYU),
+		PixelFormat(DRM_FORMAT_VYUY),
+		PixelFormat(DRM_FORMAT_NV16),
+		PixelFormat(DRM_FORMAT_NV61),
+		PixelFormat(DRM_FORMAT_NV21),
+		PixelFormat(DRM_FORMAT_NV12),
 		/* \todo Add support for 8-bit greyscale to DRM formats */
 	};
 
@@ -462,7 +486,7 @@ CameraConfiguration::Status RkISP1CameraConfiguration::validate()
 	if (std::find(formats.begin(), formats.end(), cfg.pixelFormat) ==
 	    formats.end()) {
 		LOG(RkISP1, Debug) << "Adjusting format to NV12";
-		cfg.pixelFormat = DRM_FORMAT_NV12,
+		cfg.pixelFormat = PixelFormat(DRM_FORMAT_NV12),
 		status = Adjusted;
 	}
 
@@ -513,7 +537,7 @@ CameraConfiguration::Status RkISP1CameraConfiguration::validate()
 }
 
 PipelineHandlerRkISP1::PipelineHandlerRkISP1(CameraManager *manager)
-	: PipelineHandler(manager), dphy_(nullptr), isp_(nullptr),
+	: PipelineHandler(manager), isp_(nullptr), resizer_(nullptr),
 	  video_(nullptr), param_(nullptr), stat_(nullptr)
 {
 }
@@ -523,8 +547,8 @@ PipelineHandlerRkISP1::~PipelineHandlerRkISP1()
 	delete param_;
 	delete stat_;
 	delete video_;
+	delete resizer_;
 	delete isp_;
-	delete dphy_;
 }
 
 /* -----------------------------------------------------------------------------
@@ -541,7 +565,7 @@ CameraConfiguration *PipelineHandlerRkISP1::generateConfiguration(Camera *camera
 		return config;
 
 	StreamConfiguration cfg{};
-	cfg.pixelFormat = DRM_FORMAT_NV12;
+	cfg.pixelFormat = PixelFormat(DRM_FORMAT_NV12);
 	cfg.size = data->sensor_->resolution();
 
 	config->addConfiguration(cfg);
@@ -564,7 +588,7 @@ int PipelineHandlerRkISP1::configure(Camera *camera, CameraConfiguration *c)
 	 * Configure the sensor links: enable the link corresponding to this
 	 * camera and disable all the other sensor links.
 	 */
-	const MediaPad *pad = dphy_->entity()->getPadByIndex(0);
+	const MediaPad *pad = isp_->entity()->getPadByIndex(0);
 
 	for (MediaLink *link : pad->links()) {
 		bool enable = link->source()->entity() == sensor->entity();
@@ -576,7 +600,7 @@ int PipelineHandlerRkISP1::configure(Camera *camera, CameraConfiguration *c)
 			<< (enable ? "Enabling" : "Disabling")
 			<< " link from sensor '"
 			<< link->source()->entity()->name()
-			<< "' to CSI-2 receiver";
+			<< "' to ISP";
 
 		ret = link->setEnabled(enable);
 		if (ret < 0)
@@ -596,16 +620,6 @@ int PipelineHandlerRkISP1::configure(Camera *camera, CameraConfiguration *c)
 
 	LOG(RkISP1, Debug) << "Sensor configured with " << format.toString();
 
-	ret = dphy_->setFormat(0, &format);
-	if (ret < 0)
-		return ret;
-
-	LOG(RkISP1, Debug) << "Configuring ISP input pad with " << format.toString();
-
-	ret = dphy_->getFormat(1, &format);
-	if (ret < 0)
-		return ret;
-
 	ret = isp_->setFormat(0, &format);
 	if (ret < 0)
 		return ret;
@@ -622,8 +636,24 @@ int PipelineHandlerRkISP1::configure(Camera *camera, CameraConfiguration *c)
 
 	LOG(RkISP1, Debug) << "ISP output pad configured with " << format.toString();
 
+	ret = resizer_->setFormat(0, &format);
+	if (ret < 0)
+		return ret;
+
+	LOG(RkISP1, Debug) << "Resizer input pad configured with " << format.toString();
+
+	format.size = cfg.size;
+
+	LOG(RkISP1, Debug) << "Configuring resizer output pad with " << format.toString();
+
+	ret = resizer_->setFormat(1, &format);
+	if (ret < 0)
+		return ret;
+
+	LOG(RkISP1, Debug) << "Resizer output pad configured with " << format.toString();
+
 	V4L2DeviceFormat outputFormat = {};
-	outputFormat.fourcc = video_->toV4L2Fourcc(cfg.pixelFormat);
+	outputFormat.fourcc = video_->toV4L2PixelFormat(cfg.pixelFormat);
 	outputFormat.size = cfg.size;
 	outputFormat.planesCount = 2;
 
@@ -632,20 +662,20 @@ int PipelineHandlerRkISP1::configure(Camera *camera, CameraConfiguration *c)
 		return ret;
 
 	if (outputFormat.size != cfg.size ||
-	    outputFormat.fourcc != video_->toV4L2Fourcc(cfg.pixelFormat)) {
+	    outputFormat.fourcc != video_->toV4L2PixelFormat(cfg.pixelFormat)) {
 		LOG(RkISP1, Error)
 			<< "Unable to configure capture in " << cfg.toString();
 		return -EINVAL;
 	}
 
 	V4L2DeviceFormat paramFormat = {};
-	paramFormat.fourcc = V4L2_META_FMT_RK_ISP1_PARAMS;
+	paramFormat.fourcc = V4L2PixelFormat(V4L2_META_FMT_RK_ISP1_PARAMS);
 	ret = param_->setFormat(&paramFormat);
 	if (ret)
 		return ret;
 
 	V4L2DeviceFormat statFormat = {};
-	statFormat.fourcc = V4L2_META_FMT_RK_ISP1_STAT_3A;
+	statFormat.fourcc = V4L2PixelFormat(V4L2_META_FMT_RK_ISP1_STAT_3A);
 	ret = stat_->setFormat(&statFormat);
 	if (ret)
 		return ret;
@@ -662,44 +692,34 @@ int PipelineHandlerRkISP1::exportFrameBuffers(Camera *camera, Stream *stream,
 	return video_->exportBuffers(count, buffers);
 }
 
-int PipelineHandlerRkISP1::importFrameBuffers(Camera *camera, Stream *stream)
-{
-	unsigned int count = stream->configuration().bufferCount;
-	return video_->importBuffers(count);
-}
-
-void PipelineHandlerRkISP1::freeFrameBuffers(Camera *camera, Stream *stream)
-{
-	video_->releaseBuffers();
-}
-
 int PipelineHandlerRkISP1::allocateBuffers(Camera *camera)
 {
 	RkISP1CameraData *data = cameraData(camera);
-	unsigned int count = 1;
+	unsigned int count = data->stream_.configuration().bufferCount;
+	unsigned int ipaBufferId = 1;
 	int ret;
 
-	unsigned int maxBuffers = 0;
-	for (const Stream *s : camera->streams())
-		maxBuffers = std::max(maxBuffers, s->configuration().bufferCount);
-
-	ret = param_->exportBuffers(maxBuffers, &paramBuffers_);
+	ret = video_->importBuffers(count);
 	if (ret < 0)
 		goto error;
 
-	ret = stat_->exportBuffers(maxBuffers, &statBuffers_);
+	ret = param_->allocateBuffers(count, &paramBuffers_);
+	if (ret < 0)
+		goto error;
+
+	ret = stat_->allocateBuffers(count, &statBuffers_);
 	if (ret < 0)
 		goto error;
 
 	for (std::unique_ptr<FrameBuffer> &buffer : paramBuffers_) {
-		buffer->setCookie(count++);
+		buffer->setCookie(ipaBufferId++);
 		data->ipaBuffers_.push_back({ .id = buffer->cookie(),
 					      .planes = buffer->planes() });
 		availableParamBuffers_.push(buffer.get());
 	}
 
 	for (std::unique_ptr<FrameBuffer> &buffer : statBuffers_) {
-		buffer->setCookie(count++);
+		buffer->setCookie(ipaBufferId++);
 		data->ipaBuffers_.push_back({ .id = buffer->cookie(),
 					      .planes = buffer->planes() });
 		availableStatBuffers_.push(buffer.get());
@@ -743,6 +763,9 @@ int PipelineHandlerRkISP1::freeBuffers(Camera *camera)
 	if (stat_->releaseBuffers())
 		LOG(RkISP1, Error) << "Failed to release stat buffers";
 
+	if (video_->releaseBuffers())
+		LOG(RkISP1, Error) << "Failed to release video buffers";
+
 	return 0;
 }
 
@@ -756,10 +779,19 @@ int PipelineHandlerRkISP1::start(Camera *camera)
 	if (ret)
 		return ret;
 
+	ret = data->ipa_->start();
+	if (ret) {
+		freeBuffers(camera);
+		LOG(RkISP1, Error)
+			<< "Failed to start IPA " << camera->name();
+		return ret;
+	}
+
 	data->frame_ = 0;
 
 	ret = param_->streamOn();
 	if (ret) {
+		data->ipa_->stop();
 		freeBuffers(camera);
 		LOG(RkISP1, Error)
 			<< "Failed to start parameters " << camera->name();
@@ -769,6 +801,7 @@ int PipelineHandlerRkISP1::start(Camera *camera)
 	ret = stat_->streamOn();
 	if (ret) {
 		param_->streamOff();
+		data->ipa_->stop();
 		freeBuffers(camera);
 		LOG(RkISP1, Error)
 			<< "Failed to start statistics " << camera->name();
@@ -779,6 +812,7 @@ int PipelineHandlerRkISP1::start(Camera *camera)
 	if (ret) {
 		param_->streamOff();
 		stat_->streamOff();
+		data->ipa_->stop();
 		freeBuffers(camera);
 
 		LOG(RkISP1, Error)
@@ -822,7 +856,11 @@ void PipelineHandlerRkISP1::stop(Camera *camera)
 		LOG(RkISP1, Warning)
 			<< "Failed to stop parameters " << camera->name();
 
+	data->ipa_->stop();
+
 	data->timeline_.reset();
+
+	data->frameInfo_.clear();
 
 	freeBuffers(camera);
 
@@ -868,15 +906,7 @@ int PipelineHandlerRkISP1::initLinks()
 	if (ret < 0)
 		return ret;
 
-	link = media_->link("rockchip-sy-mipi-dphy", 1, "rkisp1-isp-subdev", 0);
-	if (!link)
-		return -ENODEV;
-
-	ret = link->setEnabled(true);
-	if (ret < 0)
-		return ret;
-
-	link = media_->link("rkisp1-isp-subdev", 2, "rkisp1_mainpath", 0);
+	link = media_->link("rkisp1_isp", 2, "rkisp1_resizer_mainpath", 0);
 	if (!link)
 		return -ENODEV;
 
@@ -906,6 +936,9 @@ int PipelineHandlerRkISP1::createCamera(MediaEntity *sensor)
 	if (ret)
 		return ret;
 
+	/* Initialize the camera properties. */
+	data->properties_ = data->sensor_->properties();
+
 	ret = data->loadIPA();
 	if (ret)
 		return ret;
@@ -923,24 +956,25 @@ bool PipelineHandlerRkISP1::match(DeviceEnumerator *enumerator)
 	const MediaPad *pad;
 
 	DeviceMatch dm("rkisp1");
-	dm.add("rkisp1-isp-subdev");
+	dm.add("rkisp1_isp");
+	dm.add("rkisp1_resizer_selfpath");
+	dm.add("rkisp1_resizer_mainpath");
 	dm.add("rkisp1_selfpath");
 	dm.add("rkisp1_mainpath");
-	dm.add("rkisp1-statistics");
-	dm.add("rkisp1-input-params");
-	dm.add("rockchip-sy-mipi-dphy");
+	dm.add("rkisp1_stats");
+	dm.add("rkisp1_params");
 
 	media_ = acquireMediaDevice(enumerator, dm);
 	if (!media_)
 		return false;
 
 	/* Create the V4L2 subdevices we will need. */
-	dphy_ = V4L2Subdevice::fromEntityName(media_, "rockchip-sy-mipi-dphy");
-	if (dphy_->open() < 0)
+	isp_ = V4L2Subdevice::fromEntityName(media_, "rkisp1_isp");
+	if (isp_->open() < 0)
 		return false;
 
-	isp_ = V4L2Subdevice::fromEntityName(media_, "rkisp1-isp-subdev");
-	if (isp_->open() < 0)
+	resizer_ = V4L2Subdevice::fromEntityName(media_, "rkisp1_resizer_mainpath");
+	if (resizer_->open() < 0)
 		return false;
 
 	/* Locate and open the capture video node. */
@@ -948,11 +982,11 @@ bool PipelineHandlerRkISP1::match(DeviceEnumerator *enumerator)
 	if (video_->open() < 0)
 		return false;
 
-	stat_ = V4L2VideoDevice::fromEntityName(media_, "rkisp1-statistics");
+	stat_ = V4L2VideoDevice::fromEntityName(media_, "rkisp1_stats");
 	if (stat_->open() < 0)
 		return false;
 
-	param_ = V4L2VideoDevice::fromEntityName(media_, "rkisp1-input-params");
+	param_ = V4L2VideoDevice::fromEntityName(media_, "rkisp1_params");
 	if (param_->open() < 0)
 		return false;
 
@@ -967,10 +1001,10 @@ bool PipelineHandlerRkISP1::match(DeviceEnumerator *enumerator)
 	}
 
 	/*
-	 * Enumerate all sensors connected to the CSI-2 receiver and create one
+	 * Enumerate all sensors connected to the ISP and create one
 	 * camera instance for each of them.
 	 */
-	pad = dphy_->entity()->getPadByIndex(0);
+	pad = isp_->entity()->getPadByIndex(0);
 	if (!pad)
 		return false;
 
@@ -1011,6 +1045,12 @@ void PipelineHandlerRkISP1::bufferReady(FrameBuffer *buffer)
 	RkISP1CameraData *data = cameraData(activeCamera_);
 	Request *request = buffer->request();
 
+	if (buffer->metadata().status == FrameMetadata::FrameCancelled) {
+		completeBuffer(activeCamera_, request, buffer);
+		completeRequest(activeCamera_, request);
+		return;
+	}
+
 	data->timeline_.bufferReady(buffer);
 
 	if (data->frame_ <= buffer->metadata().sequence)
@@ -1022,6 +1062,9 @@ void PipelineHandlerRkISP1::bufferReady(FrameBuffer *buffer)
 
 void PipelineHandlerRkISP1::paramReady(FrameBuffer *buffer)
 {
+	if (buffer->metadata().status == FrameMetadata::FrameCancelled)
+		return;
+
 	ASSERT(activeCamera_);
 	RkISP1CameraData *data = cameraData(activeCamera_);
 
@@ -1033,6 +1076,9 @@ void PipelineHandlerRkISP1::paramReady(FrameBuffer *buffer)
 
 void PipelineHandlerRkISP1::statReady(FrameBuffer *buffer)
 {
+	if (buffer->metadata().status == FrameMetadata::FrameCancelled)
+		return;
+
 	ASSERT(activeCamera_);
 	RkISP1CameraData *data = cameraData(activeCamera_);
 

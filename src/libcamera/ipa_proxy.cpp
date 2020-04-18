@@ -75,30 +75,47 @@ IPAProxy::~IPAProxy()
  */
 std::string IPAProxy::resolvePath(const std::string &file) const
 {
-	/* Try finding the exec target from the install directory first */
 	std::string proxyFile = "/" + file;
-	std::string proxyPath = std::string(IPA_PROXY_DIR) + proxyFile;
-	if (!access(proxyPath.c_str(), X_OK))
-		return proxyPath;
 
-	/* No exec target in install directory; check env variable. */
+	/* Check env variable first. */
 	const char *execPaths = utils::secure_getenv("LIBCAMERA_IPA_PROXY_PATH");
-	while (execPaths) {
-		const char *delim = strchrnul(execPaths, ':');
-		size_t count = delim - execPaths;
+	if (execPaths) {
+		for (const auto &dir : utils::split(execPaths, ":")) {
+			if (dir.empty())
+				continue;
 
-		if (count) {
-			std::string proxyPath(execPaths, count);
+			std::string proxyPath = dir;
 			proxyPath += proxyFile;
 			if (!access(proxyPath.c_str(), X_OK))
 				return proxyPath;
 		}
-
-		if (*delim == '\0')
-			break;
-
-		execPaths += count + 1;
 	}
+
+	/*
+	 * When libcamera is used before it is installed, load proxy workers
+	 * from the same build directory as the libcamera directory itself.
+	 * This requires identifying the path of the libcamera.so, and
+	 * referencing a relative path for the proxy workers from that point.
+	 */
+	std::string root = utils::libcameraBuildPath();
+	if (!root.empty()) {
+		std::string ipaProxyDir = root + "src/libcamera/proxy/worker";
+
+		LOG(IPAProxy, Info)
+			<< "libcamera is not installed. Loading proxy workers from'"
+			<< ipaProxyDir << "'";
+
+		std::string proxyPath = ipaProxyDir + proxyFile;
+		if (!access(proxyPath.c_str(), X_OK))
+			return proxyPath;
+
+		return std::string();
+	}
+
+	/* Else try finding the exec target from the install directory. */
+	std::string proxyPath = std::string(IPA_PROXY_DIR) + proxyFile;
+	if (!access(proxyPath.c_str(), X_OK))
+		return proxyPath;
 
 	return std::string();
 }

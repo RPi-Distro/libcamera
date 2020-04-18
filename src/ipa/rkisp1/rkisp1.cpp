@@ -33,6 +33,8 @@ class IPARkISP1 : public IPAInterface
 {
 public:
 	int init() override { return 0; }
+	int start() override { return 0; }
+	void stop() override {}
 
 	void configure(const std::map<unsigned int, IPAStream> &streamConfig,
 		       const std::map<unsigned int, const ControlInfoMap &> &entityControls) override;
@@ -273,7 +275,6 @@ const struct IPAModuleInfo ipaModuleInfo = {
 	1,
 	"PipelineHandlerRkISP1",
 	"RkISP1 IPA",
-	"LGPL-2.1-or-later",
 };
 
 struct ipa_context *ipaCreate()

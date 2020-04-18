@@ -7,12 +7,66 @@
 
 #include <libcamera/signal.h>
 
+#include "thread.h"
+
 /**
  * \file signal.h
  * \brief Signal & slot implementation
  */
 
 namespace libcamera {
+
+namespace {
+
+/*
+ * Mutex to protect the SignalBase::slots_ and Object::signals_ lists. If lock
+ * contention needs to be decreased, this could be replaced with locks in
+ * Object and SignalBase, or with a mutex pool.
+ */
+Mutex signalsLock;
+
+} /* namespace */
+
+void SignalBase::connect(BoundMethodBase *slot)
+{
+	MutexLocker locker(signalsLock);
+
+	Object *object = slot->object();
+	if (object)
+		object->connect(this);
+	slots_.push_back(slot);
+}
+
+void SignalBase::disconnect(Object *object)
+{
+	disconnect([object](SlotList::iterator &iter) {
+		return (*iter)->match(object);
+	});
+}
+
+void SignalBase::disconnect(std::function<bool(SlotList::iterator &)> match)
+{
+	MutexLocker locker(signalsLock);
+
+	for (auto iter = slots_.begin(); iter != slots_.end(); ) {
+		if (match(iter)) {
+			Object *object = (*iter)->object();
+			if (object)
+				object->disconnect(this);
+
+			delete *iter;
+			iter = slots_.erase(iter);
+		} else {
+			++iter;
+		}
+	}
+}
+
+SignalBase::SlotList SignalBase::slots()
+{
+	MutexLocker locker(signalsLock);
+	return slots_;
+}
 
 /**
  * \class Signal
@@ -63,23 +117,31 @@ namespace libcamera {
  * disconnected from the \a func slot of \a object when \a object is destroyed.
  * Otherwise the caller shall disconnect signals manually before destroying \a
  * object.
+ *
+ * \context This function is \threadsafe.
  */
 
 /**
  * \fn Signal::connect(R (*func)(Args...))
  * \brief Connect the signal to a static function slot
  * \param[in] func The slot static function
+ *
+ * \context This function is \threadsafe.
  */
 
 /**
  * \fn Signal::disconnect()
  * \brief Disconnect the signal from all slots
+ *
+ * \context This function is \threadsafe.
  */
 
 /**
  * \fn Signal::disconnect(T *object)
  * \brief Disconnect the signal from all slots of the \a object
  * \param[in] object The object pointer whose slots to disconnect
+ *
+ * \context This function is \threadsafe.
  */
 
 /**
@@ -87,12 +149,16 @@ namespace libcamera {
  * \brief Disconnect the signal from the \a object slot member function \a func
  * \param[in] object The object pointer whose slots to disconnect
  * \param[in] func The slot member function to disconnect
+ *
+ * \context This function is \threadsafe.
  */
 
 /**
  * \fn Signal::disconnect(R (*func)(Args...))
  * \brief Disconnect the signal from the slot static function \a func
  * \param[in] func The slot static function to disconnect
+ *
+ * \context This function is \threadsafe.
  */
 
 /**
@@ -105,6 +171,9 @@ namespace libcamera {
  * function are passed to the slot functions unchanged. If a slot modifies one
  * of the arguments (when passed by pointer or reference), the modification is
  * thus visible to all subsequently called slots.
+ *
+ * This function is not \threadsafe, but thread-safety is guaranteed against
+ * concurrent connect() and disconnect() calls.
  */
 
 } /* namespace libcamera */

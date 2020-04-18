@@ -19,6 +19,7 @@
 #include <vector>
 
 #include <linux/drm_fourcc.h>
+#include <linux/version.h>
 
 #include <libcamera/event_notifier.h>
 #include <libcamera/file_descriptor.h>
@@ -162,7 +163,7 @@ LOG_DECLARE_CATEGORY(V4L2)
  * buffer import, with buffers added to the cache as they are queued.
  */
 V4L2BufferCache::V4L2BufferCache(unsigned int numEntries)
-	: missCounter_(0)
+	: lastUsedCounter_(1), missCounter_(0)
 {
 	cache_.resize(numEntries);
 }
@@ -176,10 +177,12 @@ V4L2BufferCache::V4L2BufferCache(unsigned int numEntries)
  * allocated.
  */
 V4L2BufferCache::V4L2BufferCache(const std::vector<std::unique_ptr<FrameBuffer>> &buffers)
-	: missCounter_(0)
+	: lastUsedCounter_(1), missCounter_(0)
 {
 	for (const std::unique_ptr<FrameBuffer> &buffer : buffers)
-		cache_.emplace_back(true, buffer->planes());
+		cache_.emplace_back(true,
+				    lastUsedCounter_.fetch_add(1, std::memory_order_acq_rel),
+				    buffer->planes());
 }
 
 V4L2BufferCache::~V4L2BufferCache()
@@ -205,6 +208,7 @@ int V4L2BufferCache::get(const FrameBuffer &buffer)
 {
 	bool hit = false;
 	int use = -1;
+	uint64_t oldest = UINT64_MAX;
 
 	for (unsigned int index = 0; index < cache_.size(); index++) {
 		const Entry &entry = cache_[index];
@@ -212,14 +216,16 @@ int V4L2BufferCache::get(const FrameBuffer &buffer)
 		if (!entry.free)
 			continue;
 
-		if (use < 0)
-			use = index;
-
 		/* Try to find a cache hit by comparing the planes. */
-		if (cache_[index] == buffer) {
+		if (entry == buffer) {
 			hit = true;
 			use = index;
 			break;
+		}
+
+		if (entry.lastUsed < oldest) {
+			use = index;
+			oldest = entry.lastUsed;
 		}
 	}
 
@@ -229,7 +235,9 @@ int V4L2BufferCache::get(const FrameBuffer &buffer)
 	if (use < 0)
 		return -ENOENT;
 
-	cache_[use] = Entry(false, buffer);
+	cache_[use] = Entry(false,
+			    lastUsedCounter_.fetch_add(1, std::memory_order_acq_rel),
+			    buffer);
 
 	return use;
 }
@@ -245,18 +253,18 @@ void V4L2BufferCache::put(unsigned int index)
 }
 
 V4L2BufferCache::Entry::Entry()
-	: free(true)
+	: free(true), lastUsed(0)
 {
 }
 
-V4L2BufferCache::Entry::Entry(bool free, const FrameBuffer &buffer)
-	: free(free)
+V4L2BufferCache::Entry::Entry(bool free, uint64_t lastUsed, const FrameBuffer &buffer)
+	: free(free), lastUsed(lastUsed)
 {
 	for (const FrameBuffer::Plane &plane : buffer.planes())
 		planes_.emplace_back(plane);
 }
 
-bool V4L2BufferCache::Entry::operator==(const FrameBuffer &buffer)
+bool V4L2BufferCache::Entry::operator==(const FrameBuffer &buffer) const
 {
 	const std::vector<FrameBuffer::Plane> &planes = buffer.planes();
 
@@ -268,6 +276,83 @@ bool V4L2BufferCache::Entry::operator==(const FrameBuffer &buffer)
 		    planes_[i].length != planes[i].length)
 			return false;
 	return true;
+}
+
+/**
+ * \class V4L2PixelFormat
+ * \brief V4L2 pixel format FourCC wrapper
+ *
+ * The V4L2PixelFormat class describes the pixel format of a V4L2 buffer. It
+ * wraps the V4L2 numerical FourCC, and shall be used in all APIs that deal with
+ * V4L2 pixel formats. Its purpose is to prevent unintentional confusion of
+ * V4L2 and DRM FourCCs in code by catching implicit conversion attempts at
+ * compile time.
+ *
+ * To achieve this goal, construction of a V4L2PixelFormat from an integer value
+ * is explicit. To retrieve the integer value of a V4L2PixelFormat, both the
+ * explicit value() and implicit uint32_t conversion operators may be used.
+ */
+
+/**
+ * \fn V4L2PixelFormat::V4L2PixelFormat()
+ * \brief Construct a V4L2PixelFormat with an invalid format
+ *
+ * V4L2PixelFormat instances constructed with the default constructor are
+ * invalid, calling the isValid() function returns false.
+ */
+
+/**
+ * \fn V4L2PixelFormat::V4L2PixelFormat(uint32_t fourcc)
+ * \brief Construct a V4L2PixelFormat from a FourCC value
+ * \param[in] fourcc The pixel format FourCC numerical value
+ */
+
+/**
+ * \fn bool V4L2PixelFormat::isValid() const
+ * \brief Check if the pixel format is valid
+ *
+ * V4L2PixelFormat instances constructed with the default constructor are
+ * invalid. Instances constructed with a FourCC defined in the V4L2 API are
+ * valid. The behaviour is undefined otherwise.
+ *
+ * \return True if the pixel format is valid, false otherwise
+ */
+
+/**
+ * \fn uint32_t V4L2PixelFormat::fourcc() const
+ * \brief Retrieve the pixel format FourCC numerical value
+ * \return The pixel format FourCC numerical value
+ */
+
+/**
+ * \fn V4L2PixelFormat::operator uint32_t() const
+ * \brief Convert to the pixel format FourCC numerical value
+ * \return The pixel format FourCC numerical value
+ */
+
+/**
+ * \brief Assemble and return a string describing the pixel format
+ * \return A string describing the pixel format
+ */
+std::string V4L2PixelFormat::toString() const
+{
+	if (fourcc_ == 0)
+		return "<INVALID>";
+
+	char ss[8] = { static_cast<char>(fourcc_ & 0x7f),
+		       static_cast<char>((fourcc_ >> 8) & 0x7f),
+		       static_cast<char>((fourcc_ >> 16) & 0x7f),
+		       static_cast<char>((fourcc_ >> 24) & 0x7f) };
+
+	for (unsigned int i = 0; i < 4; i++) {
+		if (!isprint(ss[i]))
+			ss[i] = '.';
+	}
+
+	if (fourcc_ & (1 << 31))
+		strcat(ss, "-BE");
+
+	return ss;
 }
 
 /**
@@ -378,7 +463,7 @@ bool V4L2BufferCache::Entry::operator==(const FrameBuffer &buffer)
 const std::string V4L2DeviceFormat::toString() const
 {
 	std::stringstream ss;
-	ss << size.toString() << "-" << utils::hex(fourcc);
+	ss << size.toString() << "-" << fourcc.toString();
 	return ss.str();
 }
 
@@ -397,12 +482,61 @@ const std::string V4L2DeviceFormat::toString() const
  * No API call other than open(), isOpen() and close() shall be called on an
  * unopened device instance.
  *
+ * The V4L2VideoDevice class supports the V4L2 MMAP and DMABUF memory types:
+ *
+ * - The allocateBuffers() function wraps buffer allocation with the V4L2 MMAP
+ *   memory type. It requests buffers from the driver, allocating the
+ *   corresponding memory, and exports them as a set of FrameBuffer objects.
+ *   Upon successful return the driver's internal buffer management is
+ *   initialized in MMAP mode, and the video device is ready to accept
+ *   queueBuffer() calls.
+ *
+ *   This is the most traditional V4L2 buffer management, and is mostly useful
+ *   to support internal buffer pools in pipeline handlers, either for CPU
+ *   consumption (such as statistics or parameters pools), or for internal
+ *   image buffers shared between devices.
+ *
+ * - The exportBuffers() function operates similarly to allocateBuffers(), but
+ *   leaves the driver's internal buffer management uninitialized. It uses the
+ *   V4L2 buffer orphaning support to allocate buffers with the MMAP method,
+ *   export them as a set of FrameBuffer objects, and reset the driver's
+ *   internal buffer management. The video device shall be initialized with
+ *   importBuffers() or allocateBuffers() before it can accept queueBuffer()
+ *   calls. The exported buffers are directly usable with any V4L2 video device
+ *   in DMABUF mode, or with other dmabuf importers.
+ *
+ *   This method is mostly useful to implement buffer allocation helpers or to
+ *   allocate ancillary buffers, when a V4L2 video device is used in DMABUF
+ *   mode but no other source of buffers is available. An example use case
+ *   would be allocation of scratch buffers to be used in case of buffer
+ *   underruns on a video device that is otherwise supplied with external
+ *   buffers.
+ *
+ * - The importBuffers() function initializes the driver's buffer management to
+ *   import buffers in DMABUF mode. It requests buffers from the driver, but
+ *   doesn't allocate memory. Upon successful return, the video device is ready
+ *   to accept queueBuffer() calls. The buffers to be imported are provided to
+ *   queueBuffer(), and may be supplied externally, or come from a previous
+ *   exportBuffers() call.
+ *
+ *   This is the usual buffers initialization method for video devices whose
+ *   buffers are exposed outside of libcamera. It is also typically used on one
+ *   of the two video device that participate in buffer sharing inside
+ *   pipelines, the other video device typically using allocateBuffers().
+ *
+ * - The releaseBuffers() function resets the driver's internal buffer
+ *   management that was initialized by a previous call to allocateBuffers() or
+ *   importBuffers(). Any memory allocated by allocateBuffers() is freed.
+ *   Buffer exported by exportBuffers() are not affected by this function.
+ *
  * The V4L2VideoDevice class tracks queued buffers and handles buffer events. It
  * automatically dequeues completed buffers and emits the \ref bufferReady
  * signal.
  *
  * Upon destruction any device left open will be closed, and any resources
  * released.
+ *
+ * \context This class is \threadbound.
  */
 
 /**
@@ -455,6 +589,15 @@ int V4L2VideoDevice::open()
 			<< "Failed to query device capabilities: "
 			<< strerror(-ret);
 		return ret;
+	}
+
+	if (caps_.version < KERNEL_VERSION(5, 0, 0)) {
+		LOG(V4L2, Error)
+			<< "V4L2 API v" << (caps_.version >> 16)
+			<< "." << ((caps_.version >> 8) & 0xff)
+			<< "." << (caps_.version & 0xff)
+			<< " too old, v5.0.0 or later is required";
+		return -EINVAL;
 	}
 
 	if (!caps_.hasStreaming()) {
@@ -616,6 +759,12 @@ void V4L2VideoDevice::close()
  * \return The string containing the device location
  */
 
+/**
+ * \fn V4L2VideoDevice::caps()
+ * \brief Retrieve the device V4L2 capabilities
+ * \return The device V4L2 capabilities
+ */
+
 std::string V4L2VideoDevice::logPrefix() const
 {
 	return deviceNode() + (V4L2_TYPE_IS_OUTPUT(bufferType_) ? "[out]" : "[cap]");
@@ -670,7 +819,7 @@ int V4L2VideoDevice::getFormatMeta(V4L2DeviceFormat *format)
 
 	format->size.width = 0;
 	format->size.height = 0;
-	format->fourcc = pix->dataformat;
+	format->fourcc = V4L2PixelFormat(pix->dataformat);
 	format->planesCount = 1;
 	format->planes[0].bpl = pix->buffersize;
 	format->planes[0].size = pix->buffersize;
@@ -699,7 +848,7 @@ int V4L2VideoDevice::setFormatMeta(V4L2DeviceFormat *format)
 	 */
 	format->size.width = 0;
 	format->size.height = 0;
-	format->fourcc = format->fourcc;
+	format->fourcc = V4L2PixelFormat(pix->dataformat);
 	format->planesCount = 1;
 	format->planes[0].bpl = pix->buffersize;
 	format->planes[0].size = pix->buffersize;
@@ -722,7 +871,7 @@ int V4L2VideoDevice::getFormatMultiplane(V4L2DeviceFormat *format)
 
 	format->size.width = pix->width;
 	format->size.height = pix->height;
-	format->fourcc = pix->pixelformat;
+	format->fourcc = V4L2PixelFormat(pix->pixelformat);
 	format->planesCount = pix->num_planes;
 
 	for (unsigned int i = 0; i < format->planesCount; ++i) {
@@ -763,7 +912,7 @@ int V4L2VideoDevice::setFormatMultiplane(V4L2DeviceFormat *format)
 	 */
 	format->size.width = pix->width;
 	format->size.height = pix->height;
-	format->fourcc = pix->pixelformat;
+	format->fourcc = V4L2PixelFormat(pix->pixelformat);
 	format->planesCount = pix->num_planes;
 	for (unsigned int i = 0; i < format->planesCount; ++i) {
 		format->planes[i].bpl = pix->plane_fmt[i].bytesperline;
@@ -788,7 +937,7 @@ int V4L2VideoDevice::getFormatSingleplane(V4L2DeviceFormat *format)
 
 	format->size.width = pix->width;
 	format->size.height = pix->height;
-	format->fourcc = pix->pixelformat;
+	format->fourcc = V4L2PixelFormat(pix->pixelformat);
 	format->planesCount = 1;
 	format->planes[0].bpl = pix->bytesperline;
 	format->planes[0].size = pix->sizeimage;
@@ -820,7 +969,7 @@ int V4L2VideoDevice::setFormatSingleplane(V4L2DeviceFormat *format)
 	 */
 	format->size.width = pix->width;
 	format->size.height = pix->height;
-	format->fourcc = pix->pixelformat;
+	format->fourcc = V4L2PixelFormat(pix->pixelformat);
 	format->planesCount = 1;
 	format->planes[0].bpl = pix->bytesperline;
 	format->planes[0].size = pix->sizeimage;
@@ -835,29 +984,31 @@ int V4L2VideoDevice::setFormatSingleplane(V4L2DeviceFormat *format)
  *
  * \return A list of the supported video device formats
  */
-ImageFormats V4L2VideoDevice::formats()
+std::map<V4L2PixelFormat, std::vector<SizeRange>> V4L2VideoDevice::formats()
 {
-	ImageFormats formats;
+	std::map<V4L2PixelFormat, std::vector<SizeRange>> formats;
 
-	for (unsigned int pixelformat : enumPixelformats()) {
-		std::vector<SizeRange> sizes = enumSizes(pixelformat);
+	for (V4L2PixelFormat pixelFormat : enumPixelformats()) {
+		std::vector<SizeRange> sizes = enumSizes(pixelFormat);
 		if (sizes.empty())
 			return {};
 
-		if (formats.addFormat(pixelformat, sizes)) {
+		if (formats.find(pixelFormat) != formats.end()) {
 			LOG(V4L2, Error)
 				<< "Could not add sizes for pixel format "
-				<< pixelformat;
+				<< pixelFormat;
 			return {};
 		}
+
+		formats.emplace(pixelFormat, sizes);
 	}
 
 	return formats;
 }
 
-std::vector<unsigned int> V4L2VideoDevice::enumPixelformats()
+std::vector<V4L2PixelFormat> V4L2VideoDevice::enumPixelformats()
 {
-	std::vector<unsigned int> formats;
+	std::vector<V4L2PixelFormat> formats;
 	int ret;
 
 	for (unsigned int index = 0; ; index++) {
@@ -869,7 +1020,7 @@ std::vector<unsigned int> V4L2VideoDevice::enumPixelformats()
 		if (ret)
 			break;
 
-		formats.push_back(pixelformatEnum.pixelformat);
+		formats.push_back(V4L2PixelFormat(pixelformatEnum.pixelformat));
 	}
 
 	if (ret && ret != -EINVAL) {
@@ -882,7 +1033,7 @@ std::vector<unsigned int> V4L2VideoDevice::enumPixelformats()
 	return formats;
 }
 
-std::vector<SizeRange> V4L2VideoDevice::enumSizes(unsigned int pixelFormat)
+std::vector<SizeRange> V4L2VideoDevice::enumSizes(V4L2PixelFormat pixelFormat)
 {
 	std::vector<SizeRange> sizes;
 	int ret;
@@ -905,20 +1056,20 @@ std::vector<SizeRange> V4L2VideoDevice::enumSizes(unsigned int pixelFormat)
 
 		switch (frameSize.type) {
 		case V4L2_FRMSIZE_TYPE_DISCRETE:
-			sizes.emplace_back(frameSize.discrete.width,
-					   frameSize.discrete.height);
+			sizes.emplace_back(Size{ frameSize.discrete.width,
+						 frameSize.discrete.height });
 			break;
 		case V4L2_FRMSIZE_TYPE_CONTINUOUS:
-			sizes.emplace_back(frameSize.stepwise.min_width,
-					   frameSize.stepwise.min_height,
-					   frameSize.stepwise.max_width,
-					   frameSize.stepwise.max_height);
+			sizes.emplace_back(Size{ frameSize.stepwise.min_width,
+						 frameSize.stepwise.min_height },
+					   Size{ frameSize.stepwise.max_width,
+						 frameSize.stepwise.max_height });
 			break;
 		case V4L2_FRMSIZE_TYPE_STEPWISE:
-			sizes.emplace_back(frameSize.stepwise.min_width,
-					   frameSize.stepwise.min_height,
-					   frameSize.stepwise.max_width,
-					   frameSize.stepwise.max_height,
+			sizes.emplace_back(Size{ frameSize.stepwise.min_width,
+						 frameSize.stepwise.min_height },
+					   Size{ frameSize.stepwise.max_width,
+						 frameSize.stepwise.max_height },
 					   frameSize.stepwise.step_width,
 					   frameSize.stepwise.step_height);
 			break;
@@ -940,14 +1091,63 @@ std::vector<SizeRange> V4L2VideoDevice::enumSizes(unsigned int pixelFormat)
 	return sizes;
 }
 
-int V4L2VideoDevice::requestBuffers(unsigned int count)
+/**
+ * \brief Set a crop rectangle on the V4L2 video device node
+ * \param[inout] rect The rectangle describing the crop target area
+ * \return 0 on success or a negative error code otherwise
+ */
+int V4L2VideoDevice::setCrop(Rectangle *rect)
+{
+	return setSelection(V4L2_SEL_TGT_CROP, rect);
+}
+
+/**
+ * \brief Set a compose rectangle on the V4L2 video device node
+ * \param[inout] rect The rectangle describing the compose target area
+ * \return 0 on success or a negative error code otherwise
+ */
+int V4L2VideoDevice::setCompose(Rectangle *rect)
+{
+	return setSelection(V4L2_SEL_TGT_COMPOSE, rect);
+}
+
+int V4L2VideoDevice::setSelection(unsigned int target, Rectangle *rect)
+{
+	struct v4l2_selection sel = {};
+
+	sel.type = bufferType_;
+	sel.target = target;
+	sel.flags = 0;
+
+	sel.r.left = rect->x;
+	sel.r.top = rect->y;
+	sel.r.width = rect->w;
+	sel.r.height = rect->h;
+
+	int ret = ioctl(VIDIOC_S_SELECTION, &sel);
+	if (ret < 0) {
+		LOG(V4L2, Error) << "Unable to set rectangle " << target
+				 << ": " << strerror(-ret);
+		return ret;
+	}
+
+	rect->x = sel.r.left;
+	rect->y = sel.r.top;
+	rect->w = sel.r.width;
+	rect->h = sel.r.height;
+
+	return 0;
+}
+
+int V4L2VideoDevice::requestBuffers(unsigned int count,
+				    enum v4l2_memory memoryType)
 {
 	struct v4l2_requestbuffers rb = {};
 	int ret;
 
 	rb.count = count;
 	rb.type = bufferType_;
-	rb.memory = memoryType_;
+	rb.memory = memoryType;
 
 	ret = ioctl(VIDIOC_REQBUFS, &rb);
 	if (ret < 0) {
@@ -960,7 +1160,7 @@ int V4L2VideoDevice::requestBuffers(unsigned int count)
 	if (rb.count < count) {
 		LOG(V4L2, Error)
 			<< "Not enough buffers provided by V4L2VideoDevice";
-		requestBuffers(0);
+		requestBuffers(0, memoryType);
 		return -ENOMEM;
 	}
 
@@ -970,12 +1170,85 @@ int V4L2VideoDevice::requestBuffers(unsigned int count)
 }
 
 /**
- * \brief Allocate buffers from the video device
+ * \brief Allocate and export buffers from the video device
  * \param[in] count Number of buffers to allocate
  * \param[out] buffers Vector to store allocated buffers
- * \return 0 on success or a negative error code otherwise
+ *
+ * This function wraps buffer allocation with the V4L2 MMAP memory type. It
+ * requests \a count buffers from the driver, allocating the corresponding
+ * memory, and exports them as a set of FrameBuffer objects in \a buffers. Upon
+ * successful return the driver's internal buffer management is initialized in
+ * MMAP mode, and the video device is ready to accept queueBuffer() calls.
+ *
+ * The number of planes and the plane sizes for the allocation are determined
+ * by the currently active format on the device as set by setFormat().
+ *
+ * Buffers allocated with this function shall later be free with
+ * releaseBuffers(). If buffers have already been allocated with
+ * allocateBuffers() or imported with importBuffers(), this function returns
+ * -EBUSY.
+ *
+ * \return The number of allocated buffers on success or a negative error code
+ * otherwise
+ * \retval -EBUSY buffers have already been allocated or imported
+ */
+int V4L2VideoDevice::allocateBuffers(unsigned int count,
+				     std::vector<std::unique_ptr<FrameBuffer>> *buffers)
+{
+	int ret = createBuffers(count, buffers);
+	if (ret < 0)
+		return ret;
+
+	cache_ = new V4L2BufferCache(*buffers);
+	memoryType_ = V4L2_MEMORY_MMAP;
+
+	return ret;
+}
+
+/**
+ * \brief Export buffers from the video device
+ * \param[in] count Number of buffers to allocate
+ * \param[out] buffers Vector to store allocated buffers
+ *
+ * This function allocates \a count buffer from the video device and exports
+ * them as dmabuf objects, stored in \a buffers. Unlike allocateBuffers(), this
+ * function leaves the driver's internal buffer management uninitialized. The
+ * video device shall be initialized with importBuffers() or allocateBuffers()
+ * before it can accept queueBuffer() calls. The exported buffers are directly
+ * usable with any V4L2 video device in DMABUF mode, or with other dmabuf
+ * importers.
+ *
+ * The number of planes and the plane sizes for the allocation are determined
+ * by the currently active format on the device as set by setFormat().
+ *
+ * Multiple independent sets of buffers can be allocated with multiple calls to
+ * this function. Device-specific limitations may apply regarding the minimum
+ * and maximum number of buffers per set, or to total amount of allocated
+ * memory. The exported dmabuf lifetime is tied to the returned \a buffers. To
+ * free a buffer, the caller shall delete the corresponding FrameBuffer
+ * instance. No bookkeeping and automatic free is performed by the
+ * V4L2VideoDevice class.
+ *
+ * If buffers have already been allocated with allocateBuffers() or imported
+ * with importBuffers(), this function returns -EBUSY.
+ *
+ * \return The number of allocated buffers on success or a negative error code
+ * otherwise
+ * \retval -EBUSY buffers have already been allocated or imported
  */
 int V4L2VideoDevice::exportBuffers(unsigned int count,
+				   std::vector<std::unique_ptr<FrameBuffer>> *buffers)
+{
+	int ret = createBuffers(count, buffers);
+	if (ret < 0)
+		return ret;
+
+	requestBuffers(0, V4L2_MEMORY_MMAP);
+
+	return ret;
+}
+
+int V4L2VideoDevice::createBuffers(unsigned int count,
 				   std::vector<std::unique_ptr<FrameBuffer>> *buffers)
 {
 	if (cache_) {
@@ -983,55 +1256,46 @@ int V4L2VideoDevice::exportBuffers(unsigned int count,
 		return -EINVAL;
 	}
 
-	memoryType_ = V4L2_MEMORY_MMAP;
-
-	int ret = requestBuffers(count);
+	int ret = requestBuffers(count, V4L2_MEMORY_MMAP);
 	if (ret < 0)
 		return ret;
 
 	for (unsigned i = 0; i < count; ++i) {
-		struct v4l2_buffer buf = {};
-		struct v4l2_plane planes[VIDEO_MAX_PLANES] = {};
-
-		buf.index = i;
-		buf.type = bufferType_;
-		buf.memory = memoryType_;
-		buf.length = ARRAY_SIZE(planes);
-		buf.m.planes = planes;
-
-		ret = ioctl(VIDIOC_QUERYBUF, &buf);
-		if (ret < 0) {
-			LOG(V4L2, Error)
-				<< "Unable to query buffer " << i << ": "
-				<< strerror(-ret);
-			goto err_buf;
-		}
-
-		std::unique_ptr<FrameBuffer> buffer = createBuffer(buf);
+		std::unique_ptr<FrameBuffer> buffer = createBuffer(i);
 		if (!buffer) {
 			LOG(V4L2, Error) << "Unable to create buffer";
-			ret = -EINVAL;
-			goto err_buf;
+
+			requestBuffers(0, V4L2_MEMORY_MMAP);
+			buffers->clear();
+
+			return -EINVAL;
 		}
 
 		buffers->push_back(std::move(buffer));
 	}
 
-	cache_ = new V4L2BufferCache(*buffers);
-
 	return count;
-
-err_buf:
-	requestBuffers(0);
-
-	buffers->clear();
-
-	return ret;
 }
 
-std::unique_ptr<FrameBuffer>
-V4L2VideoDevice::createBuffer(const struct v4l2_buffer &buf)
+std::unique_ptr<FrameBuffer> V4L2VideoDevice::createBuffer(unsigned int index)
 {
+	struct v4l2_plane v4l2Planes[VIDEO_MAX_PLANES] = {};
+	struct v4l2_buffer buf = {};
+
+	buf.index = index;
+	buf.type = bufferType_;
+	buf.memory = V4L2_MEMORY_MMAP;
+	buf.length = ARRAY_SIZE(v4l2Planes);
+	buf.m.planes = v4l2Planes;
+
+	int ret = ioctl(VIDIOC_QUERYBUF, &buf);
+	if (ret < 0) {
+		LOG(V4L2, Error)
+			<< "Unable to query buffer " << index << ": "
+			<< strerror(-ret);
+		return nullptr;
+	}
+
 	const bool multiPlanar = V4L2_TYPE_IS_MULTIPLANAR(buf.type);
 	const unsigned int numPlanes = multiPlanar ? buf.length : 1;
 
@@ -1081,7 +1345,22 @@ FileDescriptor V4L2VideoDevice::exportDmabufFd(unsigned int index,
 /**
  * \brief Prepare the device to import \a count buffers
  * \param[in] count Number of buffers to prepare to import
+ *
+ * This function initializes the driver's buffer management to import buffers
+ * in DMABUF mode. It requests buffers from the driver, but doesn't allocate
+ * memory.
+ *
+ * Upon successful return, the video device is ready to accept queueBuffer()
+ * calls. The buffers to be imported are provided to queueBuffer(), and may be
+ * supplied externally, or come from a previous exportBuffers() call.
+ *
+ * Device initialization performed by this function shall later be cleaned up
+ * with releaseBuffers(). If buffers have already been allocated with
+ * allocateBuffers() or imported with importBuffers(), this function returns
+ * -EBUSY.
+ *
  * \return 0 on success or a negative error code otherwise
+ * \retval -EBUSY buffers have already been allocated or imported
  */
 int V4L2VideoDevice::importBuffers(unsigned int count)
 {
@@ -1092,7 +1371,7 @@ int V4L2VideoDevice::importBuffers(unsigned int count)
 
 	memoryType_ = V4L2_MEMORY_DMABUF;
 
-	int ret = requestBuffers(count);
+	int ret = requestBuffers(count, V4L2_MEMORY_DMABUF);
 	if (ret)
 		return ret;
 
@@ -1104,7 +1383,12 @@ int V4L2VideoDevice::importBuffers(unsigned int count)
 }
 
 /**
- * \brief Release all internally allocated buffers
+ * \brief Release resources allocated by allocateBuffers() or importBuffers()
+ *
+ * This function resets the driver's internal buffer management that was
+ * initialized by a previous call to allocateBuffers() or importBuffers(). Any
+ * memory allocated by allocateBuffers() is freed. Buffer exported by
+ * exportBuffers(), if any, are not affected.
  */
 int V4L2VideoDevice::releaseBuffers()
 {
@@ -1113,7 +1397,7 @@ int V4L2VideoDevice::releaseBuffers()
 	delete cache_;
 	cache_ = nullptr;
 
-	return requestBuffers(0);
+	return requestBuffers(0, memoryType_);
 }
 
 /**
@@ -1364,57 +1648,66 @@ V4L2VideoDevice *V4L2VideoDevice::fromEntityName(const MediaDevice *media,
  * \param[in] v4l2Fourcc The V4L2 pixel format (V4L2_PIX_FORMAT_*)
  * \return The PixelFormat corresponding to \a v4l2Fourcc
  */
-PixelFormat V4L2VideoDevice::toPixelFormat(uint32_t v4l2Fourcc)
+PixelFormat V4L2VideoDevice::toPixelFormat(V4L2PixelFormat v4l2Fourcc)
 {
 	switch (v4l2Fourcc) {
 	/* RGB formats. */
 	case V4L2_PIX_FMT_RGB24:
-		return DRM_FORMAT_BGR888;
+		return PixelFormat(DRM_FORMAT_BGR888);
 	case V4L2_PIX_FMT_BGR24:
-		return DRM_FORMAT_RGB888;
+		return PixelFormat(DRM_FORMAT_RGB888);
+	case V4L2_PIX_FMT_RGBA32:
+		return PixelFormat(DRM_FORMAT_ABGR8888);
+	case V4L2_PIX_FMT_ABGR32:
+		return PixelFormat(DRM_FORMAT_ARGB8888);
 	case V4L2_PIX_FMT_ARGB32:
-		return DRM_FORMAT_BGRA8888;
+		return PixelFormat(DRM_FORMAT_BGRA8888);
+	case V4L2_PIX_FMT_BGRA32:
+		return PixelFormat(DRM_FORMAT_RGBA8888);
 
 	/* YUV packed formats. */
 	case V4L2_PIX_FMT_YUYV:
-		return DRM_FORMAT_YUYV;
+		return PixelFormat(DRM_FORMAT_YUYV);
 	case V4L2_PIX_FMT_YVYU:
-		return DRM_FORMAT_YVYU;
+		return PixelFormat(DRM_FORMAT_YVYU);
 	case V4L2_PIX_FMT_UYVY:
-		return DRM_FORMAT_UYVY;
+		return PixelFormat(DRM_FORMAT_UYVY);
 	case V4L2_PIX_FMT_VYUY:
-		return DRM_FORMAT_VYUY;
+		return PixelFormat(DRM_FORMAT_VYUY);
 
 	/* YUY planar formats. */
 	case V4L2_PIX_FMT_NV16:
 	case V4L2_PIX_FMT_NV16M:
-		return DRM_FORMAT_NV16;
+		return PixelFormat(DRM_FORMAT_NV16);
 	case V4L2_PIX_FMT_NV61:
 	case V4L2_PIX_FMT_NV61M:
-		return DRM_FORMAT_NV61;
+		return PixelFormat(DRM_FORMAT_NV61);
 	case V4L2_PIX_FMT_NV12:
 	case V4L2_PIX_FMT_NV12M:
-		return DRM_FORMAT_NV12;
+		return PixelFormat(DRM_FORMAT_NV12);
 	case V4L2_PIX_FMT_NV21:
 	case V4L2_PIX_FMT_NV21M:
-		return DRM_FORMAT_NV21;
+		return PixelFormat(DRM_FORMAT_NV21);
+
+	/* Greyscale formats. */
+	case V4L2_PIX_FMT_GREY:
+		return PixelFormat(DRM_FORMAT_R8);
 
 	/* Compressed formats. */
 	case V4L2_PIX_FMT_MJPEG:
-		return DRM_FORMAT_MJPEG;
+		return PixelFormat(DRM_FORMAT_MJPEG);
 
 	/* V4L2 formats not yet supported by DRM. */
-	case V4L2_PIX_FMT_GREY:
 	default:
 		/*
 		 * \todo We can't use LOG() in a static method of a Loggable
 		 * class. Until we fix the logger, work around it.
 		 */
 		libcamera::_log(__FILE__, __LINE__, _LOG_CATEGORY(V4L2)(),
-				LogError).stream()
+				LogWarning).stream()
 			<< "Unsupported V4L2 pixel format "
-			<< utils::hex(v4l2Fourcc);
-		return 0;
+			<< v4l2Fourcc.toString();
+		return PixelFormat();
 	}
 }
 
@@ -1429,9 +1722,9 @@ PixelFormat V4L2VideoDevice::toPixelFormat(uint32_t v4l2Fourcc)
  *
  * \return The V4L2_PIX_FMT_* pixel format code corresponding to \a pixelFormat
  */
-uint32_t V4L2VideoDevice::toV4L2Fourcc(PixelFormat pixelFormat)
+V4L2PixelFormat V4L2VideoDevice::toV4L2PixelFormat(const PixelFormat &pixelFormat)
 {
-	return V4L2VideoDevice::toV4L2Fourcc(pixelFormat, caps_.isMultiplanar());
+	return toV4L2PixelFormat(pixelFormat, caps_.isMultiplanar());
 }
 
 /**
@@ -1447,26 +1740,33 @@ uint32_t V4L2VideoDevice::toV4L2Fourcc(PixelFormat pixelFormat)
  *
  * \return The V4L2_PIX_FMT_* pixel format code corresponding to \a pixelFormat
  */
-uint32_t V4L2VideoDevice::toV4L2Fourcc(PixelFormat pixelFormat, bool multiplanar)
+V4L2PixelFormat V4L2VideoDevice::toV4L2PixelFormat(const PixelFormat &pixelFormat,
+						   bool multiplanar)
 {
 	switch (pixelFormat) {
 	/* RGB formats. */
 	case DRM_FORMAT_BGR888:
-		return V4L2_PIX_FMT_RGB24;
+		return V4L2PixelFormat(V4L2_PIX_FMT_RGB24);
 	case DRM_FORMAT_RGB888:
-		return V4L2_PIX_FMT_BGR24;
+		return V4L2PixelFormat(V4L2_PIX_FMT_BGR24);
+	case DRM_FORMAT_ABGR8888:
+		return V4L2PixelFormat(V4L2_PIX_FMT_RGBA32);
+	case DRM_FORMAT_ARGB8888:
+		return V4L2PixelFormat(V4L2_PIX_FMT_ABGR32);
 	case DRM_FORMAT_BGRA8888:
-		return V4L2_PIX_FMT_ARGB32;
+		return V4L2PixelFormat(V4L2_PIX_FMT_ARGB32);
+	case DRM_FORMAT_RGBA8888:
+		return V4L2PixelFormat(V4L2_PIX_FMT_BGRA32);
 
 	/* YUV packed formats. */
 	case DRM_FORMAT_YUYV:
-		return V4L2_PIX_FMT_YUYV;
+		return V4L2PixelFormat(V4L2_PIX_FMT_YUYV);
 	case DRM_FORMAT_YVYU:
-		return V4L2_PIX_FMT_YVYU;
+		return V4L2PixelFormat(V4L2_PIX_FMT_YVYU);
 	case DRM_FORMAT_UYVY:
-		return V4L2_PIX_FMT_UYVY;
+		return V4L2PixelFormat(V4L2_PIX_FMT_UYVY);
 	case DRM_FORMAT_VYUY:
-		return V4L2_PIX_FMT_VYUY;
+		return V4L2PixelFormat(V4L2_PIX_FMT_VYUY);
 
 	/*
 	 * YUY planar formats.
@@ -1475,27 +1775,31 @@ uint32_t V4L2VideoDevice::toV4L2Fourcc(PixelFormat pixelFormat, bool multiplanar
 	 * also take into account the formats supported by the device.
 	 */
 	case DRM_FORMAT_NV16:
-		return V4L2_PIX_FMT_NV16;
+		return V4L2PixelFormat(V4L2_PIX_FMT_NV16);
 	case DRM_FORMAT_NV61:
-		return V4L2_PIX_FMT_NV61;
+		return V4L2PixelFormat(V4L2_PIX_FMT_NV61);
 	case DRM_FORMAT_NV12:
-		return V4L2_PIX_FMT_NV12;
+		return V4L2PixelFormat(V4L2_PIX_FMT_NV12);
 	case DRM_FORMAT_NV21:
-		return V4L2_PIX_FMT_NV21;
+		return V4L2PixelFormat(V4L2_PIX_FMT_NV21);
+
+	/* Greyscale formats. */
+	case DRM_FORMAT_R8:
+		return V4L2PixelFormat(V4L2_PIX_FMT_GREY);
 
 	/* Compressed formats. */
 	case DRM_FORMAT_MJPEG:
-		return V4L2_PIX_FMT_MJPEG;
+		return V4L2PixelFormat(V4L2_PIX_FMT_MJPEG);
 	}
 
 	/*
 	 * \todo We can't use LOG() in a static method of a Loggable
 	 * class. Until we fix the logger, work around it.
 	 */
-	libcamera::_log(__FILE__, __LINE__, _LOG_CATEGORY(V4L2)(), LogError).stream()
-		<< "Unsupported V4L2 pixel format "
-		<< utils::hex(pixelFormat);
-	return 0;
+	libcamera::_log(__FILE__, __LINE__, _LOG_CATEGORY(V4L2)(),
+			LogWarning).stream()
+		<< "Unsupported V4L2 pixel format " << pixelFormat.toString();
+	return {};
 }
 
 /**

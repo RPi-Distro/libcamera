@@ -33,7 +33,6 @@ int DeviceEnumeratorSysfs::enumerate()
 {
 	struct dirent *ent;
 	DIR *dir;
-	int ret = 0;
 
 	static const char * const sysfs_dirs[] = {
 		"/sys/subsystem/media/devices",
@@ -73,26 +72,27 @@ int DeviceEnumeratorSysfs::enumerate()
 			continue;
 		}
 
-		std::shared_ptr<MediaDevice> media = createDevice(devnode);
-		if (!media) {
-			ret = -ENODEV;
-			break;
+		std::unique_ptr<MediaDevice> media = createDevice(devnode);
+		if (!media)
+			continue;
+
+		if (populateMediaDevice(media.get()) < 0) {
+			LOG(DeviceEnumerator, Warning)
+				<< "Failed to populate media device "
+				<< media->deviceNode()
+				<< " (" << media->driver() << "), skipping";
+			continue;
 		}
 
-		if (populateMediaDevice(media) < 0) {
-			ret = -ENODEV;
-			break;
-		}
-
-		addDevice(media);
+		addDevice(std::move(media));
 	}
 
 	closedir(dir);
 
-	return ret;
+	return 0;
 }
 
-int DeviceEnumeratorSysfs::populateMediaDevice(const std::shared_ptr<MediaDevice> &media)
+int DeviceEnumeratorSysfs::populateMediaDevice(MediaDevice *media)
 {
 	/* Associate entities to device node paths. */
 	for (MediaEntity *entity : media->entities()) {

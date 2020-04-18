@@ -33,8 +33,6 @@
  *
  * The enumerator supports searching among enumerated devices based on criteria
  * expressed in a DeviceMatch object.
- *
- * \todo Add sysfs based device enumerator.
  */
 
 namespace libcamera {
@@ -190,6 +188,8 @@ DeviceEnumerator::~DeviceEnumerator()
  * with a warning message logged, without returning an error. Only errors that
  * prevent enumeration altogether shall be fatal.
  *
+ * \context This function is \threadbound.
+ *
  * \return 0 on success or a negative error code otherwise
  */
 
@@ -208,9 +208,9 @@ DeviceEnumerator::~DeviceEnumerator()
  *
  * \return Created media device instance on success, or nullptr otherwise
  */
-std::shared_ptr<MediaDevice> DeviceEnumerator::createDevice(const std::string &deviceNode)
+std::unique_ptr<MediaDevice> DeviceEnumerator::createDevice(const std::string &deviceNode)
 {
-	std::shared_ptr<MediaDevice> media = std::make_shared<MediaDevice>(deviceNode);
+	std::unique_ptr<MediaDevice> media = std::make_unique<MediaDevice>(deviceNode);
 
 	int ret = media->populate();
 	if (ret < 0) {
@@ -236,12 +236,12 @@ std::shared_ptr<MediaDevice> DeviceEnumerator::createDevice(const std::string &d
  * This method shall be called after all members of the entities of the
  * media graph have been confirmed to be initialized.
  */
-void DeviceEnumerator::addDevice(const std::shared_ptr<MediaDevice> &media)
+void DeviceEnumerator::addDevice(std::unique_ptr<MediaDevice> &&media)
 {
 	LOG(DeviceEnumerator, Debug)
 		<< "Added device " << media->deviceNode() << ": " << media->driver();
 
-	devices_.push_back(media);
+	devices_.push_back(std::move(media));
 }
 
 /**
@@ -290,7 +290,7 @@ void DeviceEnumerator::removeDevice(const std::string &deviceNode)
  */
 std::shared_ptr<MediaDevice> DeviceEnumerator::search(const DeviceMatch &dm)
 {
-	for (std::shared_ptr<MediaDevice> media : devices_) {
+	for (std::shared_ptr<MediaDevice> &media : devices_) {
 		if (media->busy())
 			continue;
 

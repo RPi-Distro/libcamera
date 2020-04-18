@@ -33,7 +33,7 @@ LOG_DEFINE_CATEGORY(Allocator)
  * FrameBuffer instances. This makes libcamera a user of buffers exported by
  * other devices (such as displays or video encoders), or allocated from an
  * external allocator (such as ION on Android platforms). In some situations,
- * applications do not have any mean to allocate or get hold of suitable
+ * applications do not have any means to allocate or get hold of suitable
  * buffers, for instance when no other device is involved, on Linux platforms
  * that lack a centralized allocator. The FrameBufferAllocator class provides a
  * buffer allocator that can be used in these situations.
@@ -54,29 +54,6 @@ LOG_DEFINE_CATEGORY(Allocator)
  */
 
 /**
- * \brief Create a FrameBuffer allocator
- * \param[in] camera The camera the allocator serves
- *
- * A single allocator may be created for a Camera instance.
- *
- * The caller is responsible for deleting the allocator before the camera is
- * released.
- *
- * \return A pointer to the newly created allocator object or nullptr on error
- */
-FrameBufferAllocator *
-FrameBufferAllocator::create(std::shared_ptr<Camera> camera)
-{
-	if (camera->allocator_) {
-		LOG(Allocator, Error) << "Camera already has an allocator";
-		return nullptr;
-	}
-
-	camera->allocator_ = new FrameBufferAllocator(camera);
-	return camera->allocator_;
-}
-
-/**
  * \brief Construct a FrameBufferAllocator serving a camera
  * \param[in] camera The camera
  */
@@ -87,14 +64,7 @@ FrameBufferAllocator::FrameBufferAllocator(std::shared_ptr<Camera> camera)
 
 FrameBufferAllocator::~FrameBufferAllocator()
 {
-	for (auto &value : buffers_) {
-		Stream *stream = value.first;
-		camera_->pipe_->freeFrameBuffers(camera_.get(), stream);
-	}
-
 	buffers_.clear();
-
-	camera_->allocator_ = nullptr;
 }
 
 /**
@@ -108,7 +78,8 @@ FrameBufferAllocator::~FrameBufferAllocator()
  * Upon successful allocation, the allocated buffers can be retrieved with the
  * buffers() method.
  *
- * \return 0 on success or a negative error code otherwise
+ * \return The number of allocated buffers on success or a negative error code
+ * otherwise
  * \retval -EACCES The camera is not in a state where buffers can be allocated
  * \retval -EINVAL The \a stream does not belong to the camera or the stream is
  * not part of the active camera configuration
@@ -116,36 +87,17 @@ FrameBufferAllocator::~FrameBufferAllocator()
  */
 int FrameBufferAllocator::allocate(Stream *stream)
 {
-	if (camera_->state_ != Camera::CameraConfigured) {
-		LOG(Allocator, Error)
-			<< "Camera must be in the configured state to allocate buffers";
-		return -EACCES;
-	}
-
-	if (camera_->streams().find(stream) == camera_->streams().end()) {
-		LOG(Allocator, Error)
-			<< "Stream does not belong to " << camera_->name();
-		return -EINVAL;
-	}
-
-	if (camera_->activeStreams_.find(stream) == camera_->activeStreams_.end()) {
-		LOG(Allocator, Error)
-			<< "Stream is not part of " << camera_->name()
-			<< " active configuration";
-		return -EINVAL;
-	}
-
 	if (buffers_.count(stream)) {
 		LOG(Allocator, Error) << "Buffers already allocated for stream";
 		return -EBUSY;
 	}
 
-	int ret = camera_->pipe_->exportFrameBuffers(camera_.get(), stream,
-						     &buffers_[stream]);
-	if (ret)
-		return ret;
-
-	return 0;
+	int ret = camera_->exportFrameBuffers(stream, &buffers_[stream]);
+	if (ret == -EINVAL)
+		LOG(Allocator, Error)
+			<< "Stream is not part of " << camera_->name()
+			<< " active configuration";
+	return ret;
 }
 
 /**
@@ -162,22 +114,12 @@ int FrameBufferAllocator::allocate(Stream *stream)
  */
 int FrameBufferAllocator::free(Stream *stream)
 {
-	if (camera_->state_ != Camera::CameraConfigured) {
-		LOG(Allocator, Error)
-			<< "Camera must be in the configured state to free buffers";
-		return -EACCES;
-	}
-
 	auto iter = buffers_.find(stream);
 	if (iter == buffers_.end())
 		return -EINVAL;
 
 	std::vector<std::unique_ptr<FrameBuffer>> &buffers = iter->second;
-
 	buffers.clear();
-
-	camera_->pipe_->freeFrameBuffers(camera_.get(), stream);
-
 	buffers_.erase(iter);
 
 	return 0;
@@ -192,7 +134,7 @@ int FrameBufferAllocator::free(Stream *stream)
 
 /**
  * \brief Retrieve the buffers allocated for a \a stream
- * \param[in] stream The stream to retrive buffers for
+ * \param[in] stream The stream to retrieve buffers for
  *
  * This method shall only be called after successfully allocating buffers for
  * \a stream with allocate(). The returned buffers are valid until free() is
@@ -203,7 +145,7 @@ int FrameBufferAllocator::free(Stream *stream)
 const std::vector<std::unique_ptr<FrameBuffer>> &
 FrameBufferAllocator::buffers(Stream *stream) const
 {
-	static std::vector<std::unique_ptr<FrameBuffer>> empty;
+	static const std::vector<std::unique_ptr<FrameBuffer>> empty;
 
 	auto iter = buffers_.find(stream);
 	if (iter == buffers_.end())
