@@ -12,6 +12,7 @@ Copyright:
  2019      Mickael Guene
  2018—2019 Niklas Söderlund
  2019      Paul Elder
+ 2018-2020 Google Inc.
 License: GPL-2+
 
 Files:
@@ -26,6 +27,12 @@ Copyright:
  2019      Mickael Guene
  2018—2019 Niklas Söderlund
  2019      Paul Elder
+ 2018-2020 Google Inc.
+License: LGPL-2.1+
+
+Files: src/gstreamer/*
+Copyright:
+ 2019-2020 Collabora Ltd.
 License: LGPL-2.1+
 
 Files:
@@ -53,6 +60,26 @@ Copyright:
  1999 Precision Insight, Inc., Cedar Park, Texas
  2000 VA Linux Systems, Inc., Sunnyvale, California
 License: Expat
+
+Files:
+ include/linux/drm_mode.h
+Copyright:
+ 2007 Dave Airlie <airlied@linux.ie>
+ 2007 Jakob Bornecrantz <wallbraker@gmail.com>
+ 2008 Red Hat Inc.
+ 2007-2008 Tungsten Graphics, Inc., Cedar Park, TX., USA
+ 2007-2008 Intel Corporation
+License: Expat
+
+Files: include/linux/media-bus-format.h
+ include/linux/v4l2-mediabus.h
+Copyright: 2009, Guennadi Liakhovetski <g.liakhovetski@gmx.de>
+License: GPL-2
+
+
+Files: include/linux/rkisp1-config.h
+Copyright: 2017, Rockchip Electronics Co., Ltd.
+License: GPL-2+
 
 Files: Documentation/theme/search.html
 Copyright:
