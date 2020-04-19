@@ -25,6 +25,7 @@ Files: include/ipa/ipa_controls.h
  include/libcamera/pixelformats.h
  include/libcamera/request.h
  include/libcamera/signal.h
+ include/libcamera/span.h
  include/libcamera/stream.h
  include/libcamera/timer.h
  src/android/camera3_hal.cpp
@@ -34,8 +35,8 @@ Files: include/ipa/ipa_controls.h
  src/android/camera_hal_manager.h
  src/android/camera_metadata.cpp
  src/android/camera_metadata.h
- src/android/camera_proxy.cpp
- src/android/camera_proxy.h
+ src/android/camera_ops.cpp
+ src/android/camera_ops.h
  src/cam/buffer_writer.cpp
  src/cam/buffer_writer.h
  src/cam/capture.cpp
@@ -46,10 +47,12 @@ Files: include/ipa/ipa_controls.h
  src/cam/main.h
  src/cam/options.cpp
  src/cam/options.h
- src/ipa/ipa_vimc.cpp
+ src/ipa/gen-ipa-priv-key.sh
+ src/ipa/ipa-sign.sh
  src/ipa/libipa/ipa_interface_wrapper.cpp
  src/ipa/libipa/ipa_interface_wrapper.h
  src/ipa/rkisp1/rkisp1.cpp
+ src/ipa/vimc/vimc.cpp
  src/libcamera/bound_method.cpp
  src/libcamera/buffer.cpp
  src/libcamera/byte_stream_buffer.cpp
@@ -66,10 +69,12 @@ Files: include/ipa/ipa_controls.h
  src/libcamera/event_dispatcher.cpp
  src/libcamera/event_dispatcher_poll.cpp
  src/libcamera/event_notifier.cpp
+ src/libcamera/file.cpp
  src/libcamera/file_descriptor.cpp
  src/libcamera/formats.cpp
  src/libcamera/framebuffer_allocator.cpp
  src/libcamera/gen-controls.py
+ src/libcamera/gen-ipa-pub-key.py
  src/libcamera/geometry.cpp
  src/libcamera/include/byte_stream_buffer.h
  src/libcamera/include/camera_controls.h
@@ -80,6 +85,7 @@ Files: include/ipa/ipa_controls.h
  src/libcamera/include/device_enumerator_sysfs.h
  src/libcamera/include/device_enumerator_udev.h
  src/libcamera/include/event_dispatcher_poll.h
+ src/libcamera/include/file.h
  src/libcamera/include/formats.h
  src/libcamera/include/ipa_context_wrapper.h
  src/libcamera/include/ipa_manager.h
@@ -92,6 +98,7 @@ Files: include/ipa/ipa_controls.h
  src/libcamera/include/message.h
  src/libcamera/include/pipeline_handler.h
  src/libcamera/include/process.h
+ src/libcamera/include/pub_key.h
  src/libcamera/include/semaphore.h
  src/libcamera/include/thread.h
  src/libcamera/include/utils.h
@@ -115,13 +122,15 @@ Files: include/ipa/ipa_controls.h
  src/libcamera/pipeline/rkisp1/rkisp1.cpp
  src/libcamera/pipeline/rkisp1/timeline.cpp
  src/libcamera/pipeline/rkisp1/timeline.h
- src/libcamera/pipeline/uvcvideo.cpp
- src/libcamera/pipeline/vimc.cpp
+ src/libcamera/pipeline/uvcvideo/uvcvideo.cpp
+ src/libcamera/pipeline/vimc/vimc.cpp
  src/libcamera/pipeline_handler.cpp
  src/libcamera/pixelformats.cpp
  src/libcamera/process.cpp
  src/libcamera/proxy/ipa_proxy_linux.cpp
+ src/libcamera/proxy/ipa_proxy_thread.cpp
  src/libcamera/proxy/worker/ipa_proxy_linux_worker.cpp
+ src/libcamera/pub_key.cpp
  src/libcamera/request.cpp
  src/libcamera/semaphore.cpp
  src/libcamera/signal.cpp
@@ -138,8 +147,6 @@ Files: include/ipa/ipa_controls.h
  src/qcam/main.cpp
  src/qcam/main_window.cpp
  src/qcam/main_window.h
- src/qcam/qt_event_dispatcher.cpp
- src/qcam/qt_event_dispatcher.h
  src/qcam/viewfinder.cpp
  src/qcam/viewfinder.h
  src/v4l2/v4l2_camera.cpp
@@ -157,18 +164,21 @@ Files: include/ipa/ipa_controls.h
  test/camera/configuration_set.cpp
  test/camera/statemachine.cpp
  test/controls/control_info.cpp
+ test/controls/control_info_map.cpp
  test/controls/control_list.cpp
- test/controls/control_range.cpp
  test/controls/control_value.cpp
  test/event-dispatcher.cpp
  test/event-thread.cpp
  test/event.cpp
  test/file-descriptor.cpp
+ test/file.cpp
  test/geometry.cpp
  test/ipa/ipa_interface_test.cpp
  test/ipa/ipa_module_test.cpp
  test/ipa/ipa_wrappers_test.cpp
  test/ipc/unixsocket.cpp
+ test/libtest/buffer_source.cpp
+ test/libtest/buffer_source.h
  test/libtest/camera_test.cpp
  test/libtest/camera_test.h
  test/libtest/test.cpp
@@ -191,6 +201,7 @@ Files: include/ipa/ipa_controls.h
  test/serialization/serialization_test.h
  test/signal-threads.cpp
  test/signal.cpp
+ test/span.cpp
  test/stream/stream_formats.cpp
  test/threads.cpp
  test/timer-thread.cpp
@@ -200,6 +211,7 @@ Files: include/ipa/ipa_controls.h
  test/v4l2_subdevice/test_formats.cpp
  test/v4l2_subdevice/v4l2_subdevice_test.cpp
  test/v4l2_subdevice/v4l2_subdevice_test.h
+ test/v4l2_videodevice/buffer_cache.cpp
  test/v4l2_videodevice/buffer_sharing.cpp
  test/v4l2_videodevice/capture_async.cpp
  test/v4l2_videodevice/controls.cpp
@@ -217,6 +229,7 @@ Files: include/ipa/ipa_controls.h
 Copyright: 2018, Google Inc.
   2018-2019, Google Inc.
   2019, Google Inc.
+  2020, Google Inc.
 License: UNKNOWN
  FIXME
 
@@ -248,16 +261,36 @@ License: Apache-2.0
 
 Files: Documentation/conf.py
  Documentation/theme/static/css/theme.css
- debian/changelog
  debian/control
  debian/patches/series
  debian/rules
  debian/source/format
  debian/watch
  include/linux/README
+ src/qcam/assets/feathericons/README.md
  utils/gen-version.sh
  utils/hooks/post-commit
+ utils/hooks/pre-commit
+ utils/hooks/pre-push
 Copyright: NONE
+License: UNKNOWN
+ FIXME
+
+Files: src/gstreamer/gstlibcamera-utils.cpp
+ src/gstreamer/gstlibcamera-utils.h
+ src/gstreamer/gstlibcamera.cpp
+ src/gstreamer/gstlibcameraallocator.cpp
+ src/gstreamer/gstlibcameraallocator.h
+ src/gstreamer/gstlibcamerapad.cpp
+ src/gstreamer/gstlibcamerapad.h
+ src/gstreamer/gstlibcamerapool.cpp
+ src/gstreamer/gstlibcamerapool.h
+ src/gstreamer/gstlibcameraprovider.cpp
+ src/gstreamer/gstlibcameraprovider.h
+ src/gstreamer/gstlibcamerasrc.cpp
+ src/gstreamer/gstlibcamerasrc.h
+Copyright: 2019, Collabora Ltd.
+  2020, Collabora Ltd.
 License: UNKNOWN
  FIXME
 
@@ -293,8 +326,14 @@ Copyright: 2007, Dave Airlie <airlied@linux.ie>
 License: Expat
  FIXME
 
+Files: debian/copyright_hints
+Copyright: -format/1.0/
+License: UNKNOWN
+ FIXME
+
 Files: debian/copyright
 Copyright: -format/1.0/
+  2018-2019, Libcamera contributors
 License: UNKNOWN
  FIXME
 
@@ -316,6 +355,11 @@ License: UNKNOWN
 Files: include/linux/drm.h
 Copyright: 1999, Precision Insight, Inc., Cedar Park, Texas.
   2000, VA Linux Systems, Inc., Sunnyvale, California.
+License: UNKNOWN
+ FIXME
+
+Files: debian/changelog
+Copyright: Rearrange d/copyright paragraphs
 License: UNKNOWN
  FIXME
 
