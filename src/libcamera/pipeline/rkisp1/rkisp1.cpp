@@ -401,7 +401,7 @@ int RkISP1CameraData::loadIPA()
 	ipa_->queueFrameAction.connect(this,
 				       &RkISP1CameraData::queueFrameAction);
 
-	ipa_->init();
+	ipa_->init(IPASettings{});
 
 	return 0;
 }
@@ -681,6 +681,7 @@ int PipelineHandlerRkISP1::configure(Camera *camera, CameraConfiguration *c)
 		return ret;
 
 	cfg.setStream(&data->stream_);
+	cfg.stride = outputFormat.planes[0].bpl;
 
 	return 0;
 }
@@ -822,6 +823,15 @@ int PipelineHandlerRkISP1::start(Camera *camera)
 	activeCamera_ = camera;
 
 	/* Inform IPA of stream configuration and sensor controls. */
+	CameraSensorInfo sensorInfo = {};
+	ret = data->sensor_->sensorInfo(&sensorInfo);
+	if (ret) {
+		/* \todo Turn this in an hard failure. */
+		LOG(RkISP1, Warning) << "Camera sensor information not available";
+		sensorInfo = {};
+		ret = 0;
+	}
+
 	std::map<unsigned int, IPAStream> streamConfig;
 	streamConfig[0] = {
 		.pixelFormat = data->stream_.configuration().pixelFormat,
@@ -831,7 +841,7 @@ int PipelineHandlerRkISP1::start(Camera *camera)
 	std::map<unsigned int, const ControlInfoMap &> entityControls;
 	entityControls.emplace(0, data->sensor_->controls());
 
-	data->ipa_->configure(streamConfig, entityControls);
+	data->ipa_->configure(sensorInfo, streamConfig, entityControls);
 
 	return ret;
 }

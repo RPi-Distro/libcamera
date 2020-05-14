@@ -23,6 +23,7 @@
 #include "formats.h"
 #include "log.h"
 #include "v4l2_device.h"
+#include "v4l2_pixelformat.h"
 
 namespace libcamera {
 
@@ -149,29 +150,6 @@ private:
 	unsigned int missCounter_;
 };
 
-class V4L2PixelFormat
-{
-public:
-	V4L2PixelFormat()
-		: fourcc_(0)
-	{
-	}
-
-	explicit V4L2PixelFormat(uint32_t fourcc)
-		: fourcc_(fourcc)
-	{
-	}
-
-	bool isValid() const { return fourcc_ != 0; }
-	uint32_t fourcc() const { return fourcc_; }
-	operator uint32_t() const { return fourcc_; }
-
-	std::string toString() const;
-
-private:
-	uint32_t fourcc_;
-};
-
 class V4L2DeviceFormat
 {
 public:
@@ -209,10 +187,9 @@ public:
 
 	int getFormat(V4L2DeviceFormat *format);
 	int setFormat(V4L2DeviceFormat *format);
-	std::map<V4L2PixelFormat, std::vector<SizeRange>> formats();
+	std::map<V4L2PixelFormat, std::vector<SizeRange>> formats(uint32_t code = 0);
 
-	int setCrop(Rectangle *rect);
-	int setCompose(Rectangle *rect);
+	int setSelection(unsigned int target, Rectangle *rect);
 
 	int allocateBuffers(unsigned int count,
 			    std::vector<std::unique_ptr<FrameBuffer>> *buffers);
@@ -224,16 +201,16 @@ public:
 	int queueBuffer(FrameBuffer *buffer);
 	Signal<FrameBuffer *> bufferReady;
 
+	int setFrameStartEnabled(bool enable);
+	Signal<uint32_t> frameStart;
+
 	int streamOn();
 	int streamOff();
 
 	static V4L2VideoDevice *fromEntityName(const MediaDevice *media,
 					       const std::string &entity);
 
-	static PixelFormat toPixelFormat(V4L2PixelFormat v4l2Fourcc);
 	V4L2PixelFormat toV4L2PixelFormat(const PixelFormat &pixelFormat);
-	static V4L2PixelFormat toV4L2PixelFormat(const PixelFormat &pixelFormat,
-						 bool multiplanar);
 
 protected:
 	std::string logPrefix() const;
@@ -248,10 +225,8 @@ private:
 	int getFormatSingleplane(V4L2DeviceFormat *format);
 	int setFormatSingleplane(V4L2DeviceFormat *format);
 
-	std::vector<V4L2PixelFormat> enumPixelformats();
+	std::vector<V4L2PixelFormat> enumPixelformats(uint32_t code);
 	std::vector<SizeRange> enumSizes(V4L2PixelFormat pixelFormat);
-
-	int setSelection(unsigned int target, Rectangle *rect);
 
 	int requestBuffers(unsigned int count, enum v4l2_memory memoryType);
 	int createBuffers(unsigned int count,
@@ -262,6 +237,8 @@ private:
 	void bufferAvailable(EventNotifier *notifier);
 	FrameBuffer *dequeueBuffer();
 
+	void eventAvailable(EventNotifier *notifier);
+
 	V4L2Capability caps_;
 
 	enum v4l2_buf_type bufferType_;
@@ -270,7 +247,10 @@ private:
 	V4L2BufferCache *cache_;
 	std::map<unsigned int, FrameBuffer *> queuedBuffers_;
 
-	EventNotifier *fdEvent_;
+	EventNotifier *fdBufferNotifier_;
+	EventNotifier *fdEventNotifier_;
+
+	bool frameStartEnabled_;
 };
 
 class V4L2M2MDevice

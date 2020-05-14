@@ -7,12 +7,14 @@
 #ifndef __LIBCAMERA_CAMERA_SENSOR_H__
 #define __LIBCAMERA_CAMERA_SENSOR_H__
 
+#include <memory>
 #include <string>
 #include <vector>
 
 #include <libcamera/controls.h>
 #include <libcamera/geometry.h>
 
+#include "formats.h"
 #include "log.h"
 
 namespace libcamera {
@@ -21,6 +23,19 @@ class MediaEntity;
 class V4L2Subdevice;
 
 struct V4L2SubdeviceFormat;
+
+struct CameraSensorInfo {
+	std::string model;
+
+	uint32_t bitsPerPixel;
+
+	Size activeAreaSize;
+	Rectangle analogCrop;
+	Size outputSize;
+
+	uint64_t pixelRate;
+	uint32_t lineLength;
+};
 
 class CameraSensor : protected Loggable
 {
@@ -33,28 +48,35 @@ public:
 
 	int init();
 
+	const std::string &model() const { return model_; }
 	const MediaEntity *entity() const { return entity_; }
 	const std::vector<unsigned int> &mbusCodes() const { return mbusCodes_; }
 	const std::vector<Size> &sizes() const { return sizes_; }
-	const Size &resolution() const;
+	const Size &resolution() const { return resolution_; }
 
 	V4L2SubdeviceFormat getFormat(const std::vector<unsigned int> &mbusCodes,
 				      const Size &size) const;
 	int setFormat(V4L2SubdeviceFormat *format);
 
 	const ControlInfoMap &controls() const;
-	int getControls(ControlList *ctrls);
+	ControlList getControls(const std::vector<uint32_t> &ids);
 	int setControls(ControlList *ctrls);
 
 	const ControlList &properties() const { return properties_; }
+	int sensorInfo(CameraSensorInfo *info) const;
 
 protected:
 	std::string logPrefix() const;
 
 private:
 	const MediaEntity *entity_;
-	V4L2Subdevice *subdev_;
+	std::unique_ptr<V4L2Subdevice> subdev_;
+	unsigned int pad_;
 
+	std::string model_;
+
+	ImageFormats formats_;
+	Size resolution_;
 	std::vector<unsigned int> mbusCodes_;
 	std::vector<Size> sizes_;
 

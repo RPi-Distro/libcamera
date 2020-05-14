@@ -25,11 +25,12 @@ class IPAProxyThread : public IPAProxy, public Object
 public:
 	IPAProxyThread(IPAModule *ipam);
 
-	int init() override;
+	int init(const IPASettings &settings) override;
 	int start() override;
 	void stop() override;
 
-	void configure(const std::map<unsigned int, IPAStream> &streamConfig,
+	void configure(const CameraSensorInfo &sensorInfo,
+		       const std::map<unsigned int, IPAStream> &streamConfig,
 		       const std::map<unsigned int, const ControlInfoMap &> &entityControls) override;
 	void mapBuffers(const std::vector<IPABuffer> &buffers) override;
 	void unmapBuffers(const std::vector<unsigned int> &ids) override;
@@ -73,7 +74,7 @@ private:
 };
 
 IPAProxyThread::IPAProxyThread(IPAModule *ipam)
-	: running_(false)
+	: IPAProxy(ipam), running_(false)
 {
 	if (!ipam->load())
 		return;
@@ -97,9 +98,9 @@ IPAProxyThread::IPAProxyThread(IPAModule *ipam)
 	valid_ = true;
 }
 
-int IPAProxyThread::init()
+int IPAProxyThread::init(const IPASettings &settings)
 {
-	int ret = ipa_->init();
+	int ret = ipa_->init(settings);
 	if (ret)
 		return ret;
 
@@ -126,10 +127,11 @@ void IPAProxyThread::stop()
 	thread_.wait();
 }
 
-void IPAProxyThread::configure(const std::map<unsigned int, IPAStream> &streamConfig,
+void IPAProxyThread::configure(const CameraSensorInfo &sensorInfo,
+			       const std::map<unsigned int, IPAStream> &streamConfig,
 			       const std::map<unsigned int, const ControlInfoMap &> &entityControls)
 {
-	ipa_->configure(streamConfig, entityControls);
+	ipa_->configure(sensorInfo, streamConfig, entityControls);
 }
 
 void IPAProxyThread::mapBuffers(const std::vector<IPABuffer> &buffers)

@@ -17,6 +17,7 @@
 #include "event_loop.h"
 #include "main.h"
 #include "options.h"
+#include "stream_options.h"
 
 using namespace libcamera;
 
@@ -37,6 +38,7 @@ public:
 private:
 	int parseOptions(int argc, char *argv[]);
 	int prepareConfig();
+	int listControls();
 	int listProperties();
 	int infoConfiguration();
 	int run();
@@ -153,16 +155,7 @@ void CamApp::quit()
 
 int CamApp::parseOptions(int argc, char *argv[])
 {
-	KeyValueParser streamKeyValue;
-	streamKeyValue.addOption("role", OptionString,
-				 "Role for the stream (viewfinder, video, still, stillraw)",
-				 ArgumentRequired);
-	streamKeyValue.addOption("width", OptionInteger, "Width in pixels",
-				 ArgumentRequired);
-	streamKeyValue.addOption("height", OptionInteger, "Height in pixels",
-				 ArgumentRequired);
-	streamKeyValue.addOption("pixelformat", OptionInteger, "Pixel format",
-				 ArgumentRequired);
+	StreamKeyValueParser streamKeyValue;
 
 	OptionsParser parser;
 	parser.addOption(OptCamera, OptionString,
@@ -182,7 +175,9 @@ int CamApp::parseOptions(int argc, char *argv[])
 	parser.addOption(OptInfo, OptionNone,
 			 "Display information about stream(s)", "info");
 	parser.addOption(OptList, OptionNone, "List all cameras", "list");
-	parser.addOption(OptProps, OptionNone, "List cameras properties",
+	parser.addOption(OptListControls, OptionNone, "List cameras controls",
+			 "list-controls");
+	parser.addOption(OptListProperties, OptionNone, "List cameras properties",
 			 "list-properties");
 
 	options_ = parser.parse(argc, argv);
@@ -199,38 +194,7 @@ int CamApp::parseOptions(int argc, char *argv[])
 
 int CamApp::prepareConfig()
 {
-	StreamRoles roles;
-
-	if (options_.isSet(OptStream)) {
-		const std::vector<OptionValue> &streamOptions =
-			options_[OptStream].toArray();
-
-		/* Use roles and get a default configuration. */
-		for (auto const &value : streamOptions) {
-			KeyValueParser::Options opt = value.toKeyValues();
-
-			std::string role = opt.isSet("role")
-					 ? opt["role"].toString()
-					 : "viewfinder";
-
-			if (role == "viewfinder") {
-				roles.push_back(StreamRole::Viewfinder);
-			} else if (role == "video") {
-				roles.push_back(StreamRole::VideoRecording);
-			} else if (role == "still") {
-				roles.push_back(StreamRole::StillCapture);
-			} else if (role == "stillraw") {
-				roles.push_back(StreamRole::StillCaptureRaw);
-			} else {
-				std::cerr << "Unknown stream role "
-					  << role << std::endl;
-				return -EINVAL;
-			}
-		}
-	} else {
-		/* If no configuration is provided assume a single video stream. */
-		roles.push_back(StreamRole::VideoRecording);
-	}
+	StreamRoles roles = StreamKeyValueParser::roles(options_[OptStream]);
 
 	config_ = camera_->generateConfiguration(roles);
 	if (!config_ || config_->size() != roles.size()) {
@@ -240,25 +204,10 @@ int CamApp::prepareConfig()
 	}
 
 	/* Apply configuration if explicitly requested. */
-	if (options_.isSet(OptStream)) {
-		const std::vector<OptionValue> &streamOptions =
-			options_[OptStream].toArray();
-
-		unsigned int i = 0;
-		for (auto const &value : streamOptions) {
-			KeyValueParser::Options opt = value.toKeyValues();
-			StreamConfiguration &cfg = config_->at(i++);
-
-			if (opt.isSet("width"))
-				cfg.size.width = opt["width"];
-
-			if (opt.isSet("height"))
-				cfg.size.height = opt["height"];
-
-			/* TODO: Translate 4CC string to ID. */
-			if (opt.isSet("pixelformat"))
-				cfg.pixelFormat = PixelFormat(opt["pixelformat"]);
-		}
+	if (StreamKeyValueParser::updateConfiguration(config_.get(),
+						      options_[OptStream])) {
+		std::cerr << "Failed to update configuration" << std::endl;
+		return -EINVAL;
 	}
 
 	switch (config_->validate()) {
@@ -271,6 +220,25 @@ int CamApp::prepareConfig()
 		std::cout << "Camera configuration invalid" << std::endl;
 		config_.reset();
 		return -EINVAL;
+	}
+
+	return 0;
+}
+
+int CamApp::listControls()
+{
+	if (!camera_) {
+		std::cout << "Cannot list controls without a camera"
+			  << std::endl;
+		return -EINVAL;
+	}
+
+	for (const auto &ctrl : camera_->controls()) {
+		const ControlId *id = ctrl.first;
+		const ControlInfo &info = ctrl.second;
+
+		std::cout << "Control: " << id->name() << ": "
+			  << info.toString() << std::endl;
 	}
 
 	return 0;
@@ -339,7 +307,13 @@ int CamApp::run()
 		}
 	}
 
-	if (options_.isSet(OptProps)) {
+	if (options_.isSet(OptListControls)) {
+		ret = listControls();
+		if (ret)
+			return ret;
+	}
+
+	if (options_.isSet(OptListProperties)) {
 		ret = listProperties();
 		if (ret)
 			return ret;

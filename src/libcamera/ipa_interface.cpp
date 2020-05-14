@@ -93,6 +93,84 @@
  */
 
 /**
+ * \struct ipa_settings
+ * \brief IPA initialization settings for the IPA context operations
+ * \sa IPASettings
+ *
+ * \var ipa_settings::configuration_file
+ * \brief The name of the IPA configuration file (may be null or point to an
+ * empty string)
+ */
+
+/**
+ * \struct ipa_sensor_info
+ * \brief Camera sensor information for the IPA context operations
+ * \sa libcamera::CameraSensorInfo
+ *
+ * \var ipa_sensor_info::model
+ * \brief The camera sensor model name
+ * \todo Remove this field as soon as no IPA depends on it anymore
+ *
+ * \var ipa_sensor_info::bits_per_pixel
+ * \brief The camera sensor image format bit depth
+ * \sa libcamera::CameraSensorInfo::bitsPerPixel
+ *
+ * \var ipa_sensor_info::active_area.width
+ * \brief The camera sensor pixel array active area width
+ * \sa libcamera::CameraSensorInfo::activeAreaSize
+ *
+ * \var ipa_sensor_info::active_area.height
+ * \brief The camera sensor pixel array active area height
+ * \sa libcamera::CameraSensorInfo::activeAreaSize
+ *
+ * \var ipa_sensor_info::active_area
+ * \brief The camera sensor pixel array active size
+ * \sa libcamera::CameraSensorInfo::activeAreaSize
+ *
+ * \var ipa_sensor_info::analog_crop.left
+ * \brief The left coordinate of the analog crop rectangle, relative to the
+ * pixel array active area
+ * \sa libcamera::CameraSensorInfo::analogCrop
+ *
+ * \var ipa_sensor_info::analog_crop.top
+ * \brief The top coordinate of the analog crop rectangle, relative to the pixel
+ * array active area
+ * \sa libcamera::CameraSensorInfo::analogCrop
+ *
+ * \var ipa_sensor_info::analog_crop.width
+ * \brief The horizontal size of the analog crop rectangle
+ * \sa libcamera::CameraSensorInfo::analogCrop
+ *
+ * \var ipa_sensor_info::analog_crop.height
+ * \brief The vertical size of the analog crop rectangle
+ * \sa libcamera::CameraSensorInfo::analogCrop
+ *
+ * \var ipa_sensor_info::analog_crop
+ * \brief The analog crop rectangle
+ * \sa libcamera::CameraSensorInfo::analogCrop
+ *
+ * \var ipa_sensor_info::output_size.width
+ * \brief The horizontal size of the output image
+ * \sa libcamera::CameraSensorInfo::outputSize
+ *
+ * \var ipa_sensor_info::output_size.height
+ * \brief The vertical size of the output image
+ * \sa libcamera::CameraSensorInfo::outputSize
+ *
+ * \var ipa_sensor_info::output_size
+ * \brief The size of the output image
+ * \sa libcamera::CameraSensorInfo::outputSize
+ *
+ * \var ipa_sensor_info::pixel_rate
+ * \brief The number of pixel produced in a second
+ * \sa libcamera::CameraSensorInfo::pixelRate
+ *
+ * \var ipa_sensor_info::line_length
+ * \brief The full line length, including blanking, in pixel units
+ * \sa libcamera::CameraSensorInfo::lineLength
+ */
+
+/**
  * \struct ipa_stream
  * \brief Stream information for the IPA context operations
  *
@@ -231,6 +309,7 @@
  * \var ipa_context_ops::init
  * \brief Initialise the IPA context
  * \param[in] ctx The IPA context
+ * \param[in] settings The IPA initialization settings
  *
  * \sa libcamera::IPAInterface::init()
  */
@@ -309,6 +388,24 @@
  */
 
 namespace libcamera {
+
+/**
+ * \struct IPASettings
+ * \brief IPA interface initialization settings
+ *
+ * The IPASettings structure stores data passed to the IPAInterface::init()
+ * function. The data contains settings that don't depend on a particular camera
+ * or pipeline configuration and are valid for the whole life time of the IPA
+ * interface.
+ */
+
+/**
+ * \var IPASettings::configurationFile
+ * \brief The name of the IPA configuration file
+ *
+ * This field may be an empty string if the IPA doesn't require a configuration
+ * file.
+ */
 
 /**
  * \struct IPAStream
@@ -424,6 +521,11 @@ namespace libcamera {
 /**
  * \fn IPAInterface::init()
  * \brief Initialise the IPAInterface
+ * \param[in] settings The IPA initialization settings
+ *
+ * This function initializes the IPA interface. It shall be called before any
+ * other function of the IPAInterface. The \a settings carry initialization
+ * parameters that are valid for the whole life time of the IPA interface.
  */
 
 /**
@@ -447,6 +549,7 @@ namespace libcamera {
 /**
  * \fn IPAInterface::configure()
  * \brief Configure the IPA stream and sensor settings
+ * \param[in] sensorInfo Camera sensor information
  * \param[in] streamConfig Configuration of all active streams
  * \param[in] entityControls Controls provided by the pipeline entities
  *
@@ -454,6 +557,10 @@ namespace libcamera {
  * the camera's streams and the sensor settings. The meaning of the numerical
  * keys in the \a streamConfig and \a entityControls maps is defined by the IPA
  * protocol.
+ *
+ * The \a sensorInfo conveys information about the camera sensor settings that
+ * the pipeline handler has selected for the configuration. The IPA may use
+ * that information to tune its algorithms.
  */
 
 /**

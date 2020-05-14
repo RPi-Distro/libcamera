@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: CC0-1.0
+
 libcamera_headers = files([
     'byte_stream_buffer.h',
     'camera_controls.h',
@@ -27,6 +29,7 @@ libcamera_headers = files([
     'utils.h',
     'v4l2_controls.h',
     'v4l2_device.h',
+    'v4l2_pixelformat.h',
     'v4l2_subdevice.h',
     'v4l2_videodevice.h',
 ])

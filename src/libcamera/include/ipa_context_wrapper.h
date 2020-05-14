@@ -19,10 +19,11 @@ public:
 	IPAContextWrapper(struct ipa_context *context);
 	~IPAContextWrapper();
 
-	int init() override;
+	int init(const IPASettings &settings) override;
 	int start() override;
 	void stop() override;
-	void configure(const std::map<unsigned int, IPAStream> &streamConfig,
+	void configure(const CameraSensorInfo &sensorInfo,
+		       const std::map<unsigned int, IPAStream> &streamConfig,
 		       const std::map<unsigned int, const ControlInfoMap &> &entityControls) override;
 
 	void mapBuffers(const std::vector<IPABuffer> &buffers) override;

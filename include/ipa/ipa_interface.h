@@ -18,6 +18,31 @@ struct ipa_context {
 	const struct ipa_context_ops *ops;
 };
 
+struct ipa_settings {
+	const char *configuration_file;
+};
+
+struct ipa_sensor_info {
+	const char *model;
+	uint8_t bits_per_pixel;
+	struct {
+		uint32_t width;
+		uint32_t height;
+	} active_area;
+	struct {
+		int32_t left;
+		int32_t top;
+		uint32_t width;
+		uint32_t height;
+	} analog_crop;
+	struct {
+		uint32_t width;
+		uint32_t height;
+	} output_size;
+	uint64_t pixel_rate;
+	uint32_t line_length;
+};
+
 struct ipa_stream {
 	unsigned int id;
 	unsigned int pixel_format;
@@ -63,13 +88,15 @@ struct ipa_callback_ops {
 struct ipa_context_ops {
 	void (*destroy)(struct ipa_context *ctx);
 	void *(*get_interface)(struct ipa_context *ctx);
-	void (*init)(struct ipa_context *ctx);
+	void (*init)(struct ipa_context *ctx,
+		     const struct ipa_settings *settings);
 	int (*start)(struct ipa_context *ctx);
 	void (*stop)(struct ipa_context *ctx);
 	void (*register_callbacks)(struct ipa_context *ctx,
 				   const struct ipa_callback_ops *callbacks,
 				   void *cb_ctx);
 	void (*configure)(struct ipa_context *ctx,
+			  const struct ipa_sensor_info *sensor_info,
 			  const struct ipa_stream *streams,
 			  unsigned int num_streams,
 			  const struct ipa_control_info_map *maps,
@@ -96,9 +123,11 @@ struct ipa_context *ipaCreate();
 #include <libcamera/geometry.h>
 #include <libcamera/signal.h>
 
-#include "v4l2_controls.h"
-
 namespace libcamera {
+
+struct IPASettings {
+	std::string configurationFile;
+};
 
 struct IPAStream {
 	unsigned int pixelFormat;
@@ -116,16 +145,19 @@ struct IPAOperationData {
 	std::vector<ControlList> controls;
 };
 
+struct CameraSensorInfo;
+
 class IPAInterface
 {
 public:
 	virtual ~IPAInterface() {}
 
-	virtual int init() = 0;
+	virtual int init(const IPASettings &settings) = 0;
 	virtual int start() = 0;
 	virtual void stop() = 0;
 
-	virtual void configure(const std::map<unsigned int, IPAStream> &streamConfig,
+	virtual void configure(const CameraSensorInfo &sensorInfo,
+			       const std::map<unsigned int, IPAStream> &streamConfig,
 			       const std::map<unsigned int, const ControlInfoMap &> &entityControls) = 0;
 
 	virtual void mapBuffers(const std::vector<IPABuffer> &buffers) = 0;

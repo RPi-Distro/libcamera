@@ -18,7 +18,6 @@
 #include <unistd.h>
 #include <vector>
 
-#include <linux/drm_fourcc.h>
 #include <linux/version.h>
 
 #include <libcamera/event_notifier.h>
@@ -279,83 +278,6 @@ bool V4L2BufferCache::Entry::operator==(const FrameBuffer &buffer) const
 }
 
 /**
- * \class V4L2PixelFormat
- * \brief V4L2 pixel format FourCC wrapper
- *
- * The V4L2PixelFormat class describes the pixel format of a V4L2 buffer. It
- * wraps the V4L2 numerical FourCC, and shall be used in all APIs that deal with
- * V4L2 pixel formats. Its purpose is to prevent unintentional confusion of
- * V4L2 and DRM FourCCs in code by catching implicit conversion attempts at
- * compile time.
- *
- * To achieve this goal, construction of a V4L2PixelFormat from an integer value
- * is explicit. To retrieve the integer value of a V4L2PixelFormat, both the
- * explicit value() and implicit uint32_t conversion operators may be used.
- */
-
-/**
- * \fn V4L2PixelFormat::V4L2PixelFormat()
- * \brief Construct a V4L2PixelFormat with an invalid format
- *
- * V4L2PixelFormat instances constructed with the default constructor are
- * invalid, calling the isValid() function returns false.
- */
-
-/**
- * \fn V4L2PixelFormat::V4L2PixelFormat(uint32_t fourcc)
- * \brief Construct a V4L2PixelFormat from a FourCC value
- * \param[in] fourcc The pixel format FourCC numerical value
- */
-
-/**
- * \fn bool V4L2PixelFormat::isValid() const
- * \brief Check if the pixel format is valid
- *
- * V4L2PixelFormat instances constructed with the default constructor are
- * invalid. Instances constructed with a FourCC defined in the V4L2 API are
- * valid. The behaviour is undefined otherwise.
- *
- * \return True if the pixel format is valid, false otherwise
- */
-
-/**
- * \fn uint32_t V4L2PixelFormat::fourcc() const
- * \brief Retrieve the pixel format FourCC numerical value
- * \return The pixel format FourCC numerical value
- */
-
-/**
- * \fn V4L2PixelFormat::operator uint32_t() const
- * \brief Convert to the pixel format FourCC numerical value
- * \return The pixel format FourCC numerical value
- */
-
-/**
- * \brief Assemble and return a string describing the pixel format
- * \return A string describing the pixel format
- */
-std::string V4L2PixelFormat::toString() const
-{
-	if (fourcc_ == 0)
-		return "<INVALID>";
-
-	char ss[8] = { static_cast<char>(fourcc_ & 0x7f),
-		       static_cast<char>((fourcc_ >> 8) & 0x7f),
-		       static_cast<char>((fourcc_ >> 16) & 0x7f),
-		       static_cast<char>((fourcc_ >> 24) & 0x7f) };
-
-	for (unsigned int i = 0; i < 4; i++) {
-		if (!isprint(ss[i]))
-			ss[i] = '.';
-	}
-
-	if (fourcc_ & (1 << 31))
-		strcat(ss, "-BE");
-
-	return ss;
-}
-
-/**
  * \class V4L2DeviceFormat
  * \brief The V4L2 video device image format and sizes
  *
@@ -544,7 +466,8 @@ const std::string V4L2DeviceFormat::toString() const
  * \param[in] deviceNode The file-system path to the video device node
  */
 V4L2VideoDevice::V4L2VideoDevice(const std::string &deviceNode)
-	: V4L2Device(deviceNode), cache_(nullptr), fdEvent_(nullptr)
+	: V4L2Device(deviceNode), cache_(nullptr), fdBufferNotifier_(nullptr),
+	  fdEventNotifier_(nullptr), frameStartEnabled_(false)
 {
 	/*
 	 * We default to an MMAP based CAPTURE video device, however this will
@@ -610,29 +533,36 @@ int V4L2VideoDevice::open()
 	 * devices (POLLIN), and write notifications for OUTPUT video devices
 	 * (POLLOUT).
 	 */
+	EventNotifier::Type notifierType;
+
 	if (caps_.isVideoCapture()) {
-		fdEvent_ = new EventNotifier(fd(), EventNotifier::Read);
+		notifierType = EventNotifier::Read;
 		bufferType_ = caps_.isMultiplanar()
 			    ? V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE
 			    : V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	} else if (caps_.isVideoOutput()) {
-		fdEvent_ = new EventNotifier(fd(), EventNotifier::Write);
+		notifierType = EventNotifier::Write;
 		bufferType_ = caps_.isMultiplanar()
 			    ? V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE
 			    : V4L2_BUF_TYPE_VIDEO_OUTPUT;
 	} else if (caps_.isMetaCapture()) {
-		fdEvent_ = new EventNotifier(fd(), EventNotifier::Read);
+		notifierType = EventNotifier::Read;
 		bufferType_ = V4L2_BUF_TYPE_META_CAPTURE;
 	} else if (caps_.isMetaOutput()) {
-		fdEvent_ = new EventNotifier(fd(), EventNotifier::Write);
+		notifierType = EventNotifier::Write;
 		bufferType_ = V4L2_BUF_TYPE_META_OUTPUT;
 	} else {
 		LOG(V4L2, Error) << "Device is not a supported type";
 		return -EINVAL;
 	}
 
-	fdEvent_->activated.connect(this, &V4L2VideoDevice::bufferAvailable);
-	fdEvent_->setEnabled(false);
+	fdBufferNotifier_ = new EventNotifier(fd(), notifierType);
+	fdBufferNotifier_->activated.connect(this, &V4L2VideoDevice::bufferAvailable);
+	fdBufferNotifier_->setEnabled(false);
+
+	fdEventNotifier_ = new EventNotifier(fd(), EventNotifier::Exception);
+	fdEventNotifier_->activated.connect(this, &V4L2VideoDevice::eventAvailable);
+	fdEventNotifier_->setEnabled(false);
 
 	LOG(V4L2, Debug)
 		<< "Opened device " << caps_.bus_info() << ": "
@@ -699,15 +629,17 @@ int V4L2VideoDevice::open(int handle, enum v4l2_buf_type type)
 	 * devices (POLLIN), and write notifications for OUTPUT video devices
 	 * (POLLOUT).
 	 */
+	EventNotifier::Type notifierType;
+
 	switch (type) {
 	case V4L2_BUF_TYPE_VIDEO_OUTPUT:
-		fdEvent_ = new EventNotifier(fd(), EventNotifier::Write);
+		notifierType = EventNotifier::Write;
 		bufferType_ = caps_.isMultiplanar()
 			    ? V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE
 			    : V4L2_BUF_TYPE_VIDEO_OUTPUT;
 		break;
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE:
-		fdEvent_ = new EventNotifier(fd(), EventNotifier::Read);
+		notifierType = EventNotifier::Read;
 		bufferType_ = caps_.isMultiplanar()
 			    ? V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE
 			    : V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -717,8 +649,13 @@ int V4L2VideoDevice::open(int handle, enum v4l2_buf_type type)
 		return -EINVAL;
 	}
 
-	fdEvent_->activated.connect(this, &V4L2VideoDevice::bufferAvailable);
-	fdEvent_->setEnabled(false);
+	fdBufferNotifier_ = new EventNotifier(fd(), notifierType);
+	fdBufferNotifier_->activated.connect(this, &V4L2VideoDevice::bufferAvailable);
+	fdBufferNotifier_->setEnabled(false);
+
+	fdEventNotifier_ = new EventNotifier(fd(), EventNotifier::Exception);
+	fdEventNotifier_->activated.connect(this, &V4L2VideoDevice::eventAvailable);
+	fdEventNotifier_->setEnabled(false);
 
 	LOG(V4L2, Debug)
 		<< "Opened device " << caps_.bus_info() << ": "
@@ -736,7 +673,8 @@ void V4L2VideoDevice::close()
 		return;
 
 	releaseBuffers();
-	delete fdEvent_;
+	delete fdBufferNotifier_;
+	delete fdEventNotifier_;
 
 	V4L2Device::close();
 }
@@ -979,16 +917,19 @@ int V4L2VideoDevice::setFormatSingleplane(V4L2DeviceFormat *format)
 
 /**
  * \brief Enumerate all pixel formats and frame sizes
+ * \param[in] code Restrict formats to this media bus code.
  *
  * Enumerate all pixel formats and frame sizes supported by the video device.
+ * If the \a code argument is not zero, only formats compatible with that media
+ * bus code will be enumerated.
  *
  * \return A list of the supported video device formats
  */
-std::map<V4L2PixelFormat, std::vector<SizeRange>> V4L2VideoDevice::formats()
+std::map<V4L2PixelFormat, std::vector<SizeRange>> V4L2VideoDevice::formats(uint32_t code)
 {
 	std::map<V4L2PixelFormat, std::vector<SizeRange>> formats;
 
-	for (V4L2PixelFormat pixelFormat : enumPixelformats()) {
+	for (V4L2PixelFormat pixelFormat : enumPixelformats(code)) {
 		std::vector<SizeRange> sizes = enumSizes(pixelFormat);
 		if (sizes.empty())
 			return {};
@@ -1006,15 +947,22 @@ std::map<V4L2PixelFormat, std::vector<SizeRange>> V4L2VideoDevice::formats()
 	return formats;
 }
 
-std::vector<V4L2PixelFormat> V4L2VideoDevice::enumPixelformats()
+std::vector<V4L2PixelFormat> V4L2VideoDevice::enumPixelformats(uint32_t code)
 {
 	std::vector<V4L2PixelFormat> formats;
 	int ret;
+
+	if (code && !(caps_.device_caps() & V4L2_CAP_IO_MC)) {
+		LOG(V4L2, Error)
+			<< "Media bus code filtering not supported by the device";
+		return {};
+	}
 
 	for (unsigned int index = 0; ; index++) {
 		struct v4l2_fmtdesc pixelformatEnum = {};
 		pixelformatEnum.index = index;
 		pixelformatEnum.type = bufferType_;
+		pixelformatEnum.mbus_code = code;
 
 		ret = ioctl(VIDIOC_ENUM_FMT, &pixelformatEnum);
 		if (ret)
@@ -1092,25 +1040,14 @@ std::vector<SizeRange> V4L2VideoDevice::enumSizes(V4L2PixelFormat pixelFormat)
 }
 
 /**
- * \brief Set a crop rectangle on the V4L2 video device node
- * \param[inout] rect The rectangle describing the crop target area
+ * \brief Set a selection rectangle \a rect for \a target
+ * \param[in] target The selection target defined by the V4L2_SEL_TGT_* flags
+ * \param[inout] rect The selection rectangle to be applied
+ *
+ * \todo Define a V4L2SelectionTarget enum for the selection target
+ *
  * \return 0 on success or a negative error code otherwise
  */
-int V4L2VideoDevice::setCrop(Rectangle *rect)
-{
-	return setSelection(V4L2_SEL_TGT_CROP, rect);
-}
-
-/**
- * \brief Set a compose rectangle on the V4L2 video device node
- * \param[inout] rect The rectangle describing the compose target area
- * \return 0 on success or a negative error code otherwise
- */
-int V4L2VideoDevice::setCompose(Rectangle *rect)
-{
-	return setSelection(V4L2_SEL_TGT_COMPOSE, rect);
-}
-
 int V4L2VideoDevice::setSelection(unsigned int target, Rectangle *rect)
 {
 	struct v4l2_selection sel = {};
@@ -1121,8 +1058,8 @@ int V4L2VideoDevice::setSelection(unsigned int target, Rectangle *rect)
 
 	sel.r.left = rect->x;
 	sel.r.top = rect->y;
-	sel.r.width = rect->w;
-	sel.r.height = rect->h;
+	sel.r.width = rect->width;
+	sel.r.height = rect->height;
 
 	int ret = ioctl(VIDIOC_S_SELECTION, &sel);
 	if (ret < 0) {
@@ -1133,8 +1070,8 @@ int V4L2VideoDevice::setSelection(unsigned int target, Rectangle *rect)
 
 	rect->x = sel.r.left;
 	rect->y = sel.r.top;
-	rect->w = sel.r.width;
-	rect->h = sel.r.height;
+	rect->width = sel.r.width;
+	rect->height = sel.r.height;
 
 	return 0;
 }
@@ -1477,7 +1414,7 @@ int V4L2VideoDevice::queueBuffer(FrameBuffer *buffer)
 	}
 
 	if (queuedBuffers_.empty())
-		fdEvent_->setEnabled(true);
+		fdBufferNotifier_->setEnabled(true);
 
 	queuedBuffers_[buf.index] = buffer;
 
@@ -1544,7 +1481,7 @@ FrameBuffer *V4L2VideoDevice::dequeueBuffer()
 	queuedBuffers_.erase(it);
 
 	if (queuedBuffers_.empty())
-		fdEvent_->setEnabled(false);
+		fdBufferNotifier_->setEnabled(false);
 
 	buffer->metadata_.status = buf.flags & V4L2_BUF_FLAG_ERROR
 				 ? FrameMetadata::FrameError
@@ -1565,8 +1502,71 @@ FrameBuffer *V4L2VideoDevice::dequeueBuffer()
 }
 
 /**
+ * \brief Slot to handle V4L2 events from the V4L2 video device
+ * \param[in] notifier The event notifier
+ *
+ * When this slot is called, a V4L2 event is available to be dequeued from the
+ * device.
+ */
+void V4L2VideoDevice::eventAvailable(EventNotifier *notifier)
+{
+	struct v4l2_event event{};
+	int ret = ioctl(VIDIOC_DQEVENT, &event);
+	if (ret < 0) {
+		LOG(V4L2, Error)
+			<< "Failed to dequeue event, disabling event notifier";
+		fdEventNotifier_->setEnabled(false);
+		return;
+	}
+
+	if (event.type != V4L2_EVENT_FRAME_SYNC) {
+		LOG(V4L2, Error)
+			<< "Spurious event (" << event.type
+			<< "), disabling event notifier";
+		fdEventNotifier_->setEnabled(false);
+		return;
+	}
+
+	frameStart.emit(event.u.frame_sync.frame_sequence);
+}
+
+/**
  * \var V4L2VideoDevice::bufferReady
  * \brief A Signal emitted when a framebuffer completes
+ */
+
+/**
+ * \brief Enable or disable frame start event notification
+ * \param[in] enable True to enable frame start events, false to disable them
+ *
+ * This function enables or disables generation of frame start events. Once
+ * enabled, the events are signalled through the frameStart signal.
+ *
+ * \return 0 on success, a negative error code otherwise
+ */
+int V4L2VideoDevice::setFrameStartEnabled(bool enable)
+{
+	if (frameStartEnabled_ == enable)
+		return 0;
+
+	struct v4l2_event_subscription event{};
+	event.type = V4L2_EVENT_FRAME_SYNC;
+
+	unsigned long request = enable ? VIDIOC_SUBSCRIBE_EVENT
+			      : VIDIOC_UNSUBSCRIBE_EVENT;
+	int ret = ioctl(request, &event);
+	if (enable && ret)
+		return ret;
+
+	fdEventNotifier_->setEnabled(enable);
+	frameStartEnabled_ = enable;
+
+	return ret;
+}
+
+/**
+ * \var V4L2VideoDevice::frameStart
+ * \brief A Signal emitted when capture of a frame has started
  */
 
 /**
@@ -1617,7 +1617,7 @@ int V4L2VideoDevice::streamOff()
 	}
 
 	queuedBuffers_.clear();
-	fdEvent_->setEnabled(false);
+	fdBufferNotifier_->setEnabled(false);
 
 	return 0;
 }
@@ -1644,74 +1644,6 @@ V4L2VideoDevice *V4L2VideoDevice::fromEntityName(const MediaDevice *media,
 }
 
 /**
- * \brief Convert a \a v4l2Fourcc to the corresponding PixelFormat
- * \param[in] v4l2Fourcc The V4L2 pixel format (V4L2_PIX_FORMAT_*)
- * \return The PixelFormat corresponding to \a v4l2Fourcc
- */
-PixelFormat V4L2VideoDevice::toPixelFormat(V4L2PixelFormat v4l2Fourcc)
-{
-	switch (v4l2Fourcc) {
-	/* RGB formats. */
-	case V4L2_PIX_FMT_RGB24:
-		return PixelFormat(DRM_FORMAT_BGR888);
-	case V4L2_PIX_FMT_BGR24:
-		return PixelFormat(DRM_FORMAT_RGB888);
-	case V4L2_PIX_FMT_RGBA32:
-		return PixelFormat(DRM_FORMAT_ABGR8888);
-	case V4L2_PIX_FMT_ABGR32:
-		return PixelFormat(DRM_FORMAT_ARGB8888);
-	case V4L2_PIX_FMT_ARGB32:
-		return PixelFormat(DRM_FORMAT_BGRA8888);
-	case V4L2_PIX_FMT_BGRA32:
-		return PixelFormat(DRM_FORMAT_RGBA8888);
-
-	/* YUV packed formats. */
-	case V4L2_PIX_FMT_YUYV:
-		return PixelFormat(DRM_FORMAT_YUYV);
-	case V4L2_PIX_FMT_YVYU:
-		return PixelFormat(DRM_FORMAT_YVYU);
-	case V4L2_PIX_FMT_UYVY:
-		return PixelFormat(DRM_FORMAT_UYVY);
-	case V4L2_PIX_FMT_VYUY:
-		return PixelFormat(DRM_FORMAT_VYUY);
-
-	/* YUY planar formats. */
-	case V4L2_PIX_FMT_NV16:
-	case V4L2_PIX_FMT_NV16M:
-		return PixelFormat(DRM_FORMAT_NV16);
-	case V4L2_PIX_FMT_NV61:
-	case V4L2_PIX_FMT_NV61M:
-		return PixelFormat(DRM_FORMAT_NV61);
-	case V4L2_PIX_FMT_NV12:
-	case V4L2_PIX_FMT_NV12M:
-		return PixelFormat(DRM_FORMAT_NV12);
-	case V4L2_PIX_FMT_NV21:
-	case V4L2_PIX_FMT_NV21M:
-		return PixelFormat(DRM_FORMAT_NV21);
-
-	/* Greyscale formats. */
-	case V4L2_PIX_FMT_GREY:
-		return PixelFormat(DRM_FORMAT_R8);
-
-	/* Compressed formats. */
-	case V4L2_PIX_FMT_MJPEG:
-		return PixelFormat(DRM_FORMAT_MJPEG);
-
-	/* V4L2 formats not yet supported by DRM. */
-	default:
-		/*
-		 * \todo We can't use LOG() in a static method of a Loggable
-		 * class. Until we fix the logger, work around it.
-		 */
-		libcamera::_log(__FILE__, __LINE__, _LOG_CATEGORY(V4L2)(),
-				LogWarning).stream()
-			<< "Unsupported V4L2 pixel format "
-			<< v4l2Fourcc.toString();
-		return PixelFormat();
-	}
-}
-
-/**
  * \brief Convert \a PixelFormat to its corresponding V4L2 FourCC
  * \param[in] pixelFormat The PixelFormat to convert
  *
@@ -1724,82 +1656,8 @@ PixelFormat V4L2VideoDevice::toPixelFormat(V4L2PixelFormat v4l2Fourcc)
  */
 V4L2PixelFormat V4L2VideoDevice::toV4L2PixelFormat(const PixelFormat &pixelFormat)
 {
-	return toV4L2PixelFormat(pixelFormat, caps_.isMultiplanar());
-}
-
-/**
- * \brief Convert \a pixelFormat to its corresponding V4L2 FourCC
- * \param[in] pixelFormat The PixelFormat to convert
- * \param[in] multiplanar V4L2 Multiplanar API support flag
- *
- * Multiple V4L2 formats may exist for one PixelFormat when the format uses
- * multiple planes, as V4L2 defines separate 4CCs for contiguous and separate
- * planes formats. Set the \a multiplanar parameter to false to select a format
- * with contiguous planes, or to true to select a format with non-contiguous
- * planes.
- *
- * \return The V4L2_PIX_FMT_* pixel format code corresponding to \a pixelFormat
- */
-V4L2PixelFormat V4L2VideoDevice::toV4L2PixelFormat(const PixelFormat &pixelFormat,
-						   bool multiplanar)
-{
-	switch (pixelFormat) {
-	/* RGB formats. */
-	case DRM_FORMAT_BGR888:
-		return V4L2PixelFormat(V4L2_PIX_FMT_RGB24);
-	case DRM_FORMAT_RGB888:
-		return V4L2PixelFormat(V4L2_PIX_FMT_BGR24);
-	case DRM_FORMAT_ABGR8888:
-		return V4L2PixelFormat(V4L2_PIX_FMT_RGBA32);
-	case DRM_FORMAT_ARGB8888:
-		return V4L2PixelFormat(V4L2_PIX_FMT_ABGR32);
-	case DRM_FORMAT_BGRA8888:
-		return V4L2PixelFormat(V4L2_PIX_FMT_ARGB32);
-	case DRM_FORMAT_RGBA8888:
-		return V4L2PixelFormat(V4L2_PIX_FMT_BGRA32);
-
-	/* YUV packed formats. */
-	case DRM_FORMAT_YUYV:
-		return V4L2PixelFormat(V4L2_PIX_FMT_YUYV);
-	case DRM_FORMAT_YVYU:
-		return V4L2PixelFormat(V4L2_PIX_FMT_YVYU);
-	case DRM_FORMAT_UYVY:
-		return V4L2PixelFormat(V4L2_PIX_FMT_UYVY);
-	case DRM_FORMAT_VYUY:
-		return V4L2PixelFormat(V4L2_PIX_FMT_VYUY);
-
-	/*
-	 * YUY planar formats.
-	 * \todo Add support for non-contiguous memory planes
-	 * \todo Select the format variant not only based on \a multiplanar but
-	 * also take into account the formats supported by the device.
-	 */
-	case DRM_FORMAT_NV16:
-		return V4L2PixelFormat(V4L2_PIX_FMT_NV16);
-	case DRM_FORMAT_NV61:
-		return V4L2PixelFormat(V4L2_PIX_FMT_NV61);
-	case DRM_FORMAT_NV12:
-		return V4L2PixelFormat(V4L2_PIX_FMT_NV12);
-	case DRM_FORMAT_NV21:
-		return V4L2PixelFormat(V4L2_PIX_FMT_NV21);
-
-	/* Greyscale formats. */
-	case DRM_FORMAT_R8:
-		return V4L2PixelFormat(V4L2_PIX_FMT_GREY);
-
-	/* Compressed formats. */
-	case DRM_FORMAT_MJPEG:
-		return V4L2PixelFormat(V4L2_PIX_FMT_MJPEG);
-	}
-
-	/*
-	 * \todo We can't use LOG() in a static method of a Loggable
-	 * class. Until we fix the logger, work around it.
-	 */
-	libcamera::_log(__FILE__, __LINE__, _LOG_CATEGORY(V4L2)(),
-			LogWarning).stream()
-		<< "Unsupported V4L2 pixel format " << pixelFormat.toString();
-	return {};
+	return V4L2PixelFormat::fromPixelFormat(pixelFormat,
+						caps_.isMultiplanar());
 }
 
 /**

@@ -19,6 +19,7 @@
 
 #include <libipa/ipa_interface_wrapper.h>
 
+#include "file.h"
 #include "log.h"
 
 namespace libcamera {
@@ -31,12 +32,13 @@ public:
 	IPAVimc();
 	~IPAVimc();
 
-	int init() override;
+	int init(const IPASettings &settings) override;
 
 	int start() override;
 	void stop() override;
 
-	void configure(const std::map<unsigned int, IPAStream> &streamConfig,
+	void configure(const CameraSensorInfo &sensorInfo,
+		       const std::map<unsigned int, IPAStream> &streamConfig,
 		       const std::map<unsigned int, const ControlInfoMap &> &entityControls) override {}
 	void mapBuffers(const std::vector<IPABuffer> &buffers) override {}
 	void unmapBuffers(const std::vector<unsigned int> &ids) override {}
@@ -61,11 +63,19 @@ IPAVimc::~IPAVimc()
 		::close(fd_);
 }
 
-int IPAVimc::init()
+int IPAVimc::init(const IPASettings &settings)
 {
 	trace(IPAOperationInit);
 
-	LOG(IPAVimc, Debug) << "initializing vimc IPA!";
+	LOG(IPAVimc, Debug)
+		<< "initializing vimc IPA with configuration file "
+		<< settings.configurationFile;
+
+	File conf(settings.configurationFile);
+	if (!conf.open(File::ReadOnly)) {
+		LOG(IPAVimc, Error) << "Failed to open configuration file";
+		return -EINVAL;
+	}
 
 	return 0;
 }
@@ -126,7 +136,7 @@ const struct IPAModuleInfo ipaModuleInfo = {
 	IPA_MODULE_API_VERSION,
 	0,
 	"PipelineHandlerVimc",
-	"Dummy IPA for Vimc",
+	"vimc",
 };
 
 struct ipa_context *ipaCreate()

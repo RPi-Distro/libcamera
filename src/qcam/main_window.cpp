@@ -27,6 +27,8 @@
 #include <libcamera/camera_manager.h>
 #include <libcamera/version.h>
 
+#include "dng_writer.h"
+
 using namespace libcamera;
 
 /**
@@ -48,7 +50,8 @@ public:
 };
 
 MainWindow::MainWindow(CameraManager *cm, const OptionsParser::Options &options)
-	: options_(options), cm_(cm), allocator_(nullptr), isCapturing_(false)
+	: saveRaw_(nullptr), options_(options), cm_(cm), allocator_(nullptr),
+	  isCapturing_(false), captureRaw_(false)
 {
 	int ret;
 
@@ -70,8 +73,10 @@ MainWindow::MainWindow(CameraManager *cm, const OptionsParser::Options &options)
 
 	/* Open the camera and start capture. */
 	ret = openCamera();
-	if (ret < 0)
+	if (ret < 0) {
 		quit();
+		return;
+	}
 
 	startStopAction_->setChecked(true);
 }
@@ -112,14 +117,14 @@ int MainWindow::createToolbars()
 	connect(action, &QAction::triggered, this, &MainWindow::quit);
 
 	/* Camera selector. */
-	QComboBox *cameraCombo = new QComboBox();
-	connect(cameraCombo, QOverload<int>::of(&QComboBox::activated),
+	cameraCombo_ = new QComboBox();
+	connect(cameraCombo_, QOverload<int>::of(&QComboBox::activated),
 		this, &MainWindow::switchCamera);
 
 	for (const std::shared_ptr<Camera> &cam : cm_->cameras())
-		cameraCombo->addItem(QString::fromStdString(cam->name()));
+		cameraCombo_->addItem(QString::fromStdString(cam->name()));
 
-	toolbar_->addWidget(cameraCombo);
+	toolbar_->addWidget(cameraCombo_);
 
 	toolbar_->addSeparator();
 
@@ -141,6 +146,16 @@ int MainWindow::createToolbars()
 				     "Save As...");
 	action->setShortcut(QKeySequence::SaveAs);
 	connect(action, &QAction::triggered, this, &MainWindow::saveImageAs);
+
+#ifdef HAVE_DNG
+	/* Save Raw action. */
+	action = toolbar_->addAction(QIcon::fromTheme("camera-photo",
+						      QIcon(":aperture.svg")),
+				     "Save Raw");
+	action->setEnabled(false);
+	connect(action, &QAction::triggered, this, &MainWindow::captureRaw);
+	saveRaw_ = action;
+#endif
 
 	return 0;
 }
@@ -248,6 +263,9 @@ int MainWindow::openCamera()
 		return -EBUSY;
 	}
 
+	/* Set the combo-box entry with the currently selected Camera. */
+	cameraCombo_->setCurrentText(QString::fromStdString(cameraName));
+
 	return 0;
 }
 
@@ -275,40 +293,60 @@ void MainWindow::toggleCapture(bool start)
  */
 int MainWindow::startCapture()
 {
+	StreamRoles roles = StreamKeyValueParser::roles(options_[OptStream]);
+	std::vector<Request *> requests;
 	int ret;
 
-	/* Configure the camera. */
-	config_ = camera_->generateConfiguration({ StreamRole::Viewfinder });
-
-	StreamConfiguration &cfg = config_->at(0);
-
-	if (options_.isSet(OptSize)) {
-		const std::vector<OptionValue> &sizeOptions =
-			options_[OptSize].toArray();
-
-		/* Set desired stream size if requested. */
-		for (const auto &value : sizeOptions) {
-			KeyValueParser::Options opt = value.toKeyValues();
-
-			if (opt.isSet("width"))
-				cfg.size.width = opt["width"];
-
-			if (opt.isSet("height"))
-				cfg.size.height = opt["height"];
+	/* Verify roles are supported. */
+	switch (roles.size()) {
+	case 1:
+		if (roles[0] != StreamRole::Viewfinder) {
+			qWarning() << "Only viewfinder supported for single stream";
+			return -EINVAL;
 		}
+		break;
+	case 2:
+		if (roles[0] != StreamRole::Viewfinder ||
+		    roles[1] != StreamRole::StillCaptureRaw) {
+			qWarning() << "Only viewfinder + raw supported for dual streams";
+			return -EINVAL;
+		}
+		break;
+	default:
+		if (roles.size() != 1) {
+			qWarning() << "Unsuported stream configuration";
+			return -EINVAL;
+		}
+		break;
 	}
 
+	/* Configure the camera. */
+	config_ = camera_->generateConfiguration(roles);
+	if (!config_) {
+		qWarning() << "Failed to generate configuration from roles";
+		return -EINVAL;
+	}
+
+	StreamConfiguration &vfConfig = config_->at(0);
+
 	/* Use a format supported by the viewfinder if available. */
-	std::vector<PixelFormat> formats = cfg.formats().pixelformats();
+	std::vector<PixelFormat> formats = vfConfig.formats().pixelformats();
 	for (const PixelFormat &format : viewfinder_->nativeFormats()) {
 		auto match = std::find_if(formats.begin(), formats.end(),
 					  [&](const PixelFormat &f) {
 						  return f == format;
 					  });
 		if (match != formats.end()) {
-			cfg.pixelFormat = format;
+			vfConfig.pixelFormat = format;
 			break;
 		}
+	}
+
+	/* Allow user to override configuration. */
+	if (StreamKeyValueParser::updateConfiguration(config_.get(),
+						      options_[OptStream])) {
+		qWarning() << "Failed to update configuration";
+		return -EINVAL;
 	}
 
 	CameraConfiguration::Status validation = config_->validate();
@@ -319,7 +357,7 @@ int MainWindow::startCapture()
 
 	if (validation == CameraConfiguration::Adjusted)
 		qInfo() << "Stream configuration adjusted to "
-			<< cfg.toString().c_str();
+			<< vfConfig.toString().c_str();
 
 	ret = camera_->configure(config_.get());
 	if (ret < 0) {
@@ -327,10 +365,16 @@ int MainWindow::startCapture()
 		return ret;
 	}
 
+	/* Store stream allocation. */
+	vfStream_ = config_->at(0).stream();
+	if (config_->size() == 2)
+		rawStream_ = config_->at(1).stream();
+	else
+		rawStream_ = nullptr;
+
 	/* Configure the viewfinder. */
-	Stream *stream = cfg.stream();
-	ret = viewfinder_->setFormat(cfg.pixelFormat,
-				     QSize(cfg.size.width, cfg.size.height));
+	ret = viewfinder_->setFormat(vfConfig.pixelFormat,
+				     QSize(vfConfig.size.width, vfConfig.size.height));
 	if (ret < 0) {
 		qInfo() << "Failed to set viewfinder format";
 		return ret;
@@ -338,16 +382,37 @@ int MainWindow::startCapture()
 
 	adjustSize();
 
-	/* Allocate buffers and requests. */
+	/* Configure the raw capture button. */
+	if (saveRaw_)
+		saveRaw_->setEnabled(config_->size() == 2);
+
+	/* Allocate and map buffers. */
 	allocator_ = new FrameBufferAllocator(camera_);
-	ret = allocator_->allocate(stream);
-	if (ret < 0) {
-		qWarning() << "Failed to allocate capture buffers";
-		return ret;
+	for (StreamConfiguration &config : *config_) {
+		Stream *stream = config.stream();
+
+		ret = allocator_->allocate(stream);
+		if (ret < 0) {
+			qWarning() << "Failed to allocate capture buffers";
+			goto error;
+		}
+
+		for (const std::unique_ptr<FrameBuffer> &buffer : allocator_->buffers(stream)) {
+			/* Map memory buffers and cache the mappings. */
+			const FrameBuffer::Plane &plane = buffer->planes().front();
+			void *memory = mmap(NULL, plane.length, PROT_READ, MAP_SHARED,
+					    plane.fd.fd(), 0);
+			mappedBuffers_[buffer.get()] = { memory, plane.length };
+
+			/* Store buffers on the free list. */
+			freeBuffers_[stream].enqueue(buffer.get());
+		}
 	}
 
-	std::vector<Request *> requests;
-	for (const std::unique_ptr<FrameBuffer> &buffer : allocator_->buffers(stream)) {
+	/* Create requests and fill them with buffers from the viewfinder. */
+	while (!freeBuffers_[vfStream_].isEmpty()) {
+		FrameBuffer *buffer = freeBuffers_[vfStream_].dequeue();
+
 		Request *request = camera_->createRequest();
 		if (!request) {
 			qWarning() << "Can't create request";
@@ -355,19 +420,13 @@ int MainWindow::startCapture()
 			goto error;
 		}
 
-		ret = request->addBuffer(stream, buffer.get());
+		ret = request->addBuffer(vfStream_, buffer);
 		if (ret < 0) {
 			qWarning() << "Can't set buffer for request";
 			goto error;
 		}
 
 		requests.push_back(request);
-
-		/* Map memory buffers and cache the mappings. */
-		const FrameBuffer::Plane &plane = buffer->planes().front();
-		void *memory = mmap(NULL, plane.length, PROT_READ, MAP_SHARED,
-				    plane.fd.fd(), 0);
-		mappedBuffers_[buffer.get()] = { memory, plane.length };
 	}
 
 	/* Start the title timer and the camera. */
@@ -412,6 +471,8 @@ error:
 	}
 	mappedBuffers_.clear();
 
+	freeBuffers_.clear();
+
 	delete allocator_;
 	allocator_ = nullptr;
 
@@ -430,6 +491,9 @@ void MainWindow::stopCapture()
 		return;
 
 	viewfinder_->stop();
+	if (saveRaw_)
+		saveRaw_->setEnabled(false);
+	captureRaw_ = false;
 
 	int ret = camera_->stop();
 	if (ret)
@@ -454,6 +518,7 @@ void MainWindow::stopCapture()
 	 * but not processed yet. Clear the queue of done buffers to avoid
 	 * racing with the event handler.
 	 */
+	freeBuffers_.clear();
 	doneQueue_.clear();
 
 	titleTimer_.stop();
@@ -479,6 +544,32 @@ void MainWindow::saveImageAs()
 	writer.write(image);
 }
 
+void MainWindow::captureRaw()
+{
+	captureRaw_ = true;
+}
+
+void MainWindow::processRaw(FrameBuffer *buffer, const ControlList &metadata)
+{
+#ifdef HAVE_DNG
+	QString defaultPath = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
+	QString filename = QFileDialog::getSaveFileName(this, "Save DNG", defaultPath,
+							"DNG Files (*.dng)");
+
+	if (!filename.isEmpty()) {
+		const MappedBuffer &mapped = mappedBuffers_[buffer];
+		DNGWriter::write(filename.toStdString().c_str(), camera_.get(),
+				 rawStream_->configuration(), metadata, buffer,
+				 mapped.memory);
+	}
+#endif
+
+	{
+		QMutexLocker locker(&mutex_);
+		freeBuffers_[rawStream_].enqueue(buffer);
+	}
+}
+
 /* -----------------------------------------------------------------------------
  * Request Completion Handling
  */
@@ -493,12 +584,9 @@ void MainWindow::requestComplete(Request *request)
 	 * are not allowed. Add the buffer to the done queue and post a
 	 * CaptureEvent for the application thread to handle.
 	 */
-	const std::map<Stream *, FrameBuffer *> &buffers = request->buffers();
-	FrameBuffer *buffer = buffers.begin()->second;
-
 	{
 		QMutexLocker locker(&mutex_);
-		doneQueue_.enqueue(buffer);
+		doneQueue_.enqueue({ request->buffers(), request->metadata() });
 	}
 
 	QCoreApplication::postEvent(this, new CaptureEvent);
@@ -511,16 +599,26 @@ void MainWindow::processCapture()
 	 * if stopCapture() has been called while a CaptureEvent was posted but
 	 * not processed yet. Return immediately in that case.
 	 */
-	FrameBuffer *buffer;
+	CaptureRequest request;
 
 	{
 		QMutexLocker locker(&mutex_);
 		if (doneQueue_.isEmpty())
 			return;
 
-		buffer = doneQueue_.dequeue();
+		request = doneQueue_.dequeue();
 	}
 
+	/* Process buffers. */
+	if (request.buffers_.count(vfStream_))
+		processViewfinder(request.buffers_[vfStream_]);
+
+	if (request.buffers_.count(rawStream_))
+		processRaw(request.buffers_[rawStream_], request.metadata_);
+}
+
+void MainWindow::processViewfinder(FrameBuffer *buffer)
+{
 	framesCaptured_++;
 
 	const FrameMetadata &metadata = buffer->metadata();
@@ -529,8 +627,8 @@ void MainWindow::processCapture()
 	fps = lastBufferTime_ && fps ? 1000000000.0 / fps : 0.0;
 	lastBufferTime_ = metadata.timestamp;
 
-	qInfo() << "seq:" << qSetFieldWidth(6) << qSetPadChar('0')
-		<< metadata.sequence << reset
+	qInfo().noquote()
+		<< QString("seq: %1").arg(metadata.sequence, 6, 10, QLatin1Char('0'))
 		<< "bytesused:" << metadata.planes[0].bytesused
 		<< "timestamp:" << metadata.timestamp
 		<< "fps:" << fixed << qSetRealNumberPrecision(2) << fps;
@@ -547,8 +645,24 @@ void MainWindow::queueRequest(FrameBuffer *buffer)
 		return;
 	}
 
-	Stream *stream = config_->at(0).stream();
-	request->addBuffer(stream, buffer);
+	request->addBuffer(vfStream_, buffer);
+
+	if (captureRaw_) {
+		FrameBuffer *buffer = nullptr;
+
+		{
+			QMutexLocker locker(&mutex_);
+			if (!freeBuffers_[rawStream_].isEmpty())
+				buffer = freeBuffers_[rawStream_].dequeue();
+		}
+
+		if (buffer) {
+			request->addBuffer(rawStream_, buffer);
+			captureRaw_ = false;
+		} else {
+			qWarning() << "No free buffer available for RAW capture";
+		}
+	}
 
 	camera_->queueRequest(request);
 }

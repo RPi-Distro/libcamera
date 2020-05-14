@@ -4,13 +4,15 @@
 #
 %YAML 1.2
 ---
+# Unless otherwise stated, all controls are bi-directional, i.e. they can be
+# set through Request::controls() and returned out through Request::metadata().
 controls:
   - AeEnable:
       type: bool
       description: |
         Enable or disable the AE.
 
-        \sa ManualExposure
+        \sa ExposureTime AnalogueGain
 
   - AeLocked:
       type: bool
@@ -23,31 +25,218 @@ controls:
 
         \sa AeEnable
 
+  # AeMeteringMode needs further attention:
+  # - Auto-generate max enum value.
+  # - Better handling of custom types.
+  - AeMeteringMode:
+      type: int32_t
+      description: |
+        Specify a metering mode for the AE algorithm to use. The metering
+        modes determine which parts of the image are used to determine the
+        scene brightness. Metering modes may be platform specific and not
+        all metering modes may be supported.
+      enum:
+        - name: MeteringCentreWeighted
+          value: 0
+          description: Centre-weighted metering mode.
+        - name: MeteringSpot
+          value: 1
+          description: Spot metering mode.
+        - name: MeteringMatrix
+          value: 2
+          description: Matrix metering mode.
+        - name: MeteringCustom
+          value: 3
+          description: Custom metering mode.
+        - name: MeteringModeMax
+          value: 3
+          description: Maximum allowed value (place any new values above here).
+
+  # AeConstraintMode needs further attention:
+  # - Auto-generate max enum value.
+  # - Better handling of custom types.
+  - AeConstraintMode:
+      type: int32_t
+      description: |
+        Specify a constraint mode for the AE algorithm to use. These determine
+        how the measured scene brightness is adjusted to reach the desired
+        target exposure. Constraint modes may be platform specific, and not
+        all constraint modes may be supported.
+      enum:
+        - name: ConstraintNormal
+          value: 0
+          description: Default constraint mode.
+            This mode aims to balance the exposure of different parts of the
+            image so as to reach a reasonable average level. However, highlights
+            in the image may appear over-exposed and lowlights may appear
+            under-exposed.
+        - name: ConstraintHighlight
+          value: 1
+          description: Highlight constraint mode.
+            This mode adjusts the exposure levels in order to try and avoid
+            over-exposing the brightest parts (highlights) of an image.
+            Other non-highlight parts of the image may appear under-exposed.
+        - name: ConstraintShadows
+          value: 2
+          description: Shadows constraint mode.
+            This mode adjusts the exposure levels in order to try and avoid
+            under-exposing the dark parts (shadows) of an image. Other normally
+            exposed parts of the image may appear over-exposed.
+        - name: ConstraintCustom
+          value: 3
+          description: Custom constraint mode.
+        - name: ConstraintModeMax
+          value: 3
+          description: Maximum allowed value (place any new values above here).
+
+  # AeExposureMode needs further attention:
+  # - Auto-generate max enum value.
+  # - Better handling of custom types.
+  - AeExposureMode:
+      type: int32_t
+      description: |
+        Specify an exposure mode for the AE algorithm to use. These specify
+        how the desired total exposure is divided between the shutter time
+        and the sensor's analogue gain. The exposure modes are platform
+        specific, and not all exposure modes may be supported.
+      enum:
+        - name: ExposureNormal
+          value: 0
+          description: Default exposure mode.
+        - name: ExposureShort
+          value: 1
+          description: Exposure mode allowing only short exposure times.
+        - name: ExposureLong
+          value: 2
+          description: Exposure mode allowing long exposure times.
+        - name: ExposureCustom
+          value: 3
+          description: Custom exposure mode.
+        - name: ExposureModeMax
+          value: 3
+          description: Maximum allowed value (place any new values above here).
+
+  - ExposureValue:
+      type: float
+      description: |
+        Specify an Exposure Value (EV) parameter. The EV parameter will only be
+        applied if the AE algorithm is currently enabled.
+
+        By convention EV adjusts the exposure as log2. For example
+        EV = [-2, -1, 0.5, 0, 0.5, 1, 2] results in an exposure adjustment
+        of [1/4x, 1/2x, 1/sqrt(2)x, 1x, sqrt(2)x, 2x, 4x].
+
+        \sa AeEnable
+
+  - ExposureTime:
+      type: int32_t
+      description: |
+        Exposure time (shutter speed) for the frame applied in the sensor
+        device. This value is specified in micro-seconds.
+
+        \sa AnalogueGain AeEnable
+
+  - AnalogueGain:
+      type: float
+      description: |
+        Analogue gain value applied in the sensor device.
+        The value of the control specifies the gain multiplier applied to all
+        colour channels. This value cannot be lower than 1.0.
+
+        \sa ExposureTime AeEnable
+
+  - Brightness:
+      type: float
+      description: |
+        Specify a fixed brightness parameter. Positive values (up to 1.0)
+        produce brighter images; negative values (up to -1.0) produce darker
+        images and 0.0 leaves pixels unchanged.
+
+  - Contrast:
+      type: float
+      description:  |
+        Specify a fixed contrast parameter. Normal contrast is given by the
+        value 1.0; larger values produce images with more contrast.
+
+  - Lux:
+      type: float
+      description: |
+        Report an estimate of the current illuminance level in lux. The Lux
+        control can only be returned in metadata.
+
   - AwbEnable:
       type: bool
       description: |
         Enable or disable the AWB.
 
-        \sa ManualGain
+        \sa ColourGains
 
-  - Brightness:
+  # AwbMode needs further attention:
+  # - Auto-generate max enum value.
+  # - Better handling of custom types.
+  - AwbMode:
       type: int32_t
-      description: Specify a fixed brightness parameter
+      description: |
+        Specify the range of illuminants to use for the AWB algorithm. The modes
+        supported are platform specific, and not all modes may be supported.
+      enum:
+        - name: AwbAuto
+          value: 0
+          description: Search over the whole colour temperature range.
+        - name: AwbIncandescent
+          value: 1
+          description: Incandescent AWB lamp mode.
+        - name: AwbTungsten
+          value: 2
+          description: Tungsten AWB lamp mode.
+        - name: AwbFluorescent
+          value: 3
+          description: Fluorescent AWB lamp mode.
+        - name: AwbIndoor
+          value: 4
+          description: Indoor AWB lighting mode.
+        - name: AwbDaylight
+          value: 5
+          description: Daylight AWB lighting mode.
+        - name: AwbCloudy
+          value: 6
+          description: Cloudy AWB lighting mode.
+        - name: AwbCustom
+          value: 7
+          description: Custom AWB mode.
+        - name: AwbModeMax
+          value: 7
+          description: Maximum allowed value (place any new values above here).
 
-  - Contrast:
+  - ColourGains:
+      type: float
+      description: |
+        Pair of gain values for the Red and Blue colour channels, in that
+        order. ColourGains can only be applied in a Request when the AWB is
+        disabled.
+
+        \sa AwbEnable
+      size: [2]
+
+  - ColourTemperature:
       type: int32_t
-      description: Specify a fixed contrast parameter
+      description: Report the current estimate of the colour temperature, in
+        kelvin, for this frame. The ColourTemperature control can only be
+        returned in metadata.
 
   - Saturation:
-      type: int32_t
-      description: Specify a fixed saturation parameter
+      type: float
+      description:  |
+        Specify a fixed saturation parameter. Normal saturation is given by
+        the value 1.0; larger values produce more saturated colours; 0.0
+        produces a greyscale image.
 
-  - ManualExposure:
+  - SensorBlackLevels:
       type: int32_t
-      description: Specify a fixed exposure time in milli-seconds
-
-  - ManualGain:
-      type: int32_t
-      description: Specify a fixed gain parameter
-
+      description: |
+        Reports the sensor black levels used for processing a frame, in the
+        order R, Gr, Gb, B. These values are returned as numbers out of a 16-bit
+        pixel range (as if pixels ranged from 0 to 65535). The SensorBlackLevels
+        control can only be returned in metadata.
+      size: [4]
 ...
