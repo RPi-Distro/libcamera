@@ -14,8 +14,9 @@ enum {
 	OptHelp = 'h',
 	OptInfo = 'I',
 	OptList = 'l',
-	OptProps = 'p',
+	OptListProperties = 'p',
 	OptStream = 's',
+	OptListControls = 256,
 };
 
 #endif /* __CAM_MAIN_H__ */

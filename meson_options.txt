@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: CC0-1.0
+
 option('android',
         type : 'boolean',
         value : false,
@@ -14,7 +16,7 @@ option('gstreamer',
 
 option('pipelines',
         type : 'array',
-        choices : ['ipu3', 'rkisp1', 'uvcvideo', 'vimc'],
+        choices : ['ipu3', 'raspberrypi', 'rkisp1', 'simple', 'uvcvideo', 'vimc'],
         description : 'Select which pipeline handlers to include')
 
 option('test',

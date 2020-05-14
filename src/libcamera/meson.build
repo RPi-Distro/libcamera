@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: CC0-1.0
+
 libcamera_sources = files([
     'bound_method.cpp',
     'buffer.cpp',
@@ -44,6 +46,7 @@ libcamera_sources = files([
     'utils.cpp',
     'v4l2_controls.cpp',
     'v4l2_device.cpp',
+    'v4l2_pixelformat.cpp',
     'v4l2_subdevice.cpp',
     'v4l2_videodevice.cpp',
 ])

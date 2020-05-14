@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: CC0-1.0
+
 ipa_name = 'ipa_vimc'
 
 mod = shared_module(ipa_name,
@@ -14,6 +16,8 @@ if ipa_sign_module
                   input : mod,
                   output : ipa_name + '.so.sign',
                   command : [ ipa_sign, ipa_priv_key, '@INPUT@', '@OUTPUT@' ],
-                  install : true,
-                  install_dir : ipa_install_dir)
+                  install : false,
+                  build_by_default : true)
 endif
+
+subdir('data')

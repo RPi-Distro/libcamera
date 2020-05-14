@@ -8,9 +8,11 @@
 #include <algorithm>
 #include <array>
 #include <iomanip>
+#include <math.h>
 #include <tuple>
 
 #include <linux/media-bus-format.h>
+#include <linux/version.h>
 
 #include <ipa/ipa_interface.h>
 #include <ipa/ipa_module_info.h>
@@ -38,9 +40,10 @@ LOG_DEFINE_CATEGORY(VIMC)
 class VimcCameraData : public CameraData
 {
 public:
-	VimcCameraData(PipelineHandler *pipe)
-		: CameraData(pipe), sensor_(nullptr), debayer_(nullptr),
-		  scaler_(nullptr), video_(nullptr), raw_(nullptr)
+	VimcCameraData(PipelineHandler *pipe, MediaDevice *media)
+		: CameraData(pipe), media_(media), sensor_(nullptr),
+		  debayer_(nullptr), scaler_(nullptr), video_(nullptr),
+		  raw_(nullptr)
 	{
 	}
 
@@ -53,9 +56,10 @@ public:
 		delete raw_;
 	}
 
-	int init(MediaDevice *media);
+	int init();
 	void bufferReady(FrameBuffer *buffer);
 
+	MediaDevice *media_;
 	CameraSensor *sensor_;
 	V4L2Subdevice *debayer_;
 	V4L2Subdevice *scaler_;
@@ -223,6 +227,18 @@ int PipelineHandlerVimc::configure(Camera *camera, CameraConfiguration *config)
 	if (ret)
 		return ret;
 
+	if (data->media_->version() >= KERNEL_VERSION(5, 6, 0)) {
+		Rectangle crop = {
+			.x = 0,
+			.y = 0,
+			.width = subformat.size.width,
+			.height = subformat.size.height,
+		};
+		ret = data->scaler_->setSelection(0, V4L2_SEL_TGT_CROP, &crop);
+		if (ret)
+			return ret;
+	}
+
 	subformat.size = cfg.size;
 	ret = data->scaler_->setFormat(1, &subformat);
 	if (ret)
@@ -252,6 +268,7 @@ int PipelineHandlerVimc::configure(Camera *camera, CameraConfiguration *config)
 		return ret;
 
 	cfg.setStream(&data->stream_);
+	cfg.stride = format.planes[0].bpl;
 
 	return 0;
 }
@@ -304,14 +321,24 @@ int PipelineHandlerVimc::processControls(VimcCameraData *data, Request *request)
 
 	for (auto it : request->controls()) {
 		unsigned int id = it.first;
-		ControlValue &value = it.second;
+		unsigned int offset;
+		uint32_t cid;
 
-		if (id == controls::Brightness)
-			controls.set(V4L2_CID_BRIGHTNESS, value);
-		else if (id == controls::Contrast)
-			controls.set(V4L2_CID_CONTRAST, value);
-		else if (id == controls::Saturation)
-			controls.set(V4L2_CID_SATURATION, value);
+		if (id == controls::Brightness) {
+			cid = V4L2_CID_BRIGHTNESS;
+			offset = 128;
+		} else if (id == controls::Contrast) {
+			cid = V4L2_CID_CONTRAST;
+			offset = 0;
+		} else if (id == controls::Saturation) {
+			cid = V4L2_CID_SATURATION;
+			offset = 0;
+		} else {
+			continue;
+		}
+
+		int32_t value = lroundf(it.second.get<float>() * 128 + offset);
+		controls.set(cid, utils::clamp(value, 0, 255));
 	}
 
 	for (const auto &ctrl : controls)
@@ -368,36 +395,38 @@ bool PipelineHandlerVimc::match(DeviceEnumerator *enumerator)
 	if (!media)
 		return false;
 
-	std::unique_ptr<VimcCameraData> data = std::make_unique<VimcCameraData>(this);
+	std::unique_ptr<VimcCameraData> data = std::make_unique<VimcCameraData>(this, media);
 
 	data->ipa_ = IPAManager::instance()->createIPA(this, 0, 0);
-	if (data->ipa_ == nullptr)
+	if (data->ipa_ != nullptr) {
+		std::string conf = data->ipa_->configurationFile("vimc.conf");
+		data->ipa_->init(IPASettings{ conf });
+	} else {
 		LOG(VIMC, Warning) << "no matching IPA found";
-	else
-		data->ipa_->init();
+	}
 
 	/* Locate and open the capture video node. */
-	if (data->init(media))
+	if (data->init())
 		return false;
 
 	/* Create and register the camera. */
+	std::string name{ "VIMC " + data->sensor_->model() };
 	std::set<Stream *> streams{ &data->stream_ };
-	std::shared_ptr<Camera> camera = Camera::create(this, "VIMC Sensor B",
-							streams);
+	std::shared_ptr<Camera> camera = Camera::create(this, name, streams);
 	registerCamera(std::move(camera), std::move(data));
 
 	return true;
 }
 
-int VimcCameraData::init(MediaDevice *media)
+int VimcCameraData::init()
 {
 	int ret;
 
-	ret = media->disableLinks();
+	ret = media_->disableLinks();
 	if (ret < 0)
 		return ret;
 
-	MediaLink *link = media->link("Debayer B", 1, "Scaler", 0);
+	MediaLink *link = media_->link("Debayer B", 1, "Scaler", 0);
 	if (!link)
 		return -ENODEV;
 
@@ -406,26 +435,26 @@ int VimcCameraData::init(MediaDevice *media)
 		return ret;
 
 	/* Create and open the camera sensor, debayer, scaler and video device. */
-	sensor_ = new CameraSensor(media->getEntityByName("Sensor B"));
+	sensor_ = new CameraSensor(media_->getEntityByName("Sensor B"));
 	ret = sensor_->init();
 	if (ret)
 		return ret;
 
-	debayer_ = new V4L2Subdevice(media->getEntityByName("Debayer B"));
+	debayer_ = new V4L2Subdevice(media_->getEntityByName("Debayer B"));
 	if (debayer_->open())
 		return -ENODEV;
 
-	scaler_ = new V4L2Subdevice(media->getEntityByName("Scaler"));
+	scaler_ = new V4L2Subdevice(media_->getEntityByName("Scaler"));
 	if (scaler_->open())
 		return -ENODEV;
 
-	video_ = new V4L2VideoDevice(media->getEntityByName("RGB/YUV Capture"));
+	video_ = new V4L2VideoDevice(media_->getEntityByName("RGB/YUV Capture"));
 	if (video_->open())
 		return -ENODEV;
 
 	video_->bufferReady.connect(this, &VimcCameraData::bufferReady);
 
-	raw_ = new V4L2VideoDevice(media->getEntityByName("Raw Capture 1"));
+	raw_ = new V4L2VideoDevice(media_->getEntityByName("Raw Capture 1"));
 	if (raw_->open())
 		return -ENODEV;
 
@@ -434,18 +463,21 @@ int VimcCameraData::init(MediaDevice *media)
 	ControlInfoMap::Map ctrls;
 
 	for (const auto &ctrl : controls) {
-		const ControlInfo &info = ctrl.second;
 		const ControlId *id;
+		ControlInfo info;
 
 		switch (ctrl.first->id()) {
 		case V4L2_CID_BRIGHTNESS:
 			id = &controls::Brightness;
+			info = ControlInfo{ { -1.0f }, { 1.0f }, { 0.0f } };
 			break;
 		case V4L2_CID_CONTRAST:
 			id = &controls::Contrast;
+			info = ControlInfo{ { 0.0f }, { 2.0f }, { 1.0f } };
 			break;
 		case V4L2_CID_SATURATION:
 			id = &controls::Saturation;
+			info = ControlInfo{ { 0.0f }, { 2.0f }, { 1.0f } };
 			break;
 		default:
 			continue;

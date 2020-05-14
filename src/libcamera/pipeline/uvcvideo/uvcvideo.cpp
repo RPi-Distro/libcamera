@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <iomanip>
+#include <math.h>
 #include <sys/sysmacros.h>
 #include <tuple>
 
@@ -42,6 +43,8 @@ public:
 	}
 
 	int init(MediaEntity *entity);
+	void addControl(uint32_t cid, const ControlInfo &v4l2info,
+			ControlInfoMap::Map *ctrls);
 	void bufferReady(FrameBuffer *buffer);
 
 	V4L2VideoDevice *video_;
@@ -76,6 +79,8 @@ public:
 	bool match(DeviceEnumerator *enumerator) override;
 
 private:
+	int processControl(ControlList *controls, unsigned int id,
+			   const ControlValue &value);
 	int processControls(UVCCameraData *data, Request *request);
 
 	UVCCameraData *cameraData(const Camera *camera)
@@ -161,7 +166,7 @@ CameraConfiguration *PipelineHandlerUVC::generateConfiguration(Camera *camera,
 		       std::inserter(deviceFormats, deviceFormats.begin()),
 		       [&](const decltype(v4l2Formats)::value_type &format) {
 			       return decltype(deviceFormats)::value_type{
-				       data->video_->toPixelFormat(format.first),
+				       format.first.toPixelFormat(),
 				       format.second
 			       };
 		       });
@@ -199,6 +204,7 @@ int PipelineHandlerUVC::configure(Camera *camera, CameraConfiguration *config)
 		return -EINVAL;
 
 	cfg.setStream(&data->stream_);
+	cfg.stride = format.planes[0].bpl;
 
 	return 0;
 }
@@ -237,6 +243,87 @@ void PipelineHandlerUVC::stop(Camera *camera)
 	data->video_->releaseBuffers();
 }
 
+int PipelineHandlerUVC::processControl(ControlList *controls, unsigned int id,
+				       const ControlValue &value)
+{
+	uint32_t cid;
+
+	if (id == controls::Brightness)
+		cid = V4L2_CID_BRIGHTNESS;
+	else if (id == controls::Contrast)
+		cid = V4L2_CID_CONTRAST;
+	else if (id == controls::Saturation)
+		cid = V4L2_CID_SATURATION;
+	else if (id == controls::AeEnable)
+		cid = V4L2_CID_EXPOSURE_AUTO;
+	else if (id == controls::ExposureTime)
+		cid = V4L2_CID_EXPOSURE_ABSOLUTE;
+	else if (id == controls::AnalogueGain)
+		cid = V4L2_CID_GAIN;
+	else
+		return -EINVAL;
+
+	const ControlInfo &v4l2Info = controls->infoMap()->at(cid);
+	int32_t min = v4l2Info.min().get<int32_t>();
+	int32_t def = v4l2Info.def().get<int32_t>();
+	int32_t max = v4l2Info.max().get<int32_t>();
+
+	/*
+	 * See UVCCameraData::addControl() for explanations of the different
+	 * value mappings.
+	 */
+	switch (cid) {
+	case V4L2_CID_BRIGHTNESS: {
+		float scale = std::max(max - def, def - min);
+		float fvalue = value.get<float>() * scale + def;
+		controls->set(cid, static_cast<int32_t>(lroundf(fvalue)));
+		break;
+	}
+
+	case V4L2_CID_SATURATION: {
+		float scale = def - min;
+		float fvalue = value.get<float>() * scale + min;
+		controls->set(cid, static_cast<int32_t>(lroundf(fvalue)));
+		break;
+	}
+
+	case V4L2_CID_EXPOSURE_AUTO: {
+		int32_t ivalue = value.get<bool>()
+			       ? V4L2_EXPOSURE_APERTURE_PRIORITY
+			       : V4L2_EXPOSURE_MANUAL;
+		controls->set(V4L2_CID_EXPOSURE_AUTO, ivalue);
+		break;
+	}
+
+	case V4L2_CID_EXPOSURE_ABSOLUTE:
+		controls->set(cid, value.get<int32_t>() / 100);
+		break;
+
+	case V4L2_CID_CONTRAST:
+	case V4L2_CID_GAIN: {
+		float m = (4.0f - 1.0f) / (max - def);
+		float p = 1.0f - m * def;
+
+		if (m * min + p < 0.5f) {
+			m = (1.0f - 0.5f) / (def - min);
+			p = 1.0f - m * def;
+		}
+
+		float fvalue = (value.get<float>() - p) / m;
+		controls->set(cid, static_cast<int32_t>(lroundf(fvalue)));
+		break;
+	}
+
+	default: {
+		int32_t ivalue = value.get<int32_t>();
+		controls->set(cid, ivalue);
+		break;
+	}
+	}
+
+	return 0;
+}
+
 int PipelineHandlerUVC::processControls(UVCCameraData *data, Request *request)
 {
 	ControlList controls(data->video_->controls());
@@ -245,18 +332,7 @@ int PipelineHandlerUVC::processControls(UVCCameraData *data, Request *request)
 		unsigned int id = it.first;
 		ControlValue &value = it.second;
 
-		if (id == controls::Brightness) {
-			controls.set(V4L2_CID_BRIGHTNESS, value);
-		} else if (id == controls::Contrast) {
-			controls.set(V4L2_CID_CONTRAST, value);
-		} else if (id == controls::Saturation) {
-			controls.set(V4L2_CID_SATURATION, value);
-		} else if (id == controls::ManualExposure) {
-			controls.set(V4L2_CID_EXPOSURE_AUTO, static_cast<int32_t>(1));
-			controls.set(V4L2_CID_EXPOSURE_ABSOLUTE, value);
-		} else if (id == controls::ManualGain) {
-			controls.set(V4L2_CID_GAIN, value);
-		}
+		processControl(&controls, id, value);
 	}
 
 	for (const auto &ctrl : controls)
@@ -346,39 +422,136 @@ int UVCCameraData::init(MediaEntity *entity)
 	video_->bufferReady.connect(this, &UVCCameraData::bufferReady);
 
 	/* Initialise the supported controls. */
-	const ControlInfoMap &controls = video_->controls();
 	ControlInfoMap::Map ctrls;
 
-	for (const auto &ctrl : controls) {
+	for (const auto &ctrl : video_->controls()) {
+		uint32_t cid = ctrl.first->id();
 		const ControlInfo &info = ctrl.second;
-		const ControlId *id;
 
-		switch (ctrl.first->id()) {
-		case V4L2_CID_BRIGHTNESS:
-			id = &controls::Brightness;
-			break;
-		case V4L2_CID_CONTRAST:
-			id = &controls::Contrast;
-			break;
-		case V4L2_CID_SATURATION:
-			id = &controls::Saturation;
-			break;
-		case V4L2_CID_EXPOSURE_ABSOLUTE:
-			id = &controls::ManualExposure;
-			break;
-		case V4L2_CID_GAIN:
-			id = &controls::ManualGain;
-			break;
-		default:
-			continue;
-		}
-
-		ctrls.emplace(id, info);
+		addControl(cid, info, &ctrls);
 	}
 
 	controlInfo_ = std::move(ctrls);
 
 	return 0;
+}
+
+void UVCCameraData::addControl(uint32_t cid, const ControlInfo &v4l2Info,
+			       ControlInfoMap::Map *ctrls)
+{
+	const ControlId *id;
+	ControlInfo info;
+
+	/* Map the control ID. */
+	switch (cid) {
+	case V4L2_CID_BRIGHTNESS:
+		id = &controls::Brightness;
+		break;
+	case V4L2_CID_CONTRAST:
+		id = &controls::Contrast;
+		break;
+	case V4L2_CID_SATURATION:
+		id = &controls::Saturation;
+		break;
+	case V4L2_CID_EXPOSURE_AUTO:
+		id = &controls::AeEnable;
+		break;
+	case V4L2_CID_EXPOSURE_ABSOLUTE:
+		id = &controls::ExposureTime;
+		break;
+	case V4L2_CID_GAIN:
+		id = &controls::AnalogueGain;
+		break;
+	default:
+		return;
+	}
+
+	/* Map the control info. */
+	int32_t min = v4l2Info.min().get<int32_t>();
+	int32_t max = v4l2Info.max().get<int32_t>();
+	int32_t def = v4l2Info.def().get<int32_t>();
+
+	switch (cid) {
+	case V4L2_CID_BRIGHTNESS: {
+		/*
+		 * The Brightness control is a float, with 0.0 mapped to the
+		 * default value. The control range is [-1.0, 1.0], but the V4L2
+		 * default may not be in the middle of the V4L2 range.
+		 * Accommodate this by restricting the range of the libcamera
+		 * control, but always within the maximum limits.
+		 */
+		float scale = std::max(max - def, def - min);
+
+		info = ControlInfo{
+			{ static_cast<float>(min - def) / scale },
+			{ static_cast<float>(max - def) / scale },
+			{ 0.0f }
+		};
+		break;
+	}
+
+	case V4L2_CID_SATURATION:
+		/*
+		 * The Saturation control is a float, with 0.0 mapped to the
+		 * minimum value (corresponding to a fully desaturated image)
+		 * and 1.0 mapped to the default value. Calculate the maximum
+		 * value accordingly.
+		 */
+		info = ControlInfo{
+			{ 0.0f },
+			{ static_cast<float>(max - min) / (def - min) },
+			{ 1.0f }
+		};
+		break;
+
+	case V4L2_CID_EXPOSURE_AUTO:
+		info = ControlInfo{ false, true, true };
+		break;
+
+	case V4L2_CID_EXPOSURE_ABSOLUTE:
+		/*
+		 * ExposureTime is in units of 1 µs, and UVC expects
+		 * V4L2_CID_EXPOSURE_ABSOLUTE in units of 100 µs.
+		 */
+		info = ControlInfo{
+			{ min * 100 },
+			{ max * 100 },
+			{ def * 100 }
+		};
+		break;
+
+	case V4L2_CID_CONTRAST:
+	case V4L2_CID_GAIN: {
+		/*
+		 * The Contrast and AnalogueGain controls are floats, with 1.0
+		 * mapped to the default value. UVC doesn't specify units, and
+		 * cameras have been seen to expose very different ranges for
+		 * the controls. Arbitrarily assume that the minimum and
+		 * maximum values are respectively no lower than 0.5 and no
+		 * higher than 4.0.
+		 */
+		float m = (4.0f - 1.0f) / (max - def);
+		float p = 1.0f - m * def;
+
+		if (m * min + p < 0.5f) {
+			m = (1.0f - 0.5f) / (def - min);
+			p = 1.0f - m * def;
+		}
+
+		info = ControlInfo{
+			{ m * min + p },
+			{ m * max + p },
+			{ 1.0f }
+		};
+		break;
+	}
+
+	default:
+		info = v4l2Info;
+		break;
+	}
+
+	ctrls->emplace(id, info);
 }
 
 void UVCCameraData::bufferReady(FrameBuffer *buffer)

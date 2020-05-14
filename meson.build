@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: CC0-1.0
+
 project('libcamera', 'c', 'cpp',
     meson_version : '>= 0.47',
     version : '0.0.0',
@@ -69,6 +71,16 @@ if cc.has_argument('-Wno-c99-designator')
     ]
 endif
 
+# gcc 7.1 introduced processor-specific ABI breakages related to parameter
+# passing on ARM platforms. This generates a large number of messages during
+# compilation with gcc >=7.1 until gcc 9. Silence them.
+if (host_machine.cpu_family() == 'arm' and cc.get_id() == 'gcc' and
+    cc.version().version_compare('>=7.1') and cc.version().version_compare('<9'))
+    cpp_arguments += [
+        '-Wno-psabi',
+    ]
+endif
+
 c_arguments += common_arguments
 cpp_arguments += common_arguments
 
@@ -93,6 +105,12 @@ if get_option('test')
     subdir('test')
 endif
 
+# Create a symlink from the build root to the source root. This is used when
+# running libcamera from the build directory to locate resources in the source
+# directory (such as IPA configuration files).
+run_command('ln', '-fsT', meson.source_root(),
+            join_paths(meson.build_root(), 'source'))
+
 configure_file(output : 'config.h', configuration : config_h)
 
 pkg_mod = import('pkgconfig')
@@ -100,4 +118,5 @@ pkg_mod.generate(libraries : libcamera,
                  version : '1.0',
                  name : 'libcamera',
                  filebase : 'camera',
-                 description : 'Complex Camera Support Library')
+                 description : 'Complex Camera Support Library',
+                 subdirs : 'libcamera')

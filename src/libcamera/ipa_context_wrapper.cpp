@@ -12,6 +12,7 @@
 #include <libcamera/controls.h>
 
 #include "byte_stream_buffer.h"
+#include "camera_sensor.h"
 #include "utils.h"
 
 /**
@@ -69,15 +70,18 @@ IPAContextWrapper::~IPAContextWrapper()
 	ctx_->ops->destroy(ctx_);
 }
 
-int IPAContextWrapper::init()
+int IPAContextWrapper::init(const IPASettings &settings)
 {
 	if (intf_)
-		return intf_->init();
+		return intf_->init(settings);
 
 	if (!ctx_)
 		return 0;
 
-	ctx_->ops->init(ctx_);
+	struct ipa_settings c_settings;
+	c_settings.configuration_file = settings.configurationFile.c_str();
+
+	ctx_->ops->init(ctx_, &c_settings);
 
 	return 0;
 }
@@ -104,16 +108,32 @@ void IPAContextWrapper::stop()
 	ctx_->ops->stop(ctx_);
 }
 
-void IPAContextWrapper::configure(const std::map<unsigned int, IPAStream> &streamConfig,
+void IPAContextWrapper::configure(const CameraSensorInfo &sensorInfo,
+				  const std::map<unsigned int, IPAStream> &streamConfig,
 				  const std::map<unsigned int, const ControlInfoMap &> &entityControls)
 {
 	if (intf_)
-		return intf_->configure(streamConfig, entityControls);
+		return intf_->configure(sensorInfo, streamConfig, entityControls);
 
 	if (!ctx_)
 		return;
 
 	serializer_.reset();
+
+	/* Translate the camera sensor info. */
+	struct ipa_sensor_info sensor_info = {};
+	sensor_info.model = sensorInfo.model.c_str();
+	sensor_info.bits_per_pixel = sensorInfo.bitsPerPixel;
+	sensor_info.active_area.width = sensorInfo.activeAreaSize.width;
+	sensor_info.active_area.height = sensorInfo.activeAreaSize.height;
+	sensor_info.analog_crop.left = sensorInfo.analogCrop.x;
+	sensor_info.analog_crop.top = sensorInfo.analogCrop.y;
+	sensor_info.analog_crop.width = sensorInfo.analogCrop.width;
+	sensor_info.analog_crop.height = sensorInfo.analogCrop.height;
+	sensor_info.output_size.width = sensorInfo.outputSize.width;
+	sensor_info.output_size.height = sensorInfo.outputSize.height;
+	sensor_info.pixel_rate = sensorInfo.pixelRate;
+	sensor_info.line_length = sensorInfo.lineLength;
 
 	/* Translate the IPA stream configurations map. */
 	struct ipa_stream c_streams[streamConfig.size()];
@@ -154,7 +174,7 @@ void IPAContextWrapper::configure(const std::map<unsigned int, IPAStream> &strea
 		++i;
 	}
 
-	ctx_->ops->configure(ctx_, c_streams, streamConfig.size(),
+	ctx_->ops->configure(ctx_, &sensor_info, c_streams, streamConfig.size(),
 			     c_info_maps, entityControls.size());
 }
 

@@ -32,11 +32,12 @@ LOG_DEFINE_CATEGORY(IPARkISP1)
 class IPARkISP1 : public IPAInterface
 {
 public:
-	int init() override { return 0; }
+	int init(const IPASettings &settings) override { return 0; }
 	int start() override { return 0; }
 	void stop() override {}
 
-	void configure(const std::map<unsigned int, IPAStream> &streamConfig,
+	void configure(const CameraSensorInfo &info,
+		       const std::map<unsigned int, IPAStream> &streamConfig,
 		       const std::map<unsigned int, const ControlInfoMap &> &entityControls) override;
 	void mapBuffers(const std::vector<IPABuffer> &buffers) override;
 	void unmapBuffers(const std::vector<unsigned int> &ids) override;
@@ -66,7 +67,14 @@ private:
 	uint32_t maxGain_;
 };
 
-void IPARkISP1::configure(const std::map<unsigned int, IPAStream> &streamConfig,
+/**
+ * \todo The RkISP1 pipeline currently provides an empty CameraSensorInfo
+ * if the connected sensor does not provide enough information to properly
+ * assemble one. Make sure the reported sensor information are relevant
+ * before accessing them.
+ */
+void IPARkISP1::configure(const CameraSensorInfo &info,
+			  const std::map<unsigned int, IPAStream> &streamConfig,
 			  const std::map<unsigned int, const ControlInfoMap &> &entityControls)
 {
 	if (entityControls.empty())
@@ -274,7 +282,7 @@ const struct IPAModuleInfo ipaModuleInfo = {
 	IPA_MODULE_API_VERSION,
 	1,
 	"PipelineHandlerRkISP1",
-	"RkISP1 IPA",
+	"rkisp1",
 };
 
 struct ipa_context *ipaCreate()

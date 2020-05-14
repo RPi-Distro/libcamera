@@ -20,20 +20,39 @@
 #include <libcamera/buffer.h>
 #include <libcamera/camera.h>
 #include <libcamera/camera_manager.h>
+#include <libcamera/controls.h>
 #include <libcamera/framebuffer_allocator.h>
 #include <libcamera/stream.h>
 
-#include "../cam/options.h"
+#include "../cam/stream_options.h"
 #include "viewfinder.h"
 
 using namespace libcamera;
 
 class QAction;
+class QComboBox;
 
 enum {
 	OptCamera = 'c',
 	OptHelp = 'h',
-	OptSize = 's',
+	OptStream = 's',
+};
+
+class CaptureRequest
+{
+public:
+	CaptureRequest()
+	{
+	}
+
+	CaptureRequest(const std::map<Stream *, FrameBuffer *> &buffers,
+		       const ControlList &metadata)
+		: buffers_(buffers), metadata_(metadata)
+	{
+	}
+
+	std::map<Stream *, FrameBuffer *> buffers_;
+	ControlList metadata_;
 };
 
 class MainWindow : public QMainWindow
@@ -54,6 +73,8 @@ private Q_SLOTS:
 	void toggleCapture(bool start);
 
 	void saveImageAs();
+	void captureRaw();
+	void processRaw(FrameBuffer *buffer, const ControlList &metadata);
 
 	void queueRequest(FrameBuffer *buffer);
 
@@ -68,10 +89,13 @@ private:
 
 	void requestComplete(Request *request);
 	void processCapture();
+	void processViewfinder(FrameBuffer *buffer);
 
 	/* UI elements */
 	QToolBar *toolbar_;
 	QAction *startStopAction_;
+	QComboBox *cameraCombo_;
+	QAction *saveRaw_;
 	ViewFinder *viewfinder_;
 
 	QIcon iconPlay_;
@@ -93,8 +117,12 @@ private:
 
 	/* Capture state, buffers queue and statistics */
 	bool isCapturing_;
-	QQueue<FrameBuffer *> doneQueue_;
-	QMutex mutex_;	/* Protects doneQueue_ */
+	bool captureRaw_;
+	Stream *vfStream_;
+	Stream *rawStream_;
+	std::map<Stream *, QQueue<FrameBuffer *>> freeBuffers_;
+	QQueue<CaptureRequest> doneQueue_;
+	QMutex mutex_; /* Protects freeBuffers_ and doneQueue_ */
 
 	uint64_t lastBufferTime_;
 	QElapsedTimer frameRateInterval_;

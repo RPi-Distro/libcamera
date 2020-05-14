@@ -7,7 +7,6 @@
 #ifndef __LIBCAMERA_V4L2_SUBDEVICE_H__
 #define __LIBCAMERA_V4L2_SUBDEVICE_H__
 
-#include <map>
 #include <string>
 #include <vector>
 
@@ -27,6 +26,7 @@ struct V4L2SubdeviceFormat {
 	Size size;
 
 	const std::string toString() const;
+	uint8_t bitsPerPixel() const;
 };
 
 class V4L2Subdevice : public V4L2Device
@@ -46,8 +46,10 @@ public:
 
 	const MediaEntity *entity() const { return entity_; }
 
-	int setCrop(unsigned int pad, Rectangle *rect);
-	int setCompose(unsigned int pad, Rectangle *rect);
+	int getSelection(unsigned int pad, unsigned int target,
+			 Rectangle *rect);
+	int setSelection(unsigned int pad, unsigned int target,
+			 Rectangle *rect);
 
 	ImageFormats formats(unsigned int pad);
 
@@ -66,9 +68,6 @@ private:
 	std::vector<unsigned int> enumPadCodes(unsigned int pad);
 	std::vector<SizeRange> enumPadSizes(unsigned int pad,
 					    unsigned int code);
-
-	int setSelection(unsigned int pad, unsigned int target,
-			 Rectangle *rect);
 
 	const MediaEntity *entity_;
 };
