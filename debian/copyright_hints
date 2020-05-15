@@ -48,6 +48,7 @@ Files: include/ipa/ipa_controls.h
  src/cam/options.cpp
  src/cam/options.h
  src/ipa/gen-ipa-priv-key.sh
+ src/ipa/ipa-sign-install.sh
  src/ipa/ipa-sign.sh
  src/ipa/libipa/ipa_interface_wrapper.cpp
  src/ipa/libipa/ipa_interface_wrapper.h
@@ -233,6 +234,86 @@ Copyright: 2018, Google Inc.
 License: UNKNOWN
  FIXME
 
+Files: src/ipa/raspberrypi/cam_helper.cpp
+ src/ipa/raspberrypi/cam_helper.hpp
+ src/ipa/raspberrypi/cam_helper_imx219.cpp
+ src/ipa/raspberrypi/cam_helper_imx477.cpp
+ src/ipa/raspberrypi/cam_helper_ov5647.cpp
+ src/ipa/raspberrypi/controller/agc_algorithm.hpp
+ src/ipa/raspberrypi/controller/agc_status.h
+ src/ipa/raspberrypi/controller/algorithm.cpp
+ src/ipa/raspberrypi/controller/algorithm.hpp
+ src/ipa/raspberrypi/controller/alsc_status.h
+ src/ipa/raspberrypi/controller/awb_algorithm.hpp
+ src/ipa/raspberrypi/controller/awb_status.h
+ src/ipa/raspberrypi/controller/black_level_status.h
+ src/ipa/raspberrypi/controller/camera_mode.h
+ src/ipa/raspberrypi/controller/ccm_algorithm.hpp
+ src/ipa/raspberrypi/controller/ccm_status.h
+ src/ipa/raspberrypi/controller/contrast_algorithm.hpp
+ src/ipa/raspberrypi/controller/contrast_status.h
+ src/ipa/raspberrypi/controller/controller.cpp
+ src/ipa/raspberrypi/controller/controller.hpp
+ src/ipa/raspberrypi/controller/device_status.h
+ src/ipa/raspberrypi/controller/dpc_status.h
+ src/ipa/raspberrypi/controller/geq_status.h
+ src/ipa/raspberrypi/controller/histogram.cpp
+ src/ipa/raspberrypi/controller/histogram.hpp
+ src/ipa/raspberrypi/controller/logging.hpp
+ src/ipa/raspberrypi/controller/lux_status.h
+ src/ipa/raspberrypi/controller/metadata.hpp
+ src/ipa/raspberrypi/controller/noise_status.h
+ src/ipa/raspberrypi/controller/pwl.cpp
+ src/ipa/raspberrypi/controller/pwl.hpp
+ src/ipa/raspberrypi/controller/rpi/agc.cpp
+ src/ipa/raspberrypi/controller/rpi/agc.hpp
+ src/ipa/raspberrypi/controller/rpi/alsc.cpp
+ src/ipa/raspberrypi/controller/rpi/alsc.hpp
+ src/ipa/raspberrypi/controller/rpi/awb.cpp
+ src/ipa/raspberrypi/controller/rpi/awb.hpp
+ src/ipa/raspberrypi/controller/rpi/black_level.cpp
+ src/ipa/raspberrypi/controller/rpi/black_level.hpp
+ src/ipa/raspberrypi/controller/rpi/ccm.cpp
+ src/ipa/raspberrypi/controller/rpi/ccm.hpp
+ src/ipa/raspberrypi/controller/rpi/contrast.cpp
+ src/ipa/raspberrypi/controller/rpi/contrast.hpp
+ src/ipa/raspberrypi/controller/rpi/dpc.cpp
+ src/ipa/raspberrypi/controller/rpi/dpc.hpp
+ src/ipa/raspberrypi/controller/rpi/geq.cpp
+ src/ipa/raspberrypi/controller/rpi/geq.hpp
+ src/ipa/raspberrypi/controller/rpi/lux.cpp
+ src/ipa/raspberrypi/controller/rpi/lux.hpp
+ src/ipa/raspberrypi/controller/rpi/noise.cpp
+ src/ipa/raspberrypi/controller/rpi/noise.hpp
+ src/ipa/raspberrypi/controller/rpi/sdn.cpp
+ src/ipa/raspberrypi/controller/rpi/sdn.hpp
+ src/ipa/raspberrypi/controller/rpi/sharpen.cpp
+ src/ipa/raspberrypi/controller/rpi/sharpen.hpp
+ src/ipa/raspberrypi/controller/sdn_status.h
+ src/ipa/raspberrypi/controller/sharpen_status.h
+ src/ipa/raspberrypi/md_parser.cpp
+ src/ipa/raspberrypi/md_parser.hpp
+ src/ipa/raspberrypi/md_parser_rpi.cpp
+ src/ipa/raspberrypi/md_parser_rpi.hpp
+ src/libcamera/pipeline/raspberrypi/vcsm.h
+ utils/raspberrypi/ctt/ctt.py
+ utils/raspberrypi/ctt/ctt_alsc.py
+ utils/raspberrypi/ctt/ctt_awb.py
+ utils/raspberrypi/ctt/ctt_ccm.py
+ utils/raspberrypi/ctt/ctt_geq.py
+ utils/raspberrypi/ctt/ctt_image_load.py
+ utils/raspberrypi/ctt/ctt_lux.py
+ utils/raspberrypi/ctt/ctt_macbeth_locator.py
+ utils/raspberrypi/ctt/ctt_noise.py
+ utils/raspberrypi/ctt/ctt_pretty_print_json.py
+ utils/raspberrypi/ctt/ctt_ransac.py
+ utils/raspberrypi/ctt/ctt_tools.py
+Copyright: 2019, Raspberry Pi (Trading) Limited
+  2019-2020, Raspberry Pi (Trading) Limited
+  2020, Raspberry Pi (Trading) Limited
+License: UNKNOWN
+ FIXME
+
 Files: include/android/hardware/libhardware/include/hardware/camera3.h
  include/android/hardware/libhardware/include/hardware/camera_common.h
  include/android/hardware/libhardware/include/hardware/fb.h
@@ -267,6 +348,7 @@ Files: Documentation/conf.py
  debian/source/format
  debian/watch
  include/linux/README
+ src/ipa/raspberrypi/README.md
  src/qcam/assets/feathericons/README.md
  utils/gen-version.sh
  utils/hooks/post-commit
@@ -294,6 +376,19 @@ Copyright: 2019, Collabora Ltd.
 License: UNKNOWN
  FIXME
 
+Files: include/linux/bcm2835-isp.h
+ src/cam/stream_options.cpp
+ src/cam/stream_options.h
+ src/ipa/raspberrypi/raspberrypi.cpp
+ src/libcamera/pipeline/raspberrypi/raspberrypi.cpp
+ src/libcamera/pipeline/raspberrypi/staggered_ctrl.h
+ src/qcam/dng_writer.cpp
+ src/qcam/dng_writer.h
+Copyright: 2019-2020, Raspberry Pi (Trading) Ltd.
+  2020, Raspberry Pi (Trading) Ltd.
+License: UNKNOWN
+ FIXME
+
 Files: include/linux/v4l2-controls.h
  include/linux/videodev2.h
 Copyright: 1999-2012, the contributors
@@ -310,6 +405,24 @@ Files: include/linux/media.h
  include/linux/v4l2-subdev.h
 Copyright: 2010, Nokia Corporation
 License: GPL-2
+ FIXME
+
+Files: src/libcamera/include/v4l2_pixelformat.h
+ src/libcamera/v4l2_pixelformat.cpp
+Copyright: 2019, Google Inc.
+  2020, Raspberry Pi (Trading) Ltd.
+License: UNKNOWN
+ FIXME
+
+Files: src/libcamera/pipeline/simple/converter.cpp
+ src/libcamera/pipeline/simple/converter.h
+Copyright: 2020, Laurent Pinchart
+License: UNKNOWN
+ FIXME
+
+Files: include/linux/vc_sm_cma_ioctl.h
+Copyright: 2012, Broadcom Europe Ltd
+License: BSD-3-clause
  FIXME
 
 Files: include/linux/v4l2-common.h
@@ -337,8 +450,19 @@ Copyright: -format/1.0/
 License: UNKNOWN
  FIXME
 
+Files: debian/changelog
+Copyright: Add GPL-2 license
+License: UNKNOWN
+ FIXME
+
 Files: include/linux/drm_fourcc.h
 Copyright: 2011, Intel Corporation
+License: UNKNOWN
+ FIXME
+
+Files: src/libcamera/pipeline/simple/simple.cpp
+Copyright: 2019, Martijn Braam
+  2020, Laurent Pinchart
 License: UNKNOWN
  FIXME
 
@@ -358,8 +482,8 @@ Copyright: 1999, Precision Insight, Inc., Cedar Park, Texas.
 License: UNKNOWN
  FIXME
 
-Files: debian/changelog
-Copyright: Rearrange d/copyright paragraphs
+Files: include/ipa/raspberrypi.h
+Copyright: 2019-2020, Raspberry Pi Ltd.
 License: UNKNOWN
  FIXME
 
