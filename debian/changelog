@@ -1,3 +1,11 @@
+libcamera (0~git20200513+924778e-1.1) unstable; urgency=medium
+
+  * Non-maintainer upload.
+  * debian/control: added libboost-dev to Build-Depends field to avoid a FTBFS.
+    Thanks to Logan Rosen <logan@ubuntu.com>. (Closes: #960758)
+
+ -- Luis Paulo Linares <lpfllinares@gmail.com>  Tue, 09 Jun 2020 13:08:13 -0300
+
 libcamera (0~git20200513+924778e-1) unstable; urgency=medium
 
   * New upstream snapshot.
