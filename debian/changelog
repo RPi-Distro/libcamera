@@ -1,3 +1,9 @@
+libcamera (0~git20200629+e7aa92a-2) unstable; urgency=medium
+
+  * Depend on a pkg-config implementation (Really closes: #959853).
+
+ -- Andrej Shadura <andrewsh@debian.org>  Tue, 30 Jun 2020 16:20:56 +0200
+
 libcamera (0~git20200629+e7aa92a-1) unstable; urgency=medium
 
   * New upstream snapshot (Closes: #962274).
