@@ -1,5 +1,6 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: libcamera
+Upstream-Contact: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
 Source: https://libcamera.org/
 
 Files: *
@@ -40,6 +41,13 @@ Copyright:
  2018—2020 Google Inc.
  2019—2020, Raspberry Pi Ltd.
 License: LGPL-2.1+
+
+Files:
+ src/qcam/assets/feathericons/*.svg
+Copyright:
+ 2019 Cole Bemis (and other Feather icons contributors)
+License: Expat
+Comment: https://feathericons.com/
 
 Files: src/gstreamer/*
 Copyright:
