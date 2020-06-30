@@ -5,7 +5,7 @@
  * ipa_module.cpp - Image Processing Algorithm module
  */
 
-#include "ipa_module.h"
+#include "libcamera/internal/ipa_module.h"
 
 #include <algorithm>
 #include <array>
@@ -23,10 +23,10 @@
 
 #include <libcamera/span.h>
 
-#include "file.h"
-#include "log.h"
-#include "pipeline_handler.h"
-#include "utils.h"
+#include "libcamera/internal/file.h"
+#include "libcamera/internal/log.h"
+#include "libcamera/internal/pipeline_handler.h"
+#include "libcamera/internal/utils.h"
 
 /**
  * \file ipa_module.h
@@ -45,26 +45,27 @@ LOG_DEFINE_CATEGORY(IPAModule)
 namespace {
 
 template<typename T>
-typename std::remove_extent_t<T> *elfPointer(Span<uint8_t> elf, off_t offset,
-					     size_t objSize)
+typename std::remove_extent_t<T> *elfPointer(Span<const uint8_t> elf,
+					     off_t offset, size_t objSize)
 {
 	size_t size = offset + objSize;
 	if (size > elf.size() || size < objSize)
 		return nullptr;
 
 	return reinterpret_cast<typename std::remove_extent_t<T> *>
-		(reinterpret_cast<char *>(elf.data()) + offset);
+		(reinterpret_cast<const char *>(elf.data()) + offset);
 }
 
 template<typename T>
-typename std::remove_extent_t<T> *elfPointer(Span<uint8_t> elf, off_t offset)
+typename std::remove_extent_t<T> *elfPointer(Span<const uint8_t> elf,
+					     off_t offset)
 {
 	return elfPointer<T>(elf, offset, sizeof(T));
 }
 
-int elfVerifyIdent(Span<uint8_t> elf)
+int elfVerifyIdent(Span<const uint8_t> elf)
 {
-	char *e_ident = elfPointer<char[EI_NIDENT]>(elf, 0);
+	const char *e_ident = elfPointer<const char[EI_NIDENT]>(elf, 0);
 	if (!e_ident)
 		return -ENOEXEC;
 
@@ -88,6 +89,17 @@ int elfVerifyIdent(Span<uint8_t> elf)
 	return 0;
 }
 
+const ElfW(Shdr) *elfSection(Span<const uint8_t> elf, const ElfW(Ehdr) *eHdr,
+			     ElfW(Half) idx)
+{
+	if (idx >= eHdr->e_shnum)
+		return nullptr;
+
+	off_t offset = eHdr->e_shoff + idx *
+				       static_cast<uint32_t>(eHdr->e_shentsize);
+	return elfPointer<const ElfW(Shdr)>(elf, offset);
+}
+
 /**
  * \brief Retrieve address and size of a symbol from an mmap'ed ELF file
  * \param[in] elf Address and size of mmap'ed ELF file
@@ -96,28 +108,26 @@ int elfVerifyIdent(Span<uint8_t> elf)
  * \return The memory region storing the symbol on success, or an empty span
  * otherwise
  */
-Span<uint8_t> elfLoadSymbol(Span<uint8_t> elf, const char *symbol)
+Span<const uint8_t> elfLoadSymbol(Span<const uint8_t> elf, const char *symbol)
 {
-	ElfW(Ehdr) *eHdr = elfPointer<ElfW(Ehdr)>(elf, 0);
+	const ElfW(Ehdr) *eHdr = elfPointer<const ElfW(Ehdr)>(elf, 0);
 	if (!eHdr)
 		return {};
 
-	off_t offset = eHdr->e_shoff + eHdr->e_shentsize * eHdr->e_shstrndx;
-	ElfW(Shdr) *sHdr = elfPointer<ElfW(Shdr)>(elf, offset);
+	const ElfW(Shdr) *sHdr = elfSection(elf, eHdr, eHdr->e_shstrndx);
 	if (!sHdr)
 		return {};
 	off_t shnameoff = sHdr->sh_offset;
 
 	/* Locate .dynsym section header. */
-	ElfW(Shdr) *dynsym = nullptr;
+	const ElfW(Shdr) *dynsym = nullptr;
 	for (unsigned int i = 0; i < eHdr->e_shnum; i++) {
-		offset = eHdr->e_shoff + eHdr->e_shentsize * i;
-		sHdr = elfPointer<ElfW(Shdr)>(elf, offset);
+		sHdr = elfSection(elf, eHdr, i);
 		if (!sHdr)
 			return {};
 
-		offset = shnameoff + sHdr->sh_name;
-		char *name = elfPointer<char[8]>(elf, offset);
+		off_t offset = shnameoff + sHdr->sh_name;
+		const char *name = elfPointer<const char[8]>(elf, offset);
 		if (!name)
 			return {};
 
@@ -132,23 +142,23 @@ Span<uint8_t> elfLoadSymbol(Span<uint8_t> elf, const char *symbol)
 		return {};
 	}
 
-	offset = eHdr->e_shoff + eHdr->e_shentsize * dynsym->sh_link;
-	sHdr = elfPointer<ElfW(Shdr)>(elf, offset);
+	sHdr = elfSection(elf, eHdr, dynsym->sh_link);
 	if (!sHdr)
 		return {};
 	off_t dynsym_nameoff = sHdr->sh_offset;
 
 	/* Locate symbol in the .dynsym section. */
-	ElfW(Sym) *targetSymbol = nullptr;
+	const ElfW(Sym) *targetSymbol = nullptr;
 	unsigned int dynsym_num = dynsym->sh_size / dynsym->sh_entsize;
 	for (unsigned int i = 0; i < dynsym_num; i++) {
-		offset = dynsym->sh_offset + dynsym->sh_entsize * i;
-		ElfW(Sym) *sym = elfPointer<ElfW(Sym)>(elf, offset);
+		off_t offset = dynsym->sh_offset + dynsym->sh_entsize * i;
+		const ElfW(Sym) *sym = elfPointer<const ElfW(Sym)>(elf, offset);
 		if (!sym)
 			return {};
 
 		offset = dynsym_nameoff + sym->st_name;
-		char *name = elfPointer<char>(elf, offset, strlen(symbol) + 1);
+		const char *name = elfPointer<const char>(elf, offset,
+							  strlen(symbol) + 1);
 		if (!name)
 			return {};
 
@@ -165,14 +175,12 @@ Span<uint8_t> elfLoadSymbol(Span<uint8_t> elf, const char *symbol)
 	}
 
 	/* Locate and return data of symbol. */
-	if (targetSymbol->st_shndx >= eHdr->e_shnum)
-		return {};
-	offset = eHdr->e_shoff + targetSymbol->st_shndx * eHdr->e_shentsize;
-	sHdr = elfPointer<ElfW(Shdr)>(elf, offset);
+	sHdr = elfSection(elf, eHdr, targetSymbol->st_shndx);
 	if (!sHdr)
 		return {};
-	offset = sHdr->sh_offset + (targetSymbol->st_value - sHdr->sh_addr);
-	uint8_t *data = elfPointer<uint8_t>(elf, offset, targetSymbol->st_size);
+	off_t offset = sHdr->sh_offset + (targetSymbol->st_value - sHdr->sh_addr);
+	const uint8_t *data = elfPointer<const uint8_t>(elf, offset,
+							targetSymbol->st_size);
 	if (!data)
 		return {};
 
@@ -273,14 +281,14 @@ int IPAModule::loadIPAModuleInfo()
 		return file.error();
 	}
 
-	Span<uint8_t> data = file.map(0, -1, File::MapPrivate);
+	Span<const uint8_t> data = file.map();
 	int ret = elfVerifyIdent(data);
 	if (ret) {
 		LOG(IPAModule, Error) << "IPA module is not an ELF file";
 		return ret;
 	}
 
-	Span<uint8_t> info = elfLoadSymbol(data, "ipaModuleInfo");
+	Span<const uint8_t> info = elfLoadSymbol(data, "ipaModuleInfo");
 	if (info.size() != sizeof(info_)) {
 		LOG(IPAModule, Error) << "IPA module has no valid info";
 		return -EINVAL;
@@ -453,7 +461,7 @@ struct ipa_context *IPAModule::createContext()
 }
 
 /**
- * \brief Verify if the IPA module maches a given pipeline handler
+ * \brief Verify if the IPA module matches a given pipeline handler
  * \param[in] pipe Pipeline handler to match with
  * \param[in] minVersion Minimum acceptable version of IPA module
  * \param[in] maxVersion Maximum acceptable version of IPA module

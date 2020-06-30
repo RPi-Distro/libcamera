@@ -148,7 +148,7 @@ V4L2 Compatibility Layer
 
 The project shall support traditional V4L2 application through an additional
 libcamera wrapper library. The wrapper library shall trap all accesses to
-camera devices through LD_PRELOAD, and route them through libcamera to
+camera devices through `LD_PRELOAD`, and route them through libcamera to
 emulate a high-level V4L2 camera device. It shall expose camera device
 features on a best-effort basis, and aim for the level of features
 traditionally available from a UVC camera designed for video conferencing.
@@ -231,7 +231,7 @@ The camera stack comprises four software layers. From bottom to top:
 
   Those components can live in the libcamera project source code
   in separate repositories, or move to their respective project's
-  repository (for instance the gstreamer libcamera element).</p>
+  repository (for instance the gstreamer libcamera element).
 
 * The applications and upper level frameworks are based on the
   libcamera framework or libcamera adaptation, and are outside of
@@ -282,7 +282,7 @@ libcamera Architecture
            | |   Runner    |  |             |                                   |
            | +-------------+  +-------------+                                   |
            +--------------------------------------------------------------------+
-  
+
              /// Device-Specific Components
              ~~~ Sandboxing
 
@@ -326,7 +326,7 @@ Pipeline Handler
   such it is covered by the same free software license as the rest of libcamera
   and needs to be contributed upstream by device vendors. The Pipeline Handler
   lives in the same process as the rest of the library, and has access to all
-  helpers and kernel camera-related devices.</p>
+  helpers and kernel camera-related devices.
 
 Image Processing Algorithms
   Together with the hardware image processing and hardware statistics
@@ -380,7 +380,7 @@ V4L2 Compatibility Layer
 V4L2 compatibility is achieved through a shared library that traps all
 accesses to camera devices and routes them to libcamera to emulate high-level
 V4L2 camera devices. It is injected in a process address space through
-LD_PRELOAD and is completely transparent for applications.
+`LD_PRELOAD` and is completely transparent for applications.
 
 The compatibility layer exposes camera device features on a best-effort basis,
 and aims for the level of features traditionally available from a UVC camera

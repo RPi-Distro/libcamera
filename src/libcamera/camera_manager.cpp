@@ -13,12 +13,13 @@
 #include <libcamera/camera.h>
 #include <libcamera/event_dispatcher.h>
 
-#include "device_enumerator.h"
-#include "event_dispatcher_poll.h"
-#include "log.h"
-#include "pipeline_handler.h"
-#include "thread.h"
-#include "utils.h"
+#include "libcamera/internal/device_enumerator.h"
+#include "libcamera/internal/event_dispatcher_poll.h"
+#include "libcamera/internal/ipa_manager.h"
+#include "libcamera/internal/log.h"
+#include "libcamera/internal/pipeline_handler.h"
+#include "libcamera/internal/thread.h"
+#include "libcamera/internal/utils.h"
 
 /**
  * \file camera_manager.h
@@ -35,7 +36,8 @@ public:
 	Private(CameraManager *cm);
 
 	int start();
-	void addCamera(std::shared_ptr<Camera> &camera, dev_t devnum);
+	void addCamera(std::shared_ptr<Camera> camera,
+		       const std::vector<dev_t> &devnums);
 	void removeCamera(Camera *camera);
 
 	/*
@@ -53,6 +55,7 @@ protected:
 
 private:
 	int init();
+	void createPipelineHandlers();
 	void cleanup();
 
 	CameraManager *cm_;
@@ -61,8 +64,9 @@ private:
 	bool initialized_;
 	int status_;
 
-	std::vector<std::shared_ptr<PipelineHandler>> pipes_;
 	std::unique_ptr<DeviceEnumerator> enumerator_;
+
+	IPAManager ipaManager_;
 };
 
 CameraManager::Private::Private(CameraManager *cm)
@@ -120,12 +124,20 @@ int CameraManager::Private::init()
 	if (!enumerator_ || enumerator_->enumerate())
 		return -ENODEV;
 
+	createPipelineHandlers();
+
+	return 0;
+}
+
+void CameraManager::Private::createPipelineHandlers()
+{
 	/*
-	 * TODO: Try to read handlers and order from configuration
+	 * \todo Try to read handlers and order from configuration
 	 * file and only fallback on all handlers if there is no
 	 * configuration file.
 	 */
-	std::vector<PipelineHandlerFactory *> &factories = PipelineHandlerFactory::factories();
+	std::vector<PipelineHandlerFactory *> &factories =
+		PipelineHandlerFactory::factories();
 
 	for (PipelineHandlerFactory *factory : factories) {
 		/*
@@ -140,32 +152,27 @@ int CameraManager::Private::init()
 			LOG(Camera, Debug)
 				<< "Pipeline handler \"" << factory->name()
 				<< "\" matched";
-			pipes_.push_back(std::move(pipe));
 		}
 	}
 
-	/* TODO: register hot-plug callback here */
-
-	return 0;
+	enumerator_->devicesAdded.connect(this, &Private::createPipelineHandlers);
 }
 
 void CameraManager::Private::cleanup()
 {
-	/* TODO: unregister hot-plug callback here */
+	enumerator_->devicesAdded.disconnect(this, &Private::createPipelineHandlers);
 
 	/*
-	 * Release all references to cameras and pipeline handlers to ensure
-	 * they all get destroyed before the device enumerator deletes the
-	 * media devices.
+	 * Release all references to cameras to ensure they all get destroyed
+	 * before the device enumerator deletes the media devices.
 	 */
-	pipes_.clear();
 	cameras_.clear();
 
 	enumerator_.reset(nullptr);
 }
 
-void CameraManager::Private::addCamera(std::shared_ptr<Camera> &camera,
-				       dev_t devnum)
+void CameraManager::Private::addCamera(std::shared_ptr<Camera> camera,
+				       const std::vector<dev_t> &devnums)
 {
 	MutexLocker locker(mutex_);
 
@@ -180,10 +187,9 @@ void CameraManager::Private::addCamera(std::shared_ptr<Camera> &camera,
 
 	cameras_.push_back(std::move(camera));
 
-	if (devnum) {
-		unsigned int index = cameras_.size() - 1;
+	unsigned int index = cameras_.size() - 1;
+	for (dev_t devnum : devnums)
 		camerasByDevnum_[devnum] = cameras_[index];
-	}
 }
 
 void CameraManager::Private::removeCamera(Camera *camera)
@@ -369,24 +375,54 @@ std::shared_ptr<Camera> CameraManager::get(dev_t devnum)
 }
 
 /**
+ * \var CameraManager::cameraAdded
+ * \brief Notify of a new camera added to the system
+ *
+ * This signal is emitted when a new camera is detected and successfully handled
+ * by the camera manager. The notification occurs alike for cameras detected
+ * when the manager is started with start() or when new cameras are later
+ * connected to the system. When the signal is emitted the new camera is already
+ * available from the list of cameras().
+ *
+ * The signal is emitted from the CameraManager thread. Applications shall
+ * minimize the time spent in the signal handler and shall in particular not
+ * perform any blocking operation.
+ */
+
+/**
+ * \var CameraManager::cameraRemoved
+ * \brief Notify of a new camera removed from the system
+ *
+ * This signal is emitted when a camera is removed from the system. When the
+ * signal is emitted the camera is not available from the list of cameras()
+ * anymore.
+ *
+ * The signal is emitted from the CameraManager thread. Applications shall
+ * minimize the time spent in the signal handler and shall in particular not
+ * perform any blocking operation.
+ */
+
+/**
  * \brief Add a camera to the camera manager
  * \param[in] camera The camera to be added
- * \param[in] devnum The device number to associate with \a camera
+ * \param[in] devnums The device numbers to associate with \a camera
  *
  * This function is called by pipeline handlers to register the cameras they
  * handle with the camera manager. Registered cameras are immediately made
  * available to the system.
  *
- * \a devnum is used by the V4L2 compatibility layer to map V4L2 device nodes
+ * \a devnums are used by the V4L2 compatibility layer to map V4L2 device nodes
  * to Camera instances.
  *
  * \context This function shall be called from the CameraManager thread.
  */
-void CameraManager::addCamera(std::shared_ptr<Camera> camera, dev_t devnum)
+void CameraManager::addCamera(std::shared_ptr<Camera> camera,
+			      const std::vector<dev_t> &devnums)
 {
 	ASSERT(Thread::current() == p_.get());
 
-	p_->addCamera(camera, devnum);
+	p_->addCamera(camera, devnums);
+	cameraAdded.emit(camera);
 }
 
 /**
@@ -399,11 +435,12 @@ void CameraManager::addCamera(std::shared_ptr<Camera> camera, dev_t devnum)
  *
  * \context This function shall be called from the CameraManager thread.
  */
-void CameraManager::removeCamera(Camera *camera)
+void CameraManager::removeCamera(std::shared_ptr<Camera> camera)
 {
 	ASSERT(Thread::current() == p_.get());
 
-	p_->removeCamera(camera);
+	p_->removeCamera(camera.get());
+	cameraRemoved.emit(camera);
 }
 
 /**

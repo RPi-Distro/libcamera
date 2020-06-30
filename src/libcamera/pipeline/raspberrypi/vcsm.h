@@ -1,10 +1,11 @@
-/* SPDX-License-Identifier: BSD-2-Clause */
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
 /*
  * Copyright (C) 2019, Raspberry Pi (Trading) Limited
  *
  * vcsm.h - Helper class for vcsm allocations.
  */
-#pragma once
+#ifndef __LIBCAMERA_PIPELINE_RASPBERRYPI_VCSM_H__
+#define __LIBCAMERA_PIPELINE_RASPBERRYPI_VCSM_H__
 
 #include <iostream>
 #include <mutex>
@@ -144,3 +145,5 @@ private:
 };
 
 } /* namespace RPi */
+
+#endif /* __LIBCAMERA_PIPELINE_RASPBERRYPI_VCSM_H__ */

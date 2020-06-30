@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: CC0-1.0
 
-libcamera_api = files([
+libcamera_public_headers = files([
     'bound_method.h',
     'buffer.h',
     'camera.h',
@@ -13,7 +13,7 @@ libcamera_api = files([
     'geometry.h',
     'logging.h',
     'object.h',
-    'pixelformats.h',
+    'pixel_format.h',
     'request.h',
     'signal.h',
     'span.h',
@@ -23,9 +23,17 @@ libcamera_api = files([
 
 include_dir = join_paths(libcamera_include_dir, 'libcamera')
 
-install_headers(libcamera_api,
+subdir('internal')
+subdir('ipa')
+
+install_headers(libcamera_public_headers,
                 subdir : include_dir)
 
+#
+# Generate headers from templates.
+#
+
+# control_ids.h and property_ids.h
 gen_controls = files('../../src/libcamera/gen-controls.py')
 
 control_source_files = [
@@ -46,8 +54,24 @@ foreach header : control_source_files
                                      install_dir : join_paths('include', include_dir))
 endforeach
 
-libcamera_api += control_headers
+libcamera_public_headers += control_headers
 
+# formats.h
+gen_formats = files('gen-formats.py')
+
+formats_h = custom_target('formats_h',
+                          input : files(
+                              '../../src/libcamera/formats.yaml',
+                              'formats.h.in',
+                              '../linux/drm_fourcc.h'
+                          ),
+                          output : 'formats.h',
+                          command : [gen_formats, '-o', '@OUTPUT@', '@INPUT@'],
+                          install : true,
+                          install_dir : join_paths('include', include_dir))
+libcamera_public_headers += formats_h
+
+# libcamera.h
 gen_header = files('gen-header.sh')
 
 libcamera_h = custom_target('gen-header',
@@ -57,8 +81,9 @@ libcamera_h = custom_target('gen-header',
                             install : true,
                             install_dir : join_paths('include', include_dir))
 
-libcamera_api += libcamera_h
+libcamera_public_headers += libcamera_h
 
+# version.h
 version = libcamera_version.split('.')
 libcamera_version_config = configuration_data()
 libcamera_version_config.set('LIBCAMERA_VERSION_MAJOR', version[0])

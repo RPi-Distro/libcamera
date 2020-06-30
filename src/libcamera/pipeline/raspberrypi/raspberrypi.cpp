@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: BSD-2-Clause */
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
 /*
  * Copyright (C) 2019-2020, Raspberry Pi (Trading) Ltd.
  *
@@ -11,25 +11,26 @@
 #include <queue>
 #include <sys/mman.h>
 
-#include <ipa/raspberrypi.h>
 #include <libcamera/camera.h>
 #include <libcamera/control_ids.h>
+#include <libcamera/formats.h>
+#include <libcamera/ipa/raspberrypi.h>
 #include <libcamera/logging.h>
 #include <libcamera/request.h>
 #include <libcamera/stream.h>
 
-#include <linux/drm_fourcc.h>
 #include <linux/videodev2.h>
 
-#include "camera_sensor.h"
-#include "device_enumerator.h"
-#include "ipa_manager.h"
-#include "media_device.h"
-#include "pipeline_handler.h"
+#include "libcamera/internal/camera_sensor.h"
+#include "libcamera/internal/device_enumerator.h"
+#include "libcamera/internal/ipa_manager.h"
+#include "libcamera/internal/media_device.h"
+#include "libcamera/internal/pipeline_handler.h"
+#include "libcamera/internal/utils.h"
+#include "libcamera/internal/v4l2_controls.h"
+#include "libcamera/internal/v4l2_videodevice.h"
+
 #include "staggered_ctrl.h"
-#include "utils.h"
-#include "v4l2_controls.h"
-#include "v4l2_videodevice.h"
 #include "vcsm.h"
 
 namespace libcamera {
@@ -303,7 +304,8 @@ public:
 		}
 
 		/* Stop the IPA proxy thread. */
-		ipa_->stop();
+		if (ipa_)
+			ipa_->stop();
 	}
 
 	void frameStarted(uint32_t sequence);
@@ -330,7 +332,7 @@ public:
 	std::vector<IPABuffer> ipaBuffers_;
 
 	/* VCSM allocation helper. */
-	RPi::Vcsm vcsm_;
+	::RPi::Vcsm vcsm_;
 	void *lsTable_;
 
 	RPi::StaggeredCtrl staggeredCtrl_;
@@ -488,7 +490,7 @@ CameraConfiguration::Status RPiCameraConfiguration::validate()
 
 		if (fmts.find(V4L2PixelFormat::fromPixelFormat(cfgPixFmt, false)) == fmts.end()) {
 			/* If we cannot find a native format, use a default one. */
-			cfgPixFmt = PixelFormat(DRM_FORMAT_NV12);
+			cfgPixFmt = formats::NV12;
 			status = Adjusted;
 		}
 	}
@@ -516,49 +518,82 @@ CameraConfiguration *PipelineHandlerRPi::generateConfiguration(Camera *camera,
 	RPiCameraData *data = cameraData(camera);
 	CameraConfiguration *config = new RPiCameraConfiguration(data);
 	V4L2DeviceFormat sensorFormat;
+	unsigned int bufferCount;
+	PixelFormat pixelFormat;
 	V4L2PixFmtMap fmts;
+	Size size;
 
 	if (roles.empty())
 		return config;
 
+	unsigned int rawCount = 0;
+	unsigned int outCount = 0;
 	for (const StreamRole role : roles) {
-		StreamConfiguration cfg{};
-
 		switch (role) {
 		case StreamRole::StillCaptureRaw:
-			cfg.size = data->sensor_->resolution();
+			size = data->sensor_->resolution();
 			fmts = data->unicam_[Unicam::Image].dev()->formats();
-			sensorFormat = findBestMode(fmts, cfg.size);
-			cfg.pixelFormat = sensorFormat.fourcc.toPixelFormat();
-			ASSERT(cfg.pixelFormat.isValid());
-			cfg.bufferCount = 1;
+			sensorFormat = findBestMode(fmts, size);
+			pixelFormat = sensorFormat.fourcc.toPixelFormat();
+			ASSERT(pixelFormat.isValid());
+			bufferCount = 1;
+			rawCount++;
 			break;
 
 		case StreamRole::StillCapture:
-			cfg.pixelFormat = PixelFormat(DRM_FORMAT_NV12);
+			fmts = data->isp_[Isp::Output0].dev()->formats();
+			pixelFormat = formats::NV12;
 			/* Return the largest sensor resolution. */
-			cfg.size = data->sensor_->resolution();
-			cfg.bufferCount = 1;
+			size = data->sensor_->resolution();
+			bufferCount = 1;
+			outCount++;
 			break;
 
 		case StreamRole::VideoRecording:
-			cfg.pixelFormat = PixelFormat(DRM_FORMAT_NV12);
-			cfg.size = { 1920, 1080 };
-			cfg.bufferCount = 4;
+			fmts = data->isp_[Isp::Output0].dev()->formats();
+			pixelFormat = formats::NV12;
+			size = { 1920, 1080 };
+			bufferCount = 4;
+			outCount++;
 			break;
 
 		case StreamRole::Viewfinder:
-			cfg.pixelFormat = PixelFormat(DRM_FORMAT_ARGB8888);
-			cfg.size = { 800, 600 };
-			cfg.bufferCount = 4;
+			fmts = data->isp_[Isp::Output0].dev()->formats();
+			pixelFormat = formats::ARGB8888;
+			size = { 800, 600 };
+			bufferCount = 4;
+			outCount++;
 			break;
 
 		default:
 			LOG(RPI, Error) << "Requested stream role not supported: "
 					<< role;
-			break;
+			delete config;
+			return nullptr;
 		}
 
+		if (rawCount > 1 || outCount > 2) {
+			LOG(RPI, Error) << "Invalid stream roles requested";
+			delete config;
+			return nullptr;
+		}
+
+		/* Translate the V4L2PixelFormat to PixelFormat. */
+		std::map<PixelFormat, std::vector<SizeRange>> deviceFormats;
+		std::transform(fmts.begin(), fmts.end(), std::inserter(deviceFormats, deviceFormats.end()),
+			       [&](const decltype(fmts)::value_type &format) {
+					return decltype(deviceFormats)::value_type{
+						format.first.toPixelFormat(),
+						format.second
+					};
+			       });
+
+		/* Add the stream format based on the device node used for the use case. */
+		StreamFormats formats(deviceFormats);
+		StreamConfiguration cfg(formats);
+		cfg.size = size;
+		cfg.pixelFormat = pixelFormat;
+		cfg.bufferCount = bufferCount;
 		config->addConfiguration(cfg);
 	}
 
@@ -1116,7 +1151,7 @@ void RPiCameraData::frameStarted(uint32_t sequence)
 
 int RPiCameraData::loadIPA()
 {
-	ipa_ = IPAManager::instance()->createIPA(pipe_, 1, 1);
+	ipa_ = IPAManager::createIPA(pipe_, 1, 1);
 	if (!ipa_)
 		return -ENOENT;
 

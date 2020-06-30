@@ -9,7 +9,7 @@
 
 #include <libcamera/camera.h>
 
-#include "log.h"
+#include "libcamera/internal/log.h"
 
 #include "camera_device.h"
 
@@ -65,8 +65,11 @@ int CameraHalManager::init()
 	unsigned int index = 0;
 	for (auto &cam : cameraManager_->cameras()) {
 		CameraDevice *camera = new CameraDevice(index, cam);
-		cameras_.emplace_back(camera);
+		ret = camera->initialize();
+		if (ret)
+			continue;
 
+		cameras_.emplace_back(camera);
 		++index;
 	}
 
@@ -107,10 +110,9 @@ int CameraHalManager::getCameraInfo(unsigned int id, struct camera_info *info)
 
 	CameraDevice *camera = cameras_[id].get();
 
-	/* \todo Get these info dynamically inspecting the camera module. */
-	info->facing = id ? CAMERA_FACING_FRONT : CAMERA_FACING_BACK;
-	info->orientation = 0;
-	info->device_version = 0;
+	info->facing = camera->facing();
+	info->orientation = camera->orientation();
+	info->device_version = CAMERA_DEVICE_API_VERSION_3_3;
 	info->resource_cost = 0;
 	info->static_camera_characteristics = camera->getStaticMetadata();
 	info->conflicting_devices = nullptr;

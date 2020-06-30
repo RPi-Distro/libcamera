@@ -14,6 +14,7 @@
 #include <tiffio.h>
 
 #include <libcamera/control_ids.h>
+#include <libcamera/formats.h>
 
 using namespace libcamera;
 
@@ -82,54 +83,176 @@ void thumbScanlineSBGGRxxP(const FormatInfo &info, void *output,
 	}
 }
 
+void packScanlineIPU3(void *output, const void *input, unsigned int width)
+{
+	const uint8_t *in = static_cast<const uint8_t *>(input);
+	uint16_t *out = static_cast<uint16_t *>(output);
+
+	/*
+	 * Upscale the 10-bit format to 16-bit as it's not trivial to pack it
+	 * as 10-bit without gaps.
+	 *
+	 * \todo Improve packing to keep the 10-bit sample size.
+	 */
+	unsigned int x = 0;
+	while (true) {
+		for (unsigned int i = 0; i < 6; i++) {
+			*out++ = (in[1] & 0x03) << 14 | (in[0] & 0xff) << 6;
+			if (++x >= width)
+				return;
+
+			*out++ = (in[2] & 0x0f) << 12 | (in[1] & 0xfc) << 4;
+			if (++x >= width)
+				return;
+
+			*out++ = (in[3] & 0x3f) << 10 | (in[2] & 0xf0) << 2;
+			if (++x >= width)
+				return;
+
+			*out++ = (in[4] & 0xff) <<  8 | (in[3] & 0xc0) << 0;
+			if (++x >= width)
+				return;
+
+			in += 5;
+		}
+
+		*out++ = (in[1] & 0x03) << 14 | (in[0] & 0xff) << 6;
+		if (++x >= width)
+			return;
+
+		in += 2;
+	}
+}
+
+void thumbScanlineIPU3(const FormatInfo &info, void *output,
+		       const void *input, unsigned int width,
+		       unsigned int stride)
+{
+	uint8_t *out = static_cast<uint8_t *>(output);
+
+	for (unsigned int x = 0; x < width; x++) {
+		unsigned int pixel = x * 16;
+		unsigned int block = pixel / 25;
+		unsigned int pixelInBlock = pixel - block * 25;
+
+		/*
+		 * If the pixel is the last in the block cheat a little and
+		 * move one pixel backward to avoid reading between two blocks
+		 * and having to deal with the padding bits.
+		 */
+		if (pixelInBlock == 24)
+			pixelInBlock--;
+
+		const uint8_t *in = static_cast<const uint8_t *>(input)
+				  + block * 32 + (pixelInBlock / 4) * 5;
+
+		uint16_t val1, val2, val3, val4;
+		switch (pixelInBlock % 4) {
+		case 0:
+			val1 = (in[1] & 0x03) << 14 | (in[0] & 0xff) << 6;
+			val2 = (in[2] & 0x0f) << 12 | (in[1] & 0xfc) << 4;
+			val3 = (in[stride + 1] & 0x03) << 14 | (in[stride + 0] & 0xff) << 6;
+			val4 = (in[stride + 2] & 0x0f) << 12 | (in[stride + 1] & 0xfc) << 4;
+			break;
+		case 1:
+			val1 = (in[2] & 0x0f) << 12 | (in[1] & 0xfc) << 4;
+			val2 = (in[3] & 0x3f) << 10 | (in[2] & 0xf0) << 2;
+			val3 = (in[stride + 2] & 0x0f) << 12 | (in[stride + 1] & 0xfc) << 4;
+			val4 = (in[stride + 3] & 0x3f) << 10 | (in[stride + 2] & 0xf0) << 2;
+			break;
+		case 2:
+			val1 = (in[3] & 0x3f) << 10 | (in[2] & 0xf0) << 2;
+			val2 = (in[4] & 0xff) <<  8 | (in[3] & 0xc0) << 0;
+			val3 = (in[stride + 3] & 0x3f) << 10 | (in[stride + 2] & 0xf0) << 2;
+			val4 = (in[stride + 4] & 0xff) <<  8 | (in[stride + 3] & 0xc0) << 0;
+			break;
+		case 3:
+			val1 = (in[4] & 0xff) <<  8 | (in[3] & 0xc0) << 0;
+			val2 = (in[6] & 0x03) << 14 | (in[5] & 0xff) << 6;
+			val3 = (in[stride + 4] & 0xff) <<  8 | (in[stride + 3] & 0xc0) << 0;
+			val4 = (in[stride + 6] & 0x03) << 14 | (in[stride + 5] & 0xff) << 6;
+			break;
+		}
+
+		uint8_t value = (val1 + val2 + val3 + val4) >> 10;
+		*out++ = value;
+		*out++ = value;
+		*out++ = value;
+	}
+}
+
 static const std::map<PixelFormat, FormatInfo> formatInfo = {
-	{ PixelFormat(DRM_FORMAT_SBGGR10, MIPI_FORMAT_MOD_CSI2_PACKED), {
+	{ formats::SBGGR10_CSI2P, {
 		.bitsPerSample = 10,
 		.pattern = { CFAPatternBlue, CFAPatternGreen, CFAPatternGreen, CFAPatternRed },
 		.packScanline = packScanlineSBGGR10P,
 		.thumbScanline = thumbScanlineSBGGRxxP,
 	} },
-	{ PixelFormat(DRM_FORMAT_SGBRG10, MIPI_FORMAT_MOD_CSI2_PACKED), {
+	{ formats::SGBRG10_CSI2P, {
 		.bitsPerSample = 10,
 		.pattern = { CFAPatternGreen, CFAPatternBlue, CFAPatternRed, CFAPatternGreen },
 		.packScanline = packScanlineSBGGR10P,
 		.thumbScanline = thumbScanlineSBGGRxxP,
 	} },
-	{ PixelFormat(DRM_FORMAT_SGRBG10, MIPI_FORMAT_MOD_CSI2_PACKED), {
+	{ formats::SGRBG10_CSI2P, {
 		.bitsPerSample = 10,
 		.pattern = { CFAPatternGreen, CFAPatternRed, CFAPatternBlue, CFAPatternGreen },
 		.packScanline = packScanlineSBGGR10P,
 		.thumbScanline = thumbScanlineSBGGRxxP,
 	} },
-	{ PixelFormat(DRM_FORMAT_SRGGB10, MIPI_FORMAT_MOD_CSI2_PACKED), {
+	{ formats::SRGGB10_CSI2P, {
 		.bitsPerSample = 10,
 		.pattern = { CFAPatternRed, CFAPatternGreen, CFAPatternGreen, CFAPatternBlue },
 		.packScanline = packScanlineSBGGR10P,
 		.thumbScanline = thumbScanlineSBGGRxxP,
 	} },
-	{ PixelFormat(DRM_FORMAT_SBGGR12, MIPI_FORMAT_MOD_CSI2_PACKED), {
+	{ formats::SBGGR12_CSI2P, {
 		.bitsPerSample = 12,
 		.pattern = { CFAPatternBlue, CFAPatternGreen, CFAPatternGreen, CFAPatternRed },
 		.packScanline = packScanlineSBGGR12P,
 		.thumbScanline = thumbScanlineSBGGRxxP,
 	} },
-	{ PixelFormat(DRM_FORMAT_SGBRG12, MIPI_FORMAT_MOD_CSI2_PACKED), {
+	{ formats::SGBRG12_CSI2P, {
 		.bitsPerSample = 12,
 		.pattern = { CFAPatternGreen, CFAPatternBlue, CFAPatternRed, CFAPatternGreen },
 		.packScanline = packScanlineSBGGR12P,
 		.thumbScanline = thumbScanlineSBGGRxxP,
 	} },
-	{ PixelFormat(DRM_FORMAT_SGRBG12, MIPI_FORMAT_MOD_CSI2_PACKED), {
+	{ formats::SGRBG12_CSI2P, {
 		.bitsPerSample = 12,
 		.pattern = { CFAPatternGreen, CFAPatternRed, CFAPatternBlue, CFAPatternGreen },
 		.packScanline = packScanlineSBGGR12P,
 		.thumbScanline = thumbScanlineSBGGRxxP,
 	} },
-	{ PixelFormat(DRM_FORMAT_SRGGB12, MIPI_FORMAT_MOD_CSI2_PACKED), {
+	{ formats::SRGGB12_CSI2P, {
 		.bitsPerSample = 12,
 		.pattern = { CFAPatternRed, CFAPatternGreen, CFAPatternGreen, CFAPatternBlue },
 		.packScanline = packScanlineSBGGR12P,
 		.thumbScanline = thumbScanlineSBGGRxxP,
+	} },
+	{ formats::SBGGR10_IPU3, {
+		.bitsPerSample = 16,
+		.pattern = { CFAPatternBlue, CFAPatternGreen, CFAPatternGreen, CFAPatternRed },
+		.packScanline = packScanlineIPU3,
+		.thumbScanline = thumbScanlineIPU3,
+	} },
+	{ formats::SGBRG10_IPU3, {
+		.bitsPerSample = 16,
+		.pattern = { CFAPatternGreen, CFAPatternBlue, CFAPatternRed, CFAPatternGreen },
+		.packScanline = packScanlineIPU3,
+		.thumbScanline = thumbScanlineIPU3,
+	} },
+	{ formats::SGRBG10_IPU3, {
+		.bitsPerSample = 16,
+		.pattern = { CFAPatternGreen, CFAPatternRed, CFAPatternBlue, CFAPatternGreen },
+		.packScanline = packScanlineIPU3,
+		.thumbScanline = thumbScanlineIPU3,
+	} },
+	{ formats::SRGGB10_IPU3, {
+		.bitsPerSample = 16,
+		.pattern = { CFAPatternRed, CFAPatternGreen, CFAPatternGreen, CFAPatternBlue },
+		.packScanline = packScanlineIPU3,
+		.thumbScanline = thumbScanlineIPU3,
 	} },
 };
 
@@ -304,6 +427,23 @@ int DNGWriter::write(const char *filename, const Camera *camera,
 
 	/* Create a new IFD for the EXIF data and fill it. */
 	TIFFCreateEXIFDirectory(tif);
+
+	/* Store creation time. */
+	time_t rawtime;
+	struct tm *timeinfo;
+	char strTime[20];
+
+	time(&rawtime);
+	timeinfo = localtime(&rawtime);
+	strftime(strTime, 20, "%Y:%m:%d %H:%M:%S", timeinfo);
+
+	/*
+	 * \todo Handle timezone information by setting OffsetTimeOriginal and
+	 * OffsetTimeDigitized once libtiff catches up to the specification and
+	 * has EXIFTAG_ defines to handle them.
+	 */
+	TIFFSetField(tif, EXIFTAG_DATETIMEORIGINAL, strTime);
+	TIFFSetField(tif, EXIFTAG_DATETIMEDIGITIZED, strTime);
 
 	if (metadata.contains(controls::AnalogueGain)) {
 		float gain = metadata.get(controls::AnalogueGain);

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
 /*
  * Copyright (C) 2019, Google Inc.
  *
@@ -17,7 +17,7 @@
 #include <libcamera/file_descriptor.h>
 #include <libcamera/framebuffer_allocator.h>
 
-#include "semaphore.h"
+#include "libcamera/internal/semaphore.h"
 
 using namespace libcamera;
 
@@ -39,6 +39,8 @@ public:
 
 	int open();
 	void close();
+	void bind(int efd);
+	void unbind();
 	void getStreamConfig(StreamConfiguration *streamConfig);
 	std::vector<Buffer> completedBuffers();
 
@@ -55,7 +57,10 @@ public:
 
 	int qbuf(unsigned int index);
 
-	Semaphore bufferSema_;
+	void waitForBufferAvailable();
+	bool isBufferAvailable();
+
+	bool isRunning();
 
 private:
 	void requestComplete(Request *request);
@@ -70,6 +75,12 @@ private:
 
 	std::deque<std::unique_ptr<Request>> pendingRequests_;
 	std::deque<std::unique_ptr<Buffer>> completedBuffers_;
+
+	int efd_;
+
+	Mutex bufferMutex_;
+	std::condition_variable bufferCV_;
+	unsigned int bufferAvailableCount_;
 };
 
 #endif /* __V4L2_CAMERA_H__ */

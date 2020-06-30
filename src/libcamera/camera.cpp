@@ -14,9 +14,9 @@
 #include <libcamera/request.h>
 #include <libcamera/stream.h>
 
-#include "log.h"
-#include "pipeline_handler.h"
-#include "utils.h"
+#include "libcamera/internal/log.h"
+#include "libcamera/internal/pipeline_handler.h"
+#include "libcamera/internal/utils.h"
 
 /**
  * \file camera.h
@@ -449,8 +449,8 @@ void Camera::Private::setState(State state)
 
 /**
  * \brief Create a camera instance
- * \param[in] name The name of the camera device
  * \param[in] pipe The pipeline handler responsible for the camera device
+ * \param[in] name The name of the camera device
  * \param[in] streams Array of streams the camera provides
  *
  * The caller is responsible for guaranteeing unicity of the camera name.
@@ -664,7 +664,7 @@ const ControlList &Camera::properties()
  *
  * \context This function is \threadsafe.
  *
- * \return An array of all the camera's streams.
+ * \return An array of all the camera's streams
  */
 const std::set<Stream *> &Camera::streams() const
 {
@@ -777,9 +777,12 @@ int Camera::configure(CameraConfiguration *config)
 	p_->activeStreams_.clear();
 	for (const StreamConfiguration &cfg : *config) {
 		Stream *stream = cfg.stream();
-		if (!stream)
+		if (!stream) {
 			LOG(Camera, Fatal)
 				<< "Pipeline handler failed to update stream configuration";
+			p_->activeStreams_.clear();
+			return -EINVAL;
+		}
 
 		stream->configuration_ = cfg;
 		p_->activeStreams_.insert(stream);
