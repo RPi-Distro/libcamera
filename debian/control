@@ -8,6 +8,7 @@ Uploaders:
 Build-Depends: debhelper-compat (= 12),
                dh-exec,
                meson (>= 0.47),
+               pkgconf,
                libudev-dev,
                libgnutls28-dev | gnutls-dev,
                python3-sphinx,
