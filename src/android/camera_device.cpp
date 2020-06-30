@@ -8,15 +8,81 @@
 #include "camera_device.h"
 #include "camera_ops.h"
 
+#include <tuple>
+#include <vector>
+
 #include <libcamera/controls.h>
+#include <libcamera/formats.h>
 #include <libcamera/property_ids.h>
 
-#include "log.h"
-#include "utils.h"
+#include "libcamera/internal/log.h"
+#include "libcamera/internal/utils.h"
 
 #include "camera_metadata.h"
+#include "system/graphics.h"
 
 using namespace libcamera;
+
+namespace {
+
+/*
+ * \var camera3Resolutions
+ * \brief The list of image resolutions defined as mandatory to be supported by
+ * the Android Camera3 specification
+ */
+const std::vector<Size> camera3Resolutions = {
+	{ 320, 240 },
+	{ 640, 480 },
+	{ 1280, 720 },
+	{ 1920, 1080 }
+};
+
+/*
+ * \struct Camera3Format
+ * \brief Data associated with an Android format identifier
+ * \var libcameraFormats List of libcamera pixel formats compatible with the
+ * Android format
+ * \var scalerFormat The format identifier to be reported to the android
+ * framework through the static format configuration map
+ * \var name The human-readable representation of the Android format code
+ */
+struct Camera3Format {
+	std::vector<PixelFormat> libcameraFormats;
+	camera_metadata_enum_android_scaler_available_formats_t scalerFormat;
+	const char *name;
+};
+
+/*
+ * \var camera3FormatsMap
+ * \brief Associate Android format code with ancillary data
+ */
+const std::map<int, const Camera3Format> camera3FormatsMap = {
+	{
+		HAL_PIXEL_FORMAT_BLOB, {
+			{ formats::MJPEG },
+			ANDROID_SCALER_AVAILABLE_FORMATS_BLOB,
+			"BLOB"
+		}
+	}, {
+		HAL_PIXEL_FORMAT_YCbCr_420_888, {
+			{ formats::NV12, formats::NV21 },
+			ANDROID_SCALER_AVAILABLE_FORMATS_YCbCr_420_888,
+			"YCbCr_420_888"
+		}
+	}, {
+		/*
+		 * \todo Translate IMPLEMENTATION_DEFINED inspecting the gralloc
+		 * usage flag. For now, copy the YCbCr_420 configuration.
+		 */
+		HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED, {
+			{ formats::NV12, formats::NV21 },
+			ANDROID_SCALER_AVAILABLE_FORMATS_IMPLEMENTATION_DEFINED,
+			"IMPLEMENTATION_DEFINED"
+		}
+	},
+};
+
+} /* namespace */
 
 LOG_DECLARE_CATEGORY(HAL);
 
@@ -53,7 +119,8 @@ CameraDevice::Camera3RequestDescriptor::~Camera3RequestDescriptor()
  */
 
 CameraDevice::CameraDevice(unsigned int id, const std::shared_ptr<Camera> &camera)
-	: running_(false), camera_(camera), staticMetadata_(nullptr)
+	: running_(false), camera_(camera), staticMetadata_(nullptr),
+	  facing_(CAMERA_FACING_FRONT), orientation_(0)
 {
 	camera_->requestCompleted.connect(this, &CameraDevice::requestComplete);
 }
@@ -67,6 +134,204 @@ CameraDevice::~CameraDevice()
 		delete it.second;
 }
 
+/*
+ * Initialize the camera static information.
+ * This method is called before the camera device is opened.
+ */
+int CameraDevice::initialize()
+{
+	/* Initialize orientation and facing side of the camera. */
+	const ControlList &properties = camera_->properties();
+
+	if (properties.contains(properties::Location)) {
+		int32_t location = properties.get(properties::Location);
+		switch (location) {
+		case properties::CameraLocationFront:
+			facing_ = CAMERA_FACING_FRONT;
+			break;
+		case properties::CameraLocationBack:
+			facing_ = CAMERA_FACING_BACK;
+			break;
+		case properties::CameraLocationExternal:
+			facing_ = CAMERA_FACING_EXTERNAL;
+			break;
+		}
+	}
+
+	/*
+	 * The Android orientation metadata and libcamera rotation property are
+	 * defined differently but have identical numerical values for Android
+	 * devices such as phones and tablets.
+	 */
+	if (properties.contains(properties::Rotation))
+		orientation_ = properties.get(properties::Rotation);
+
+	int ret = camera_->acquire();
+	if (ret) {
+		LOG(HAL, Error) << "Failed to temporarily acquire the camera";
+		return ret;
+	}
+
+	ret = initializeStreamConfigurations();
+	camera_->release();
+	return ret;
+}
+
+/*
+ * Initialize the format conversion map to translate from Android format
+ * identifier to libcamera pixel formats and fill in the list of supported
+ * stream configurations to be reported to the Android camera framework through
+ * the static stream configuration metadata.
+ */
+int CameraDevice::initializeStreamConfigurations()
+{
+	/*
+	 * Get the maximum output resolutions
+	 * \todo Get this from the camera properties once defined
+	 */
+	std::unique_ptr<CameraConfiguration> cameraConfig =
+		camera_->generateConfiguration({ StillCapture });
+	if (!cameraConfig) {
+		LOG(HAL, Error) << "Failed to get maximum resolution";
+		return -EINVAL;
+	}
+	StreamConfiguration &cfg = cameraConfig->at(0);
+
+	/*
+	 * \todo JPEG - Adjust the maximum available resolution by taking the
+	 * JPEG encoder requirements into account (alignment and aspect ratio).
+	 */
+	const Size maxRes = cfg.size;
+	LOG(HAL, Debug) << "Maximum supported resolution: " << maxRes.toString();
+
+	/*
+	 * Build the list of supported image resolutions.
+	 *
+	 * The resolutions listed in camera3Resolution are mandatory to be
+	 * supported, up to the camera maximum resolution.
+	 *
+	 * Augment the list by adding resolutions calculated from the camera
+	 * maximum one.
+	 */
+	std::vector<Size> cameraResolutions;
+	std::copy_if(camera3Resolutions.begin(), camera3Resolutions.end(),
+		     std::back_inserter(cameraResolutions),
+		     [&](const Size &res) { return res < maxRes; });
+
+	/*
+	 * The Camera3 specification suggests adding 1/2 and 1/4 of the maximum
+	 * resolution.
+	 */
+	for (unsigned int divider = 2;; divider <<= 1) {
+		Size derivedSize{
+			maxRes.width / divider,
+			maxRes.height / divider,
+		};
+
+		if (derivedSize.width < 320 ||
+		    derivedSize.height < 240)
+			break;
+
+		cameraResolutions.push_back(derivedSize);
+	}
+	cameraResolutions.push_back(maxRes);
+
+	/* Remove duplicated entries from the list of supported resolutions. */
+	std::sort(cameraResolutions.begin(), cameraResolutions.end());
+	auto last = std::unique(cameraResolutions.begin(), cameraResolutions.end());
+	cameraResolutions.erase(last, cameraResolutions.end());
+
+	/*
+	 * Build the list of supported camera formats.
+	 *
+	 * To each Android format a list of compatible libcamera formats is
+	 * associated. The first libcamera format that tests successful is added
+	 * to the format translation map used when configuring the streams.
+	 * It is then tested against the list of supported camera resolutions to
+	 * build the stream configuration map reported through the camera static
+	 * metadata.
+	 */
+	for (const auto &format : camera3FormatsMap) {
+		int androidFormat = format.first;
+		const Camera3Format &camera3Format = format.second;
+		const std::vector<PixelFormat> &libcameraFormats =
+			camera3Format.libcameraFormats;
+
+		/*
+		 * Test the libcamera formats that can produce images
+		 * compatible with the format defined by Android.
+		 */
+		PixelFormat mappedFormat;
+		for (const PixelFormat &pixelFormat : libcameraFormats) {
+			/* \todo Fixed mapping for JPEG. */
+			if (androidFormat == HAL_PIXEL_FORMAT_BLOB) {
+				mappedFormat = formats::MJPEG;
+				break;
+			}
+
+			/*
+			 * The stream configuration size can be adjusted,
+			 * not the pixel format.
+			 *
+			 * \todo This could be simplified once all pipeline
+			 * handlers will report the StreamFormats list of
+			 * supported formats.
+			 */
+			cfg.pixelFormat = pixelFormat;
+
+			CameraConfiguration::Status status = cameraConfig->validate();
+			if (status != CameraConfiguration::Invalid &&
+			    cfg.pixelFormat == pixelFormat) {
+				mappedFormat = pixelFormat;
+				break;
+			}
+		}
+		if (!mappedFormat.isValid()) {
+			LOG(HAL, Error) << "Failed to map Android format "
+					<< camera3Format.name << " ("
+					<< utils::hex(androidFormat) << ")";
+			return -EINVAL;
+		}
+
+		/*
+		 * Record the mapping and then proceed to generate the
+		 * stream configurations map, by testing the image resolutions.
+		 */
+		formatsMap_[androidFormat] = mappedFormat;
+
+		for (const Size &res : cameraResolutions) {
+			cfg.pixelFormat = mappedFormat;
+			cfg.size = res;
+
+			CameraConfiguration::Status status = cameraConfig->validate();
+			/*
+			 * Unconditionally report we can produce JPEG.
+			 *
+			 * \todo The JPEG stream will be implemented as an
+			 * HAL-only stream, but some cameras can produce it
+			 * directly. As of now, claim support for JPEG without
+			 * inspecting where the JPEG stream is produced.
+			 */
+			if (androidFormat != HAL_PIXEL_FORMAT_BLOB &&
+			    status != CameraConfiguration::Valid)
+				continue;
+
+			streamConfigurations_.push_back({ res, camera3Format.scalerFormat });
+		}
+	}
+
+	LOG(HAL, Debug) << "Collected stream configuration map: ";
+	for (const auto &entry : streamConfigurations_)
+		LOG(HAL, Debug) << "{ " << entry.resolution.toString() << " - "
+				<< utils::hex(entry.androidScalerCode) << " }";
+
+	return 0;
+}
+
+/*
+ * Open a camera device. The static information on the camera shall have been
+ * initialized with a call to CameraDevice::initialize().
+ */
 int CameraDevice::open(const hw_module_t *hardwareModule)
 {
 	int ret = camera_->acquire();
@@ -104,6 +369,29 @@ void CameraDevice::setCallbacks(const camera3_callback_ops_t *callbacks)
 	callbacks_ = callbacks;
 }
 
+std::tuple<uint32_t, uint32_t> CameraDevice::calculateStaticMetadataSize()
+{
+	/*
+	 * \todo Keep this in sync with the actual number of entries.
+	 * Currently: 50 entries, 647 bytes of static metadata
+	 */
+	uint32_t numEntries = 50;
+	uint32_t byteSize = 647;
+
+	/*
+	 * Calculate space occupation in bytes for dynamically built metadata
+	 * entries.
+	 *
+	 * Each stream configuration entry requires 52 bytes:
+	 * 4 32bits integers for ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS
+	 * 1 32bits integer for ANDROID_SCALER_AVAILABLE_FORMATS
+	 * 4 64bits integers for ANDROID_SCALER_AVAILABLE_MIN_FRAME_DURATIONS
+	 */
+	byteSize += streamConfigurations_.size() * 52;
+
+	return std::make_tuple(numEntries, byteSize);
+}
+
 /*
  * Return static information for the camera.
  */
@@ -112,19 +400,15 @@ const camera_metadata_t *CameraDevice::getStaticMetadata()
 	if (staticMetadata_)
 		return staticMetadata_->get();
 
-	const ControlList &properties = camera_->properties();
-
 	/*
 	 * The here reported metadata are enough to implement a basic capture
 	 * example application, but a real camera implementation will require
 	 * more.
 	 */
-
-	/*
-	 * \todo Keep this in sync with the actual number of entries.
-	 * Currently: 50 entries, 666 bytes
-	 */
-	staticMetadata_ = new CameraMetadata(50, 700);
+	uint32_t numEntries;
+	uint32_t byteSize;
+	std::tie(numEntries, byteSize) = calculateStaticMetadataSize();
+	staticMetadata_ = new CameraMetadata(numEntries, byteSize);
 	if (!staticMetadata_->isValid()) {
 		LOG(HAL, Error) << "Failed to allocate static metadata";
 		delete staticMetadata_;
@@ -278,15 +562,7 @@ const camera_metadata_t *CameraDevice::getStaticMetadata()
 	staticMetadata_->addEntry(ANDROID_SENSOR_INFO_EXPOSURE_TIME_RANGE,
 				  &exposureTimeRange, 2);
 
-	/*
-	 * The Android orientation metadata and libcamera rotation property are
-	 * defined differently but have identical numerical values for Android
-	 * devices such as phones and tablets.
-	 */
-	int32_t orientation = 0;
-	if (properties.contains(properties::Rotation))
-		orientation = properties.get(properties::Rotation);
-	staticMetadata_->addEntry(ANDROID_SENSOR_ORIENTATION, &orientation, 1);
+	staticMetadata_->addEntry(ANDROID_SENSOR_ORIENTATION, &orientation_, 1);
 
 	std::vector<int32_t> testPatterModes = {
 		ANDROID_SENSOR_TEST_PATTERN_MODE_OFF,
@@ -332,20 +608,18 @@ const camera_metadata_t *CameraDevice::getStaticMetadata()
 				  lensApertures.data(),
 				  lensApertures.size());
 
-	uint8_t lensFacing = ANDROID_LENS_FACING_FRONT;
-	if (properties.contains(properties::Location)) {
-		int32_t location = properties.get(properties::Location);
-		switch (location) {
-		case properties::CameraLocationFront:
-			lensFacing = ANDROID_LENS_FACING_FRONT;
-			break;
-		case properties::CameraLocationBack:
-			lensFacing = ANDROID_LENS_FACING_BACK;
-			break;
-		case properties::CameraLocationExternal:
-			lensFacing = ANDROID_LENS_FACING_EXTERNAL;
-			break;
-		}
+	uint8_t lensFacing;
+	switch (facing_) {
+	default:
+	case CAMERA_FACING_FRONT:
+		lensFacing = ANDROID_LENS_FACING_FRONT;
+		break;
+	case CAMERA_FACING_BACK:
+		lensFacing = ANDROID_LENS_FACING_BACK;
+		break;
+	case CAMERA_FACING_EXTERNAL:
+		lensFacing = ANDROID_LENS_FACING_EXTERNAL;
+		break;
 	}
 	staticMetadata_->addEntry(ANDROID_LENS_FACING, &lensFacing, 1);
 
@@ -381,23 +655,24 @@ const camera_metadata_t *CameraDevice::getStaticMetadata()
 	staticMetadata_->addEntry(ANDROID_SCALER_AVAILABLE_MAX_DIGITAL_ZOOM,
 				  &maxDigitalZoom, 1);
 
-	std::vector<uint32_t> availableStreamFormats = {
-		ANDROID_SCALER_AVAILABLE_FORMATS_BLOB,
-		ANDROID_SCALER_AVAILABLE_FORMATS_YCbCr_420_888,
-		ANDROID_SCALER_AVAILABLE_FORMATS_IMPLEMENTATION_DEFINED,
-	};
+	std::vector<uint32_t> availableStreamFormats;
+	availableStreamFormats.reserve(streamConfigurations_.size());
+	std::transform(streamConfigurations_.begin(), streamConfigurations_.end(),
+		       std::back_inserter(availableStreamFormats),
+		       [](const auto &entry) { return entry.androidScalerCode; });
 	staticMetadata_->addEntry(ANDROID_SCALER_AVAILABLE_FORMATS,
 				  availableStreamFormats.data(),
 				  availableStreamFormats.size());
 
-	std::vector<uint32_t> availableStreamConfigurations = {
-		ANDROID_SCALER_AVAILABLE_FORMATS_BLOB, 2560, 1920,
-		ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
-		ANDROID_SCALER_AVAILABLE_FORMATS_YCbCr_420_888, 2560, 1920,
-		ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
-		ANDROID_SCALER_AVAILABLE_FORMATS_IMPLEMENTATION_DEFINED, 2560, 1920,
-		ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT,
-	};
+	std::vector<uint32_t> availableStreamConfigurations;
+	availableStreamConfigurations.reserve(streamConfigurations_.size() * 4);
+	for (const auto &entry : streamConfigurations_) {
+		availableStreamConfigurations.push_back(entry.androidScalerCode);
+		availableStreamConfigurations.push_back(entry.resolution.width);
+		availableStreamConfigurations.push_back(entry.resolution.height);
+		availableStreamConfigurations.push_back(
+			ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT);
+	}
 	staticMetadata_->addEntry(ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS,
 				  availableStreamConfigurations.data(),
 				  availableStreamConfigurations.size());
@@ -409,11 +684,15 @@ const camera_metadata_t *CameraDevice::getStaticMetadata()
 				  availableStallDurations.data(),
 				  availableStallDurations.size());
 
-	std::vector<int64_t> minFrameDurations = {
-		ANDROID_SCALER_AVAILABLE_FORMATS_BLOB, 2560, 1920, 33333333,
-		ANDROID_SCALER_AVAILABLE_FORMATS_IMPLEMENTATION_DEFINED, 2560, 1920, 33333333,
-		ANDROID_SCALER_AVAILABLE_FORMATS_YCbCr_420_888, 2560, 1920, 33333333,
-	};
+	/* \todo Collect the minimum frame duration from the camera. */
+	std::vector<int64_t> minFrameDurations;
+	minFrameDurations.reserve(streamConfigurations_.size() * 4);
+	for (const auto &entry : streamConfigurations_) {
+		minFrameDurations.push_back(entry.androidScalerCode);
+		minFrameDurations.push_back(entry.resolution.width);
+		minFrameDurations.push_back(entry.resolution.height);
+		minFrameDurations.push_back(33333333);
+	}
 	staticMetadata_->addEntry(ANDROID_SCALER_AVAILABLE_MIN_FRAME_DURATIONS,
 				  minFrameDurations.data(),
 				  minFrameDurations.size());
@@ -660,12 +939,26 @@ int CameraDevice::configureStreams(camera3_stream_configuration_t *stream_list)
 			       << ", format: " << utils::hex(stream->format);
 	}
 
-	/* Hardcode viewfinder role, collecting sizes from the stream config. */
+	/* Only one stream is supported. */
 	if (stream_list->num_streams != 1) {
 		LOG(HAL, Error) << "Only one stream supported";
 		return -EINVAL;
 	}
+	camera3_stream_t *camera3Stream = stream_list->streams[0];
 
+	/* Translate Android format code to libcamera pixel format. */
+	auto it = formatsMap_.find(camera3Stream->format);
+	if (it == formatsMap_.end()) {
+		LOG(HAL, Error) << "Requested format "
+				<< utils::hex(camera3Stream->format)
+				<< " not supported";
+		return -EINVAL;
+	}
+
+	/*
+	 * Hardcode viewfinder role, replacing the generated configuration
+	 * parameters with the ones requested by the Android framework.
+	 */
 	StreamRoles roles = { StreamRole::Viewfinder };
 	config_ = camera_->generateConfiguration(roles);
 	if (!config_ || config_->empty()) {
@@ -673,17 +966,10 @@ int CameraDevice::configureStreams(camera3_stream_configuration_t *stream_list)
 		return -EINVAL;
 	}
 
-	/* Only one stream is supported. */
-	camera3_stream_t *camera3Stream = stream_list->streams[0];
 	StreamConfiguration *streamConfiguration = &config_->at(0);
 	streamConfiguration->size.width = camera3Stream->width;
 	streamConfiguration->size.height = camera3Stream->height;
-
-	/*
-	 * \todo We'll need to translate from Android defined pixel format codes
-	 * to the libcamera image format codes. For now, do not change the
-	 * format returned from Camera::generateConfiguration().
-	 */
+	streamConfiguration->pixelFormat = it->second;
 
 	switch (config_->validate()) {
 	case CameraConfiguration::Valid:
@@ -861,6 +1147,11 @@ void CameraDevice::requestComplete(Request *request)
 
 	delete descriptor;
 	delete buffer;
+}
+
+std::string CameraDevice::logPrefix() const
+{
+	return "'" + camera_->name() + "'";
 }
 
 void CameraDevice::notifyShutter(uint32_t frameNumber, uint64_t timestamp)

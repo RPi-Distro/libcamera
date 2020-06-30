@@ -34,7 +34,7 @@ libcamera_sources = files([
     'message.cpp',
     'object.cpp',
     'pipeline_handler.cpp',
-    'pixelformats.cpp',
+    'pixel_format.cpp',
     'process.cpp',
     'pub_key.cpp',
     'request.cpp',
@@ -51,13 +51,10 @@ libcamera_sources = files([
     'v4l2_videodevice.cpp',
 ])
 
-subdir('include')
-
-libcamera_internal_includes =  include_directories('include')
+libcamera_sources += libcamera_public_headers
 
 includes = [
     libcamera_includes,
-    libcamera_internal_includes,
 ]
 
 subdir('pipeline')
@@ -92,7 +89,6 @@ foreach source : control_source_files
                                      command : [gen_controls, '-o', '@OUTPUT@', '@INPUT@'])
 endforeach
 
-libcamera_sources += control_headers
 libcamera_sources += control_sources
 
 gen_version = join_paths(meson.source_root(), 'utils', 'gen-version.sh')
@@ -143,7 +139,10 @@ libcamera = shared_library('camera',
                            build_rpath : '/',
                            dependencies : libcamera_deps)
 
-libcamera_dep = declare_dependency(sources : [libcamera_api, libcamera_ipa_api],
+libcamera_dep = declare_dependency(sources : [
+                                       libcamera_ipa_headers,
+                                       libcamera_public_headers,
+                                   ],
                                    include_directories : libcamera_includes,
                                    link_with : libcamera)
 

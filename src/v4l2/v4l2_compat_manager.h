@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
 /*
  * Copyright (C) 2019, Google Inc.
  *
@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include <map>
 #include <memory>
+#include <sys/mman.h>
 #include <sys/types.h>
 #include <vector>
 
@@ -30,7 +31,7 @@ public:
 		using close_func_t = int (*)(int fd);
 		using ioctl_func_t = int (*)(int fd, unsigned long request, ...);
 		using mmap_func_t = void *(*)(void *addr, size_t length, int prot,
-					      int flags, int fd, off_t offset);
+					      int flags, int fd, off64_t offset);
 		using munmap_func_t = int (*)(void *addr, size_t length);
 
 		openat_func_t openat;
@@ -43,7 +44,6 @@ public:
 
 	static V4L2CompatManager *instance();
 
-	V4L2CameraProxy *getProxy(int fd);
 	const FileOperations &fops() const { return fops_; }
 
 	int openat(int dirfd, const char *path, int oflag, mode_t mode);
@@ -51,7 +51,7 @@ public:
 	int dup(int oldfd);
 	int close(int fd);
 	void *mmap(void *addr, size_t length, int prot, int flags,
-		   int fd, off_t offset);
+		   int fd, off64_t offset);
 	int munmap(void *addr, size_t length);
 	int ioctl(int fd, unsigned long request, void *arg);
 
@@ -61,13 +61,14 @@ private:
 
 	int start();
 	int getCameraIndex(int fd);
+	std::shared_ptr<V4L2CameraFile> cameraFile(int fd);
 
 	FileOperations fops_;
 
 	CameraManager *cm_;
 
 	std::vector<std::unique_ptr<V4L2CameraProxy>> proxies_;
-	std::map<int, V4L2CameraProxy *> devices_;
+	std::map<int, std::shared_ptr<V4L2CameraFile>> files_;
 	std::map<void *, V4L2CameraProxy *> mmaps_;
 };
 

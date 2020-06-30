@@ -14,16 +14,16 @@
 
 #include <libcamera/event_dispatcher.h>
 #include <libcamera/event_notifier.h>
+#include <libcamera/ipa/ipa_vimc.h>
 #include <libcamera/timer.h>
 
-#include <ipa/ipa_vimc.h>
+#include "libcamera/internal/device_enumerator.h"
+#include "libcamera/internal/ipa_manager.h"
+#include "libcamera/internal/ipa_module.h"
+#include "libcamera/internal/pipeline_handler.h"
+#include "libcamera/internal/thread.h"
 
-#include "device_enumerator.h"
-#include "ipa_manager.h"
-#include "ipa_module.h"
-#include "pipeline_handler.h"
 #include "test.h"
-#include "thread.h"
 
 using namespace std;
 using namespace libcamera;
@@ -39,11 +39,15 @@ public:
 	~IPAInterfaceTest()
 	{
 		delete notifier_;
+		ipa_.reset();
+		ipaManager_.reset();
 	}
 
 protected:
 	int init() override
 	{
+		ipaManager_ = make_unique<IPAManager>();
+
 		/* Create a pipeline handler for vimc. */
 		std::vector<PipelineHandlerFactory *> &factories =
 			PipelineHandlerFactory::factories();
@@ -91,7 +95,7 @@ protected:
 		EventDispatcher *dispatcher = thread()->eventDispatcher();
 		Timer timer;
 
-		ipa_ = IPAManager::instance()->createIPA(pipe_.get(), 0, 0);
+		ipa_ = IPAManager::createIPA(pipe_.get(), 0, 0);
 		if (!ipa_) {
 			cerr << "Failed to create VIMC IPA interface" << endl;
 			return TestFail;
@@ -161,6 +165,7 @@ private:
 
 	std::shared_ptr<PipelineHandler> pipe_;
 	std::unique_ptr<IPAProxy> ipa_;
+	std::unique_ptr<IPAManager> ipaManager_;
 	enum IPAOperationCode trace_;
 	EventNotifier *notifier_;
 	int fd_;

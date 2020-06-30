@@ -41,6 +41,7 @@ struct Size {
 	unsigned int width;
 	unsigned int height;
 
+	bool isNull() const { return !width && !height; }
 	const std::string toString() const;
 };
 
@@ -71,6 +72,7 @@ class SizeRange
 {
 public:
 	SizeRange()
+		: hStep(0), vStep(0)
 	{
 	}
 

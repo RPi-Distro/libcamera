@@ -15,8 +15,8 @@
 
 #include <libcamera/request.h>
 
-#include "log.h"
-#include "utils.h"
+#include "libcamera/internal/log.h"
+#include "libcamera/internal/utils.h"
 
 /**
  * \file stream.h
@@ -276,10 +276,10 @@ SizeRange StreamFormats::range(const PixelFormat &pixelformat) const
 
 /**
  * \todo This method is deprecated and should be removed once all pipeline
- * handlers provied StreamFormats.
+ * handlers provide StreamFormats.
  */
 StreamConfiguration::StreamConfiguration()
-	: pixelFormat(0), stream_(nullptr)
+	: pixelFormat(0), stride(0), bufferCount(0), stream_(nullptr)
 {
 }
 
@@ -287,7 +287,8 @@ StreamConfiguration::StreamConfiguration()
  * \brief Construct a configuration with stream formats
  */
 StreamConfiguration::StreamConfiguration(const StreamFormats &formats)
-	: pixelFormat(0), stream_(nullptr), formats_(formats)
+	: pixelFormat(0), stride(0), bufferCount(0), stream_(nullptr),
+	  formats_(formats)
 {
 }
 

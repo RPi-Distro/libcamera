@@ -5,15 +5,15 @@
  * ipa_context_wrapper.cpp - Image Processing Algorithm context wrapper
  */
 
-#include "ipa_context_wrapper.h"
+#include "libcamera/internal/ipa_context_wrapper.h"
 
 #include <vector>
 
 #include <libcamera/controls.h>
 
-#include "byte_stream_buffer.h"
-#include "camera_sensor.h"
-#include "utils.h"
+#include "libcamera/internal/byte_stream_buffer.h"
+#include "libcamera/internal/camera_sensor.h"
+#include "libcamera/internal/utils.h"
 
 /**
  * \file ipa_context_wrapper.h
@@ -282,7 +282,7 @@ void IPAContextWrapper::queue_frame_action(void *ctx, unsigned int frame,
 
 #ifndef __DOXYGEN__
 /*
- * This construct confuses Doygen and makes it believe that all members of the
+ * This construct confuses Doxygen and makes it believe that all members of the
  * operations is a member of IPAInterfaceWrapper. It must thus be hidden.
  */
 const struct ipa_callback_ops IPAContextWrapper::callbacks_ = {

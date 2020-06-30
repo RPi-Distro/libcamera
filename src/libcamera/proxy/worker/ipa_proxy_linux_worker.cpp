@@ -9,14 +9,14 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include <ipa/ipa_interface.h>
 #include <libcamera/event_dispatcher.h>
+#include <libcamera/ipa/ipa_interface.h>
 #include <libcamera/logging.h>
 
-#include "ipa_module.h"
-#include "ipc_unixsocket.h"
-#include "log.h"
-#include "thread.h"
+#include "libcamera/internal/ipa_module.h"
+#include "libcamera/internal/ipc_unixsocket.h"
+#include "libcamera/internal/log.h"
+#include "libcamera/internal/thread.h"
 
 using namespace libcamera;
 

@@ -18,7 +18,8 @@
 
 #include <libcamera/logging.h>
 
-#include "log.h"
+#include "libcamera/internal/log.h"
+
 #include "test.h"
 
 using namespace std;
@@ -86,6 +87,7 @@ protected:
 
 		if (logSetFile(path) < 0) {
 			cerr << "Failed to set log file" << endl;
+			close(fd);
 			return TestFail;
 		}
 
@@ -96,6 +98,7 @@ protected:
 		lseek(fd, 0, SEEK_SET);
 		if (read(fd, buf, sizeof(buf)) < 0) {
 			cerr << "Failed to read tmp log file" << endl;
+			close(fd);
 			return TestFail;
 		}
 		close(fd);

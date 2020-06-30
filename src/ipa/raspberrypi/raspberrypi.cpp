@@ -12,15 +12,20 @@
 #include <string.h>
 #include <sys/mman.h>
 
-#include <ipa/ipa_interface.h>
-#include <ipa/ipa_module_info.h>
-#include <ipa/raspberrypi.h>
 #include <libcamera/buffer.h>
 #include <libcamera/control_ids.h>
 #include <libcamera/controls.h>
+#include <libcamera/ipa/ipa_interface.h>
+#include <libcamera/ipa/ipa_module_info.h>
+#include <libcamera/ipa/raspberrypi.h>
 #include <libcamera/request.h>
 #include <libcamera/span.h>
+
 #include <libipa/ipa_interface_wrapper.h>
+
+#include "libcamera/internal/camera_sensor.h"
+#include "libcamera/internal/log.h"
+#include "libcamera/internal/utils.h"
 
 #include <linux/bcm2835-isp.h>
 
@@ -42,11 +47,8 @@
 #include "metadata.hpp"
 #include "noise_status.h"
 #include "sdn_status.h"
+#include "sharpen_algorithm.hpp"
 #include "sharpen_status.h"
-
-#include "camera_sensor.h"
-#include "log.h"
-#include "utils.h"
 
 namespace libcamera {
 
@@ -246,27 +248,29 @@ void IPARPi::configure(const CameraSensorInfo &sensorInfo,
 		mistrust_count_ = helper_->MistrustFramesStartup();
 	}
 
+	struct AgcStatus agcStatus;
+	/* These zero values mean not program anything (unless overwritten). */
+	agcStatus.shutter_time = 0.0;
+	agcStatus.analogue_gain = 0.0;
+
 	if (!controllerInit_) {
 		/* Load the tuning file for this sensor. */
 		controller_.Read(tuningFile_.c_str());
 		controller_.Initialise();
 		controllerInit_ = true;
 
-		/* Calculate initial values for gain and exposure. */
-		int32_t gain_code = helper_->GainCode(DEFAULT_ANALOGUE_GAIN);
-		int32_t exposure_lines = helper_->ExposureLines(DEFAULT_EXPOSURE_TIME);
-
-		ControlList ctrls(unicam_ctrls_);
-		ctrls.set(V4L2_CID_ANALOGUE_GAIN, gain_code);
-		ctrls.set(V4L2_CID_EXPOSURE, exposure_lines);
-
-		IPAOperationData op;
-		op.operation = RPI_IPA_ACTION_V4L2_SET_STAGGERED;
-		op.controls.push_back(ctrls);
-		queueFrameAction.emit(0, op);
+		/* Supply initial values for gain and exposure. */
+		agcStatus.shutter_time = DEFAULT_EXPOSURE_TIME;
+		agcStatus.analogue_gain = DEFAULT_ANALOGUE_GAIN;
 	}
 
-	controller_.SwitchMode(mode_);
+	RPi::Metadata metadata;
+	controller_.SwitchMode(mode_, &metadata);
+
+	/* SwitchMode may supply updated exposure/gain values to use. */
+	metadata.Get("agc.status", agcStatus);
+	if (agcStatus.shutter_time != 0.0 && agcStatus.analogue_gain != 0.0)
+		applyAGC(&agcStatus);
 
 	lastMode_ = mode_;
 }
@@ -626,6 +630,17 @@ void IPARPi::queueRequest(const ControlList &controls)
 
 			ccm->SetSaturation(ctrl.second.get<float>());
 			libcameraMetadata_.set(controls::Saturation,
+					       ctrl.second.get<float>());
+			break;
+		}
+
+		case controls::SHARPNESS: {
+			RPi::SharpenAlgorithm *sharpen = dynamic_cast<RPi::SharpenAlgorithm *>(
+				controller_.GetAlgorithm("sharpen"));
+			ASSERT(sharpen);
+
+			sharpen->SetStrength(ctrl.second.get<float>());
+			libcameraMetadata_.set(controls::Sharpness,
 					       ctrl.second.get<float>());
 			break;
 		}

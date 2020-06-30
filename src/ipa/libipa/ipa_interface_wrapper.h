@@ -9,9 +9,9 @@
 
 #include <memory>
 
-#include <ipa/ipa_interface.h>
+#include <libcamera/ipa/ipa_interface.h>
 
-#include "control_serializer.h"
+#include "libcamera/internal/control_serializer.h"
 
 namespace libcamera {
 

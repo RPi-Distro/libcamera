@@ -6,32 +6,33 @@
  */
 
 #include <algorithm>
-#include <array>
 #include <iomanip>
+#include <map>
 #include <math.h>
 #include <tuple>
 
 #include <linux/media-bus-format.h>
 #include <linux/version.h>
 
-#include <ipa/ipa_interface.h>
-#include <ipa/ipa_module_info.h>
 #include <libcamera/camera.h>
 #include <libcamera/control_ids.h>
 #include <libcamera/controls.h>
+#include <libcamera/formats.h>
+#include <libcamera/ipa/ipa_interface.h>
+#include <libcamera/ipa/ipa_module_info.h>
 #include <libcamera/request.h>
 #include <libcamera/stream.h>
 
-#include "camera_sensor.h"
-#include "device_enumerator.h"
-#include "ipa_manager.h"
-#include "log.h"
-#include "media_device.h"
-#include "pipeline_handler.h"
-#include "utils.h"
-#include "v4l2_controls.h"
-#include "v4l2_subdevice.h"
-#include "v4l2_videodevice.h"
+#include "libcamera/internal/camera_sensor.h"
+#include "libcamera/internal/device_enumerator.h"
+#include "libcamera/internal/ipa_manager.h"
+#include "libcamera/internal/log.h"
+#include "libcamera/internal/media_device.h"
+#include "libcamera/internal/pipeline_handler.h"
+#include "libcamera/internal/utils.h"
+#include "libcamera/internal/v4l2_controls.h"
+#include "libcamera/internal/v4l2_subdevice.h"
+#include "libcamera/internal/v4l2_videodevice.h"
 
 namespace libcamera {
 
@@ -107,10 +108,9 @@ private:
 
 namespace {
 
-static const std::array<PixelFormat, 3> pixelformats{
-	PixelFormat(DRM_FORMAT_RGB888),
-	PixelFormat(DRM_FORMAT_BGR888),
-	PixelFormat(DRM_FORMAT_BGRA8888),
+static const std::map<PixelFormat, uint32_t> pixelformats{
+	{ formats::RGB888, MEDIA_BUS_FMT_BGR888_1X24 },
+	{ formats::BGR888, MEDIA_BUS_FMT_RGB888_1X24 },
 };
 
 } /* namespace */
@@ -136,10 +136,10 @@ CameraConfiguration::Status VimcCameraConfiguration::validate()
 	StreamConfiguration &cfg = config_[0];
 
 	/* Adjust the pixel format. */
-	if (std::find(pixelformats.begin(), pixelformats.end(), cfg.pixelFormat) ==
-	    pixelformats.end()) {
-		LOG(VIMC, Debug) << "Adjusting format to RGB24";
-		cfg.pixelFormat = PixelFormat(DRM_FORMAT_BGR888);
+	const std::vector<libcamera::PixelFormat> formats = cfg.formats().pixelformats();
+	if (std::find(formats.begin(), formats.end(), cfg.pixelFormat) == formats.end()) {
+		LOG(VIMC, Debug) << "Adjusting format to BGR888";
+		cfg.pixelFormat = formats::BGR888;
 		status = Adjusted;
 	}
 
@@ -172,23 +172,37 @@ CameraConfiguration *PipelineHandlerVimc::generateConfiguration(Camera *camera,
 	const StreamRoles &roles)
 {
 	CameraConfiguration *config = new VimcCameraConfiguration();
+	VimcCameraData *data = cameraData(camera);
 
 	if (roles.empty())
 		return config;
 
 	std::map<PixelFormat, std::vector<SizeRange>> formats;
 
-	for (PixelFormat pixelformat : pixelformats) {
+	for (const auto &pixelformat : pixelformats) {
+		/*
+		 * Kernels prior to v5.7 incorrectly report support for RGB888,
+		 * but it isn't functional within the pipeline.
+		 */
+		if (data->media_->version() < KERNEL_VERSION(5, 7, 0)) {
+			if (pixelformat.first != formats::BGR888) {
+				LOG(VIMC, Info)
+					<< "Skipping unsupported pixel format "
+					<< pixelformat.first.toString();
+				continue;
+			}
+		}
+
 		/* The scaler hardcodes a x3 scale-up ratio. */
 		std::vector<SizeRange> sizes{
 			SizeRange{ { 48, 48 }, { 4096, 2160 } }
 		};
-		formats[pixelformat] = sizes;
+		formats[pixelformat.first] = sizes;
 	}
 
 	StreamConfiguration cfg(formats);
 
-	cfg.pixelFormat = PixelFormat(DRM_FORMAT_BGR888);
+	cfg.pixelFormat = formats::BGR888;
 	cfg.size = { 1920, 1080 };
 	cfg.bufferCount = 4;
 
@@ -218,7 +232,7 @@ int PipelineHandlerVimc::configure(Camera *camera, CameraConfiguration *config)
 	if (ret)
 		return ret;
 
-	subformat.mbus_code = MEDIA_BUS_FMT_RGB888_1X24;
+	subformat.mbus_code = pixelformats.find(cfg.pixelFormat)->second;
 	ret = data->debayer_->setFormat(1, &subformat);
 	if (ret)
 		return ret;
@@ -397,7 +411,7 @@ bool PipelineHandlerVimc::match(DeviceEnumerator *enumerator)
 
 	std::unique_ptr<VimcCameraData> data = std::make_unique<VimcCameraData>(this, media);
 
-	data->ipa_ = IPAManager::instance()->createIPA(this, 0, 0);
+	data->ipa_ = IPAManager::createIPA(this, 0, 0);
 	if (data->ipa_ != nullptr) {
 		std::string conf = data->ipa_->configurationFile("vimc.conf");
 		data->ipa_->init(IPASettings{ conf });

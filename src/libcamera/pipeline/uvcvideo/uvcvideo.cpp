@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <iomanip>
 #include <math.h>
-#include <sys/sysmacros.h>
 #include <tuple>
 
 #include <libcamera/camera.h>
@@ -17,13 +16,13 @@
 #include <libcamera/request.h>
 #include <libcamera/stream.h>
 
-#include "device_enumerator.h"
-#include "log.h"
-#include "media_device.h"
-#include "pipeline_handler.h"
-#include "utils.h"
-#include "v4l2_controls.h"
-#include "v4l2_videodevice.h"
+#include "libcamera/internal/device_enumerator.h"
+#include "libcamera/internal/log.h"
+#include "libcamera/internal/media_device.h"
+#include "libcamera/internal/pipeline_handler.h"
+#include "libcamera/internal/utils.h"
+#include "libcamera/internal/v4l2_controls.h"
+#include "libcamera/internal/v4l2_videodevice.h"
 
 namespace libcamera {
 
@@ -396,12 +395,10 @@ bool PipelineHandlerUVC::match(DeviceEnumerator *enumerator)
 	if (data->init(*entity))
 		return false;
 
-	dev_t devnum = makedev((*entity)->deviceMajor(), (*entity)->deviceMinor());
-
 	/* Create and register the camera. */
 	std::set<Stream *> streams{ &data->stream_ };
 	std::shared_ptr<Camera> camera = Camera::create(this, media->model(), streams);
-	registerCamera(std::move(camera), std::move(data), devnum);
+	registerCamera(std::move(camera), std::move(data));
 
 	/* Enable hot-unplug notifications. */
 	hotplugMediaDevice(media);

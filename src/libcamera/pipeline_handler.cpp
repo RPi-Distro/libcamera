@@ -5,7 +5,7 @@
  * pipeline_handler.cpp - Pipeline handler infrastructure
  */
 
-#include "pipeline_handler.h"
+#include "libcamera/internal/pipeline_handler.h"
 
 #include <sys/sysmacros.h>
 
@@ -13,10 +13,10 @@
 #include <libcamera/camera.h>
 #include <libcamera/camera_manager.h>
 
-#include "device_enumerator.h"
-#include "log.h"
-#include "media_device.h"
-#include "utils.h"
+#include "libcamera/internal/device_enumerator.h"
+#include "libcamera/internal/log.h"
+#include "libcamera/internal/media_device.h"
+#include "libcamera/internal/utils.h"
 
 /**
  * \file pipeline_handler.h
@@ -46,7 +46,7 @@ LOG_DEFINE_CATEGORY(Pipeline)
  *
  * Pipeline handlers are expected to extend this base class with platform
  * specific implementation, associate instances of the derived classes
- * using the setCameraData() method, and access them at a later time
+ * using the registerCamera() method, and access them at a later time
  * with cameraData().
  */
 
@@ -181,7 +181,7 @@ PipelineHandler::~PipelineHandler()
  */
 
 /**
- * \brief Search and acquire a MediDevice matching a device pattern
+ * \brief Search and acquire a MediaDevice matching a device pattern
  * \param[in] enumerator Enumerator containing all media devices in the system
  * \param[in] dm Device match pattern
  *
@@ -481,28 +481,38 @@ void PipelineHandler::completeRequest(Camera *camera, Request *request)
  * \brief Register a camera to the camera manager and pipeline handler
  * \param[in] camera The camera to be added
  * \param[in] data Pipeline-specific data for the camera
- * \param[in] devnum Device number of the camera (optional)
  *
  * This method is called by pipeline handlers to register the cameras they
  * handle with the camera manager. It associates the pipeline-specific \a data
  * with the camera, for later retrieval with cameraData(). Ownership of \a data
  * is transferred to the PipelineHandler.
  *
- * \a devnum is the device number (as returned by makedev) that the \a camera
- * is to be associated with. This is for the V4L2 compatibility layer to map
- * device nodes to Camera instances based on the device number
- * registered by this method in \a devnum.
- *
  * \context This function shall be called from the CameraManager thread.
  */
 void PipelineHandler::registerCamera(std::shared_ptr<Camera> camera,
-				     std::unique_ptr<CameraData> data,
-				     dev_t devnum)
+				     std::unique_ptr<CameraData> data)
 {
 	data->camera_ = camera.get();
 	cameraData_[camera.get()] = std::move(data);
 	cameras_.push_back(camera);
-	manager_->addCamera(std::move(camera), devnum);
+
+	/*
+	 * Walk the entity list and map the devnums of all capture video nodes
+	 * to the camera.
+	 */
+	std::vector<dev_t> devnums;
+	for (const std::shared_ptr<MediaDevice> &media : mediaDevices_) {
+		for (const MediaEntity *entity : media->entities()) {
+			if (entity->pads().size() == 1 &&
+			    (entity->pads()[0]->flags() & MEDIA_PAD_FL_SINK) &&
+			    entity->function() == MEDIA_ENT_F_IO_V4L) {
+				devnums.push_back(makedev(entity->deviceMajor(),
+							  entity->deviceMinor()));
+			}
+		}
+	}
+
+	manager_->addCamera(std::move(camera), devnums);
 }
 
 /**
@@ -549,16 +559,28 @@ void PipelineHandler::mediaDeviceDisconnected(MediaDevice *media)
  */
 void PipelineHandler::disconnect()
 {
-	for (std::weak_ptr<Camera> ptr : cameras_) {
+	/*
+	 * Each camera holds a reference to its associated pipeline handler
+	 * instance. Hence, when the last camera is dropped, the pipeline
+	 * handler will get destroyed by the last manager_->removeCamera(camera)
+	 * call in the loop below.
+	 *
+	 * This is acceptable as long as we make sure that the code path does not
+	 * access any member of the (already destroyed) pipeline handler instance
+	 * afterwards. Therefore, we move the cameras_ vector to a local temporary
+	 * container to avoid accessing freed memory later i.e. to explicitly run
+	 * cameras_.clear().
+	 */
+	std::vector<std::weak_ptr<Camera>> cameras{ std::move(cameras_) };
+
+	for (std::weak_ptr<Camera> ptr : cameras) {
 		std::shared_ptr<Camera> camera = ptr.lock();
 		if (!camera)
 			continue;
 
 		camera->disconnect();
-		manager_->removeCamera(camera.get());
+		manager_->removeCamera(camera);
 	}
-
-	cameras_.clear();
 }
 
 /**

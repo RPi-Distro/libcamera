@@ -5,19 +5,19 @@
  * ipa_manager.cpp - Image Processing Algorithm module manager
  */
 
-#include "ipa_manager.h"
+#include "libcamera/internal/ipa_manager.h"
 
 #include <algorithm>
 #include <dirent.h>
 #include <string.h>
 #include <sys/types.h>
 
-#include "file.h"
-#include "ipa_module.h"
-#include "ipa_proxy.h"
-#include "log.h"
-#include "pipeline_handler.h"
-#include "utils.h"
+#include "libcamera/internal/file.h"
+#include "libcamera/internal/ipa_module.h"
+#include "libcamera/internal/ipa_proxy.h"
+#include "libcamera/internal/log.h"
+#include "libcamera/internal/pipeline_handler.h"
+#include "libcamera/internal/utils.h"
 
 /**
  * \file ipa_manager.h
@@ -93,8 +93,20 @@ LOG_DEFINE_CATEGORY(IPAManager)
  * plain C API, or to transmit the data to the isolated process through IPC.
  */
 
+IPAManager *IPAManager::self_ = nullptr;
+
+/**
+ * \brief Construct an IPAManager instance
+ *
+ * The IPAManager class is meant to only be instantiated once, by the
+ * CameraManager.
+ */
 IPAManager::IPAManager()
 {
+	if (self_)
+		LOG(IPAManager, Fatal)
+			<< "Multiple IPAManager objects are not allowed";
+
 	unsigned int ipaCount = 0;
 
 	/* User-specified paths take precedence. */
@@ -134,27 +146,16 @@ IPAManager::IPAManager()
 	if (!ipaCount)
 		LOG(IPAManager, Warning)
 			<< "No IPA found in '" IPA_MODULE_DIR "'";
+
+	self_ = this;
 }
 
 IPAManager::~IPAManager()
 {
 	for (IPAModule *module : modules_)
 		delete module;
-}
 
-/**
- * \brief Retrieve the IPA manager instance
- *
- * The IPAManager is a singleton and can't be constructed manually. This
- * function shall instead be used to retrieve the single global instance of the
- * manager.
- *
- * \return The IPA manager instance
- */
-IPAManager *IPAManager::instance()
-{
-	static IPAManager ipaManager;
-	return &ipaManager;
+	self_ = nullptr;
 }
 
 /**
@@ -258,7 +259,7 @@ std::unique_ptr<IPAProxy> IPAManager::createIPA(PipelineHandler *pipe,
 {
 	IPAModule *m = nullptr;
 
-	for (IPAModule *module : modules_) {
+	for (IPAModule *module : self_->modules_) {
 		if (module->match(pipe, minVersion, maxVersion)) {
 			m = module;
 			break;
@@ -274,7 +275,7 @@ std::unique_ptr<IPAProxy> IPAManager::createIPA(PipelineHandler *pipe,
 	 *
 	 * \todo Implement a better proxy selection
 	 */
-	const char *proxyName = isSignatureValid(m)
+	const char *proxyName = self_->isSignatureValid(m)
 			      ? "IPAProxyThread" : "IPAProxyLinux";
 	IPAProxyFactory *pf = nullptr;
 
