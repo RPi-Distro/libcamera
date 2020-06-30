@@ -1,3 +1,11 @@
+libcamera (0~git20200629+e7aa92a-3) unstable; urgency=medium
+
+  * Allow actual pkg-config to be used as, well, pkg-config.
+  * Add libcamera0.symbols, probably not very useful right now.
+  * Install more files for libcamera0.
+
+ -- Andrej Shadura <andrewsh@debian.org>  Tue, 30 Jun 2020 18:12:32 +0200
+
 libcamera (0~git20200629+e7aa92a-2) unstable; urgency=medium
 
   * Depend on a pkg-config implementation (Really closes: #959853).
