@@ -1,2 +1,4 @@
 usr/lib/*/*.so.*
 usr/lib/*/*/*.so
+usr/libexec
+usr/share
