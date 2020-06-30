@@ -7,13 +7,15 @@ Update Andrej Shadura patch.
  src/libcamera/meson.build | 1 +
  1 file changed, 1 insertion(+)
 
---- libcamera.orig/src/libcamera/meson.build
-+++ libcamera/src/libcamera/meson.build
-@@ -138,6 +138,7 @@
+diff --git a/src/libcamera/meson.build b/src/libcamera/meson.build
+index 3aad438..845ff9b 100644
+--- a/src/libcamera/meson.build
++++ b/src/libcamera/meson.build
+@@ -137,6 +137,7 @@ libcamera = shared_library('camera',
                             link_with : libcamera_link_with,
                             include_directories : includes,
                             build_rpath : '/',
 +                           version: '0.1.0',
                             dependencies : libcamera_deps)
  
- libcamera_dep = declare_dependency(sources : [libcamera_api, libcamera_ipa_api],
+ libcamera_dep = declare_dependency(sources : [
