@@ -1,3 +1,10 @@
+libcamera (0~git20200629+e7aa92a-6) unstable; urgency=medium
+
+  * Stop shipping this symbols file, the symbols change all the time
+    depending on the architecture and the compiler version.
+
+ -- Andrej Shadura <andrewsh@debian.org>  Sun, 12 Jul 2020 12:09:02 +0200
+
 libcamera (0~git20200629+e7aa92a-5) unstable; urgency=medium
 
   * Fix the symbol file syntax.
