@@ -553,7 +553,7 @@ ipa_vimc.so libcamera0 #MINVER#
  (c++|regex|optional)"^vtable for std::.*@Base" 0~git20200116+30f9624
 
 libcamera.so.0 libcamera0 #MINVER#
- * Build-Depends-Package: libcamera-dev
+* Build-Depends-Package: libcamera-dev
  (c++)"libcamera::BoundMethodArgs<int>::invokePack(libcamera::BoundMethodPackBase*)@Base" 0~git20200417+35269f0
  (c++)"libcamera::BoundMethodArgs<int, libcamera::Camera*>::invokePack(libcamera::BoundMethodPackBase*)@Base" 0~git20200417+35269f0
  (c++)"libcamera::BoundMethodArgs<int, libcamera::Camera*, libcamera::CameraConfiguration*>::invokePack(libcamera::BoundMethodPackBase*)@Base" 0~git20200417+35269f0
