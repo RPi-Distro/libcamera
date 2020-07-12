@@ -1,3 +1,9 @@
+libcamera (0~git20200629+e7aa92a-5) unstable; urgency=medium
+
+  * Fix the symbol file syntax.
+
+ -- Andrej Shadura <andrewsh@debian.org>  Sun, 12 Jul 2020 11:26:33 +0200
+
 libcamera (0~git20200629+e7aa92a-4) unstable; urgency=medium
 
   * Add wildcards for std::* and boost::* to the symbols file.
