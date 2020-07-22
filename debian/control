@@ -31,8 +31,6 @@ Section: libdevel
 Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         libjs-jquery,
-         libjs-underscore,
          libcamera0 (= ${binary:Version})
 Multi-Arch: same
 Description: complex camera support library (development files)
@@ -41,6 +39,22 @@ Description: complex camera support library (development files)
  programming interface to the applications.
  .
  This package provides the necessary files needed for development
+
+Package: libcamera-doc
+Section: doc
+Architecture: all
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+         libjs-jquery,
+         libjs-underscore,
+Recommends: libcamera-dev
+Multi-Arch: foreign
+Description: complex camera support library (documentation)
+ libcamera is a complex camera support library which handles low-level
+ control of the camera devices, providing a unified higher-level
+ programming interface to the applications.
+ .
+ This package contains the documentation developing with libcamera.
 
 Package: libcamera0
 Architecture: any
