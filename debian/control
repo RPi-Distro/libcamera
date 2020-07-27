@@ -5,7 +5,7 @@ Uploaders:
  Emmanuel Arias <emmanuelarias30@gmail.com>,
  IOhannes m zmölnig (Debian/GNU) <umlaeute@debian.org>,
  Andrej Shadura <andrewsh@debian.org>
-Build-Depends: debhelper-compat (= 12),
+Build-Depends: debhelper-compat (= 13),
                dh-exec,
                meson (>= 0.47),
                pkgconf | pkg-config,
