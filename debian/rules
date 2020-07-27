@@ -9,7 +9,7 @@ include /usr/share/dpkg/architecture.mk
 	dh $@
 
 override_dh_auto_configure:
-	dh_auto_configure --parallel -- \
+	dh_auto_configure -- \
 		--libexecdir=lib/${DEB_HOST_MULTIARCH} \
 		-Dv4l2=true
 
