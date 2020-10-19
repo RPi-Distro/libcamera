@@ -7,7 +7,9 @@
 
 #include "camera_device.h"
 #include "camera_ops.h"
+#include "post_processor.h"
 
+#include <sys/mman.h>
 #include <tuple>
 #include <vector>
 
@@ -15,6 +17,7 @@
 #include <libcamera/formats.h>
 #include <libcamera/property_ids.h>
 
+#include "libcamera/internal/formats.h"
 #include "libcamera/internal/log.h"
 #include "libcamera/internal/utils.h"
 
@@ -42,13 +45,11 @@ const std::vector<Size> camera3Resolutions = {
  * \brief Data associated with an Android format identifier
  * \var libcameraFormats List of libcamera pixel formats compatible with the
  * Android format
- * \var scalerFormat The format identifier to be reported to the android
- * framework through the static format configuration map
  * \var name The human-readable representation of the Android format code
  */
 struct Camera3Format {
 	std::vector<PixelFormat> libcameraFormats;
-	camera_metadata_enum_android_scaler_available_formats_t scalerFormat;
+	bool mandatory;
 	const char *name;
 };
 
@@ -60,13 +61,13 @@ const std::map<int, const Camera3Format> camera3FormatsMap = {
 	{
 		HAL_PIXEL_FORMAT_BLOB, {
 			{ formats::MJPEG },
-			ANDROID_SCALER_AVAILABLE_FORMATS_BLOB,
+			true,
 			"BLOB"
 		}
 	}, {
 		HAL_PIXEL_FORMAT_YCbCr_420_888, {
 			{ formats::NV12, formats::NV21 },
-			ANDROID_SCALER_AVAILABLE_FORMATS_YCbCr_420_888,
+			true,
 			"YCbCr_420_888"
 		}
 	}, {
@@ -76,8 +77,52 @@ const std::map<int, const Camera3Format> camera3FormatsMap = {
 		 */
 		HAL_PIXEL_FORMAT_IMPLEMENTATION_DEFINED, {
 			{ formats::NV12, formats::NV21 },
-			ANDROID_SCALER_AVAILABLE_FORMATS_IMPLEMENTATION_DEFINED,
+			true,
 			"IMPLEMENTATION_DEFINED"
+		}
+	}, {
+		HAL_PIXEL_FORMAT_RAW10, {
+			{
+				formats::SBGGR10_CSI2P,
+				formats::SGBRG10_CSI2P,
+				formats::SGRBG10_CSI2P,
+				formats::SRGGB10_CSI2P
+			},
+			false,
+			"RAW10"
+		}
+	}, {
+		HAL_PIXEL_FORMAT_RAW12, {
+			{
+				formats::SBGGR12_CSI2P,
+				formats::SGBRG12_CSI2P,
+				formats::SGRBG12_CSI2P,
+				formats::SRGGB12_CSI2P
+			},
+			false,
+			"RAW12"
+		}
+	}, {
+		HAL_PIXEL_FORMAT_RAW16, {
+			{
+				formats::SBGGR16,
+				formats::SGBRG16,
+				formats::SGRBG16,
+				formats::SRGGB16
+			},
+			false,
+			"RAW16"
+		}
+	}, {
+		HAL_PIXEL_FORMAT_RAW_OPAQUE, {
+			{
+				formats::SBGGR10_IPU3,
+				formats::SGBRG10_IPU3,
+				formats::SGRBG10_IPU3,
+				formats::SRGGB10_IPU3
+			},
+			false,
+			"RAW_OPAQUE"
 		}
 	},
 };
@@ -85,6 +130,36 @@ const std::map<int, const Camera3Format> camera3FormatsMap = {
 } /* namespace */
 
 LOG_DECLARE_CATEGORY(HAL);
+
+MappedCamera3Buffer::MappedCamera3Buffer(const buffer_handle_t camera3buffer,
+					 int flags)
+{
+	maps_.reserve(camera3buffer->numFds);
+	error_ = 0;
+
+	for (int i = 0; i < camera3buffer->numFds; i++) {
+		if (camera3buffer->data[i] == -1)
+			continue;
+
+		off_t length = lseek(camera3buffer->data[i], 0, SEEK_END);
+		if (length < 0) {
+			error_ = -errno;
+			LOG(HAL, Error) << "Failed to query plane length";
+			break;
+		}
+
+		void *address = mmap(nullptr, length, flags, MAP_SHARED,
+				     camera3buffer->data[i], 0);
+		if (address == MAP_FAILED) {
+			error_ = -errno;
+			LOG(HAL, Error) << "Failed to mmap plane";
+			break;
+		}
+
+		maps_.emplace_back(static_cast<uint8_t *>(address),
+				   static_cast<size_t>(length));
+	}
+}
 
 /*
  * \struct Camera3RequestDescriptor
@@ -94,10 +169,24 @@ LOG_DECLARE_CATEGORY(HAL);
  */
 
 CameraDevice::Camera3RequestDescriptor::Camera3RequestDescriptor(
-		unsigned int frameNumber, unsigned int numBuffers)
+	Camera *camera, unsigned int frameNumber, unsigned int numBuffers)
 	: frameNumber(frameNumber), numBuffers(numBuffers)
 {
 	buffers = new camera3_stream_buffer_t[numBuffers];
+
+	/*
+	 * FrameBuffer instances created by wrapping a camera3 provided dmabuf
+	 * are emplaced in this vector of unique_ptr<> for lifetime management.
+	 */
+	frameBuffers.reserve(numBuffers);
+
+	/*
+	 * Create the libcamera::Request unique_ptr<> to tie its lifetime
+	 * to the descriptor's one. Set the descriptor's address as the
+	 * request's cookie to retrieve it at completion time.
+	 */
+	request = std::make_unique<CaptureRequest>(camera,
+						   reinterpret_cast<uint64_t>(this));
 }
 
 CameraDevice::Camera3RequestDescriptor::~Camera3RequestDescriptor()
@@ -119,10 +208,16 @@ CameraDevice::Camera3RequestDescriptor::~Camera3RequestDescriptor()
  */
 
 CameraDevice::CameraDevice(unsigned int id, const std::shared_ptr<Camera> &camera)
-	: running_(false), camera_(camera), staticMetadata_(nullptr),
+	: id_(id), running_(false), camera_(camera), staticMetadata_(nullptr),
 	  facing_(CAMERA_FACING_FRONT), orientation_(0)
 {
 	camera_->requestCompleted.connect(this, &CameraDevice::requestComplete);
+
+	/*
+	 * \todo Determine a more accurate value for this during
+	 *  streamConfiguration.
+	 */
+	maxJpegBufferSize_ = 13 << 20; /* 13631488 from USB HAL */
 }
 
 CameraDevice::~CameraDevice()
@@ -132,6 +227,13 @@ CameraDevice::~CameraDevice()
 
 	for (auto &it : requestTemplates_)
 		delete it.second;
+}
+
+std::shared_ptr<CameraDevice> CameraDevice::create(unsigned int id,
+						   const std::shared_ptr<Camera> &cam)
+{
+	CameraDevice *camera = new CameraDevice(id, cam);
+	return std::shared_ptr<CameraDevice>(camera);
 }
 
 /*
@@ -159,12 +261,17 @@ int CameraDevice::initialize()
 	}
 
 	/*
-	 * The Android orientation metadata and libcamera rotation property are
-	 * defined differently but have identical numerical values for Android
-	 * devices such as phones and tablets.
+	 * The Android orientation metadata specifies its rotation correction
+	 * value in clockwise direction whereas libcamera specifies the
+	 * rotation property in anticlockwise direction. Read the libcamera's
+	 * rotation property (anticlockwise) and compute the corresponding
+	 * value for clockwise direction as required by the Android orientation
+	 * metadata.
 	 */
-	if (properties.contains(properties::Rotation))
-		orientation_ = properties.get(properties::Rotation);
+	if (properties.contains(properties::Rotation)) {
+		int rotation = properties.get(properties::Rotation);
+		orientation_ = (360 - rotation) % 360;
+	}
 
 	int ret = camera_->acquire();
 	if (ret) {
@@ -175,6 +282,42 @@ int CameraDevice::initialize()
 	ret = initializeStreamConfigurations();
 	camera_->release();
 	return ret;
+}
+
+std::vector<Size> CameraDevice::getYUVResolutions(CameraConfiguration *cameraConfig,
+						  const PixelFormat &pixelFormat,
+						  const std::vector<Size> &resolutions)
+{
+	std::vector<Size> supportedResolutions;
+
+	StreamConfiguration &cfg = cameraConfig->at(0);
+	for (const Size &res : resolutions) {
+		cfg.pixelFormat = pixelFormat;
+		cfg.size = res;
+
+		CameraConfiguration::Status status = cameraConfig->validate();
+		if (status != CameraConfiguration::Valid) {
+			LOG(HAL, Debug) << cfg.toString() << " not supported";
+			continue;
+		}
+
+		LOG(HAL, Debug) << cfg.toString() << " supported";
+
+		supportedResolutions.push_back(res);
+	}
+
+	return supportedResolutions;
+}
+
+std::vector<Size> CameraDevice::getRawResolutions(const libcamera::PixelFormat &pixelFormat)
+{
+	std::unique_ptr<CameraConfiguration> cameraConfig =
+		camera_->generateConfiguration({ StreamRole::Raw });
+	StreamConfiguration &cfg = cameraConfig->at(0);
+	const StreamFormats &formats = cfg.formats();
+	std::vector<Size> supportedResolutions = formats.sizes(pixelFormat);
+
+	return supportedResolutions;
 }
 
 /*
@@ -257,17 +400,30 @@ int CameraDevice::initializeStreamConfigurations()
 		const std::vector<PixelFormat> &libcameraFormats =
 			camera3Format.libcameraFormats;
 
+		LOG(HAL, Debug) << "Trying to map Android format "
+				<< camera3Format.name;
+
+		/*
+		 * JPEG is always supported, either produced directly by the
+		 * camera, or encoded in the HAL.
+		 */
+		if (androidFormat == HAL_PIXEL_FORMAT_BLOB) {
+			formatsMap_[androidFormat] = formats::MJPEG;
+			LOG(HAL, Debug) << "Mapped Android format "
+					<< camera3Format.name << " to "
+					<< formats::MJPEG.toString()
+					<< " (fixed mapping)";
+			continue;
+		}
+
 		/*
 		 * Test the libcamera formats that can produce images
 		 * compatible with the format defined by Android.
 		 */
 		PixelFormat mappedFormat;
 		for (const PixelFormat &pixelFormat : libcameraFormats) {
-			/* \todo Fixed mapping for JPEG. */
-			if (androidFormat == HAL_PIXEL_FORMAT_BLOB) {
-				mappedFormat = formats::MJPEG;
-				break;
-			}
+
+			LOG(HAL, Debug) << "Testing " << pixelFormat.toString();
 
 			/*
 			 * The stream configuration size can be adjusted,
@@ -286,10 +442,16 @@ int CameraDevice::initializeStreamConfigurations()
 				break;
 			}
 		}
+
 		if (!mappedFormat.isValid()) {
-			LOG(HAL, Error) << "Failed to map Android format "
-					<< camera3Format.name << " ("
-					<< utils::hex(androidFormat) << ")";
+			/* If the format is not mandatory, skip it. */
+			if (!camera3Format.mandatory)
+				continue;
+
+			LOG(HAL, Error)
+				<< "Failed to map mandatory Android format "
+				<< camera3Format.name << " ("
+				<< utils::hex(androidFormat) << "): aborting";
 			return -EINVAL;
 		}
 
@@ -298,32 +460,43 @@ int CameraDevice::initializeStreamConfigurations()
 		 * stream configurations map, by testing the image resolutions.
 		 */
 		formatsMap_[androidFormat] = mappedFormat;
+		LOG(HAL, Debug) << "Mapped Android format "
+				<< camera3Format.name << " to "
+				<< mappedFormat.toString();
 
-		for (const Size &res : cameraResolutions) {
-			cfg.pixelFormat = mappedFormat;
-			cfg.size = res;
+		std::vector<Size> resolutions;
+		const PixelFormatInfo &info = PixelFormatInfo::info(mappedFormat);
+		if (info.colourEncoding == PixelFormatInfo::ColourEncodingRAW)
+			resolutions = getRawResolutions(mappedFormat);
+		else
+			resolutions = getYUVResolutions(cameraConfig.get(),
+							mappedFormat,
+							cameraResolutions);
 
-			CameraConfiguration::Status status = cameraConfig->validate();
+		for (const Size &res : resolutions) {
+			streamConfigurations_.push_back({ res, androidFormat });
+
 			/*
-			 * Unconditionally report we can produce JPEG.
+			 * If the format is HAL_PIXEL_FORMAT_YCbCr_420_888
+			 * from which JPEG is produced, add an entry for
+			 * the JPEG stream.
 			 *
-			 * \todo The JPEG stream will be implemented as an
-			 * HAL-only stream, but some cameras can produce it
-			 * directly. As of now, claim support for JPEG without
-			 * inspecting where the JPEG stream is produced.
+			 * \todo Wire the JPEG encoder to query the supported
+			 * sizes provided a list of formats it can encode.
+			 *
+			 * \todo Support JPEG streams produced by the Camera
+			 * natively.
 			 */
-			if (androidFormat != HAL_PIXEL_FORMAT_BLOB &&
-			    status != CameraConfiguration::Valid)
-				continue;
-
-			streamConfigurations_.push_back({ res, camera3Format.scalerFormat });
+			if (androidFormat == HAL_PIXEL_FORMAT_YCbCr_420_888)
+				streamConfigurations_.push_back(
+					{ res, HAL_PIXEL_FORMAT_BLOB });
 		}
 	}
 
 	LOG(HAL, Debug) << "Collected stream configuration map: ";
 	for (const auto &entry : streamConfigurations_)
 		LOG(HAL, Debug) << "{ " << entry.resolution.toString() << " - "
-				<< utils::hex(entry.androidScalerCode) << " }";
+				<< utils::hex(entry.androidFormat) << " }";
 
 	return 0;
 }
@@ -358,6 +531,9 @@ int CameraDevice::open(const hw_module_t *hardwareModule)
 
 void CameraDevice::close()
 {
+	streams_.clear();
+
+	worker_.stop();
 	camera_->stop();
 	camera_->release();
 
@@ -373,10 +549,10 @@ std::tuple<uint32_t, uint32_t> CameraDevice::calculateStaticMetadataSize()
 {
 	/*
 	 * \todo Keep this in sync with the actual number of entries.
-	 * Currently: 50 entries, 647 bytes of static metadata
+	 * Currently: 51 entries, 687 bytes of static metadata
 	 */
-	uint32_t numEntries = 50;
-	uint32_t byteSize = 647;
+	uint32_t numEntries = 51;
+	uint32_t byteSize = 687;
 
 	/*
 	 * Calculate space occupation in bytes for dynamically built metadata
@@ -384,10 +560,9 @@ std::tuple<uint32_t, uint32_t> CameraDevice::calculateStaticMetadataSize()
 	 *
 	 * Each stream configuration entry requires 52 bytes:
 	 * 4 32bits integers for ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS
-	 * 1 32bits integer for ANDROID_SCALER_AVAILABLE_FORMATS
 	 * 4 64bits integers for ANDROID_SCALER_AVAILABLE_MIN_FRAME_DURATIONS
 	 */
-	byteSize += streamConfigurations_.size() * 52;
+	byteSize += streamConfigurations_.size() * 48;
 
 	return std::make_tuple(numEntries, byteSize);
 }
@@ -533,6 +708,12 @@ const camera_metadata_t *CameraDevice::getStaticMetadata()
 				  availableThumbnailSizes.data(),
 				  availableThumbnailSizes.size());
 
+	/*
+	 * \todo Calculate the maximum JPEG buffer size by asking the encoder
+	 * giving the maximum frame size required.
+	 */
+	staticMetadata_->addEntry(ANDROID_JPEG_MAX_SIZE, &maxJpegBufferSize_, 1);
+
 	/* Sensor static metadata. */
 	int32_t pixelArraySize[] = {
 		2592, 1944,
@@ -655,19 +836,10 @@ const camera_metadata_t *CameraDevice::getStaticMetadata()
 	staticMetadata_->addEntry(ANDROID_SCALER_AVAILABLE_MAX_DIGITAL_ZOOM,
 				  &maxDigitalZoom, 1);
 
-	std::vector<uint32_t> availableStreamFormats;
-	availableStreamFormats.reserve(streamConfigurations_.size());
-	std::transform(streamConfigurations_.begin(), streamConfigurations_.end(),
-		       std::back_inserter(availableStreamFormats),
-		       [](const auto &entry) { return entry.androidScalerCode; });
-	staticMetadata_->addEntry(ANDROID_SCALER_AVAILABLE_FORMATS,
-				  availableStreamFormats.data(),
-				  availableStreamFormats.size());
-
 	std::vector<uint32_t> availableStreamConfigurations;
 	availableStreamConfigurations.reserve(streamConfigurations_.size() * 4);
 	for (const auto &entry : streamConfigurations_) {
-		availableStreamConfigurations.push_back(entry.androidScalerCode);
+		availableStreamConfigurations.push_back(entry.androidFormat);
 		availableStreamConfigurations.push_back(entry.resolution.width);
 		availableStreamConfigurations.push_back(entry.resolution.height);
 		availableStreamConfigurations.push_back(
@@ -688,7 +860,7 @@ const camera_metadata_t *CameraDevice::getStaticMetadata()
 	std::vector<int64_t> minFrameDurations;
 	minFrameDurations.reserve(streamConfigurations_.size() * 4);
 	for (const auto &entry : streamConfigurations_) {
-		minFrameDurations.push_back(entry.androidScalerCode);
+		minFrameDurations.push_back(entry.androidFormat);
 		minFrameDurations.push_back(entry.resolution.width);
 		minFrameDurations.push_back(entry.resolution.height);
 		minFrameDurations.push_back(33333333);
@@ -714,9 +886,25 @@ const camera_metadata_t *CameraDevice::getStaticMetadata()
 	staticMetadata_->addEntry(ANDROID_REQUEST_PIPELINE_MAX_DEPTH,
 				  &maxPipelineDepth, 1);
 
+	/* LIMITED does not support reprocessing. */
+	uint32_t maxNumInputStreams = 0;
+	staticMetadata_->addEntry(ANDROID_REQUEST_MAX_NUM_INPUT_STREAMS,
+				  &maxNumInputStreams, 1);
+
 	std::vector<uint8_t> availableCapabilities = {
 		ANDROID_REQUEST_AVAILABLE_CAPABILITIES_BACKWARD_COMPATIBLE,
 	};
+
+	/* Report if camera supports RAW. */
+	std::unique_ptr<CameraConfiguration> cameraConfig =
+		camera_->generateConfiguration({ StreamRole::Raw });
+	if (cameraConfig && !cameraConfig->empty()) {
+		const PixelFormatInfo &info =
+			PixelFormatInfo::info(cameraConfig->at(0).pixelFormat);
+		if (info.colourEncoding == PixelFormatInfo::ColourEncodingRAW)
+			availableCapabilities.push_back(ANDROID_REQUEST_AVAILABLE_CAPABILITIES_RAW);
+	}
+
 	staticMetadata_->addEntry(ANDROID_REQUEST_AVAILABLE_CAPABILITIES,
 				  availableCapabilities.data(),
 				  availableCapabilities.size());
@@ -739,6 +927,7 @@ const camera_metadata_t *CameraDevice::getStaticMetadata()
 		ANDROID_CONTROL_AWB_LOCK_AVAILABLE,
 		ANDROID_CONTROL_AVAILABLE_MODES,
 		ANDROID_JPEG_AVAILABLE_THUMBNAIL_SIZES,
+		ANDROID_JPEG_MAX_SIZE,
 		ANDROID_SENSOR_INFO_PIXEL_ARRAY_SIZE,
 		ANDROID_SENSOR_INFO_ACTIVE_ARRAY_SIZE,
 		ANDROID_SENSOR_INFO_SENSITIVITY_RANGE,
@@ -760,7 +949,6 @@ const camera_metadata_t *CameraDevice::getStaticMetadata()
 		ANDROID_LENS_INFO_MINIMUM_FOCUS_DISTANCE,
 		ANDROID_NOISE_REDUCTION_AVAILABLE_NOISE_REDUCTION_MODES,
 		ANDROID_SCALER_AVAILABLE_MAX_DIGITAL_ZOOM,
-		ANDROID_SCALER_AVAILABLE_FORMATS,
 		ANDROID_SCALER_AVAILABLE_STREAM_CONFIGURATIONS,
 		ANDROID_SCALER_AVAILABLE_STALL_DURATIONS,
 		ANDROID_SCALER_AVAILABLE_MIN_FRAME_DURATIONS,
@@ -768,6 +956,7 @@ const camera_metadata_t *CameraDevice::getStaticMetadata()
 		ANDROID_INFO_SUPPORTED_HARDWARE_LEVEL,
 		ANDROID_REQUEST_PARTIAL_RESULT_COUNT,
 		ANDROID_REQUEST_PIPELINE_MAX_DEPTH,
+		ANDROID_REQUEST_MAX_NUM_INPUT_STREAMS,
 		ANDROID_REQUEST_AVAILABLE_CAPABILITIES,
 	};
 	staticMetadata_->addEntry(ANDROID_REQUEST_AVAILABLE_CHARACTERISTICS_KEYS,
@@ -778,6 +967,8 @@ const camera_metadata_t *CameraDevice::getStaticMetadata()
 		ANDROID_CONTROL_AE_MODE,
 		ANDROID_CONTROL_AE_EXPOSURE_COMPENSATION,
 		ANDROID_CONTROL_AE_PRECAPTURE_TRIGGER,
+		ANDROID_CONTROL_AE_TARGET_FPS_RANGE,
+		ANDROID_CONTROL_AE_ANTIBANDING_MODE,
 		ANDROID_CONTROL_AE_LOCK,
 		ANDROID_CONTROL_AF_TRIGGER,
 		ANDROID_CONTROL_AWB_MODE,
@@ -786,6 +977,9 @@ const camera_metadata_t *CameraDevice::getStaticMetadata()
 		ANDROID_STATISTICS_FACE_DETECT_MODE,
 		ANDROID_NOISE_REDUCTION_MODE,
 		ANDROID_COLOR_CORRECTION_ABERRATION_MODE,
+		ANDROID_LENS_APERTURE,
+		ANDROID_LENS_OPTICAL_STABILIZATION_MODE,
+		ANDROID_CONTROL_MODE,
 		ANDROID_CONTROL_CAPTURE_INTENT,
 	};
 	staticMetadata_->addEntry(ANDROID_REQUEST_AVAILABLE_REQUEST_KEYS,
@@ -805,6 +999,9 @@ const camera_metadata_t *CameraDevice::getStaticMetadata()
 		ANDROID_SENSOR_EXPOSURE_TIME,
 		ANDROID_STATISTICS_LENS_SHADING_MAP_MODE,
 		ANDROID_STATISTICS_SCENE_FLICKER,
+		ANDROID_JPEG_SIZE,
+		ANDROID_JPEG_QUALITY,
+		ANDROID_JPEG_ORIENTATION,
 	};
 	staticMetadata_->addEntry(ANDROID_REQUEST_AVAILABLE_RESULT_KEYS,
 				  availableResultKeys.data(),
@@ -820,48 +1017,14 @@ const camera_metadata_t *CameraDevice::getStaticMetadata()
 	return staticMetadata_->get();
 }
 
-/*
- * Produce a metadata pack to be used as template for a capture request.
- */
-const camera_metadata_t *CameraDevice::constructDefaultRequestSettings(int type)
+CameraMetadata *CameraDevice::requestTemplatePreview()
 {
-	auto it = requestTemplates_.find(type);
-	if (it != requestTemplates_.end())
-		return it->second->get();
-
-	/* Use the capture intent matching the requested template type. */
-	uint8_t captureIntent;
-	switch (type) {
-	case CAMERA3_TEMPLATE_PREVIEW:
-		captureIntent = ANDROID_CONTROL_CAPTURE_INTENT_PREVIEW;
-		break;
-	case CAMERA3_TEMPLATE_STILL_CAPTURE:
-		captureIntent = ANDROID_CONTROL_CAPTURE_INTENT_STILL_CAPTURE;
-		break;
-	case CAMERA3_TEMPLATE_VIDEO_RECORD:
-		captureIntent = ANDROID_CONTROL_CAPTURE_INTENT_VIDEO_RECORD;
-		break;
-	case CAMERA3_TEMPLATE_VIDEO_SNAPSHOT:
-		captureIntent = ANDROID_CONTROL_CAPTURE_INTENT_VIDEO_SNAPSHOT;
-		break;
-	case CAMERA3_TEMPLATE_ZERO_SHUTTER_LAG:
-		captureIntent = ANDROID_CONTROL_CAPTURE_INTENT_ZERO_SHUTTER_LAG;
-		break;
-	case CAMERA3_TEMPLATE_MANUAL:
-		captureIntent = ANDROID_CONTROL_CAPTURE_INTENT_MANUAL;
-		break;
-	default:
-		LOG(HAL, Error) << "Invalid template request type: " << type;
-		return nullptr;
-	}
-
 	/*
 	 * \todo Keep this in sync with the actual number of entries.
-	 * Currently: 12 entries, 15 bytes
+	 * Currently: 20 entries, 35 bytes
 	 */
-	CameraMetadata *requestTemplate = new CameraMetadata(15, 20);
+	CameraMetadata *requestTemplate = new CameraMetadata(20, 35);
 	if (!requestTemplate->isValid()) {
-		LOG(HAL, Error) << "Failed to allocate template metadata";
 		delete requestTemplate;
 		return nullptr;
 	}
@@ -881,6 +1044,17 @@ const camera_metadata_t *CameraDevice::constructDefaultRequestSettings(int type)
 	uint8_t aeLock = ANDROID_CONTROL_AE_LOCK_OFF;
 	requestTemplate->addEntry(ANDROID_CONTROL_AE_LOCK,
 				  &aeLock, 1);
+
+	std::vector<int32_t> aeFpsTarget = {
+		15, 30,
+	};
+	requestTemplate->addEntry(ANDROID_CONTROL_AE_TARGET_FPS_RANGE,
+				  aeFpsTarget.data(),
+				  aeFpsTarget.size());
+
+	uint8_t aeAntibandingMode = ANDROID_CONTROL_AE_ANTIBANDING_MODE_AUTO;
+	requestTemplate->addEntry(ANDROID_CONTROL_AE_ANTIBANDING_MODE,
+				  &aeAntibandingMode, 1);
 
 	uint8_t afTrigger = ANDROID_CONTROL_AF_TRIGGER_IDLE;
 	requestTemplate->addEntry(ANDROID_CONTROL_AF_TRIGGER,
@@ -910,17 +1084,84 @@ const camera_metadata_t *CameraDevice::constructDefaultRequestSettings(int type)
 	requestTemplate->addEntry(ANDROID_COLOR_CORRECTION_ABERRATION_MODE,
 				  &aberrationMode, 1);
 
+	uint8_t controlMode = ANDROID_CONTROL_MODE_AUTO;
+	requestTemplate->addEntry(ANDROID_CONTROL_MODE, &controlMode, 1);
+
+	float lensAperture = 2.53 / 100;
+	requestTemplate->addEntry(ANDROID_LENS_APERTURE, &lensAperture, 1);
+
+	uint8_t opticalStabilization = ANDROID_LENS_OPTICAL_STABILIZATION_MODE_OFF;
+	requestTemplate->addEntry(ANDROID_LENS_OPTICAL_STABILIZATION_MODE,
+				  &opticalStabilization, 1);
+
+	uint8_t captureIntent = ANDROID_CONTROL_CAPTURE_INTENT_PREVIEW;
 	requestTemplate->addEntry(ANDROID_CONTROL_CAPTURE_INTENT,
 				  &captureIntent, 1);
 
-	if (!requestTemplate->isValid()) {
+	return requestTemplate;
+}
+
+/*
+ * Produce a metadata pack to be used as template for a capture request.
+ */
+const camera_metadata_t *CameraDevice::constructDefaultRequestSettings(int type)
+{
+	auto it = requestTemplates_.find(type);
+	if (it != requestTemplates_.end())
+		return it->second->get();
+
+	/* Use the capture intent matching the requested template type. */
+	CameraMetadata *requestTemplate;
+	uint8_t captureIntent;
+	switch (type) {
+	case CAMERA3_TEMPLATE_PREVIEW:
+		captureIntent = ANDROID_CONTROL_CAPTURE_INTENT_PREVIEW;
+		break;
+	case CAMERA3_TEMPLATE_STILL_CAPTURE:
+		captureIntent = ANDROID_CONTROL_CAPTURE_INTENT_STILL_CAPTURE;
+		break;
+	case CAMERA3_TEMPLATE_VIDEO_RECORD:
+		captureIntent = ANDROID_CONTROL_CAPTURE_INTENT_VIDEO_RECORD;
+		break;
+	case CAMERA3_TEMPLATE_VIDEO_SNAPSHOT:
+		captureIntent = ANDROID_CONTROL_CAPTURE_INTENT_VIDEO_SNAPSHOT;
+		break;
+	case CAMERA3_TEMPLATE_ZERO_SHUTTER_LAG:
+		captureIntent = ANDROID_CONTROL_CAPTURE_INTENT_ZERO_SHUTTER_LAG;
+		break;
+	case CAMERA3_TEMPLATE_MANUAL:
+		captureIntent = ANDROID_CONTROL_CAPTURE_INTENT_MANUAL;
+		break;
+	default:
+		LOG(HAL, Error) << "Invalid template request type: " << type;
+		return nullptr;
+	}
+
+	requestTemplate = requestTemplatePreview();
+	if (!requestTemplate || !requestTemplate->isValid()) {
 		LOG(HAL, Error) << "Failed to construct request template";
 		delete requestTemplate;
 		return nullptr;
 	}
 
+	requestTemplate->updateEntry(ANDROID_CONTROL_CAPTURE_INTENT,
+				     &captureIntent, 1);
+
 	requestTemplates_[type] = requestTemplate;
 	return requestTemplate->get();
+}
+
+PixelFormat CameraDevice::toPixelFormat(int format)
+{
+	/* Translate Android format code to libcamera pixel format. */
+	auto it = formatsMap_.find(format);
+	if (it == formatsMap_.end()) {
+		LOG(HAL, Error) << "Requested format " << utils::hex(format)
+				<< " not supported";
+		return PixelFormat();
+	}
+
+	return it->second;
 }
 
 /*
@@ -929,53 +1170,127 @@ const camera_metadata_t *CameraDevice::constructDefaultRequestSettings(int type)
  */
 int CameraDevice::configureStreams(camera3_stream_configuration_t *stream_list)
 {
+	/*
+	 * Generate an empty configuration, and construct a StreamConfiguration
+	 * for each camera3_stream to add to it.
+	 */
+	config_ = camera_->generateConfiguration();
+	if (!config_) {
+		LOG(HAL, Error) << "Failed to generate camera configuration";
+		return -EINVAL;
+	}
+
+	/*
+	 * Clear and remove any existing configuration from previous calls, and
+	 * ensure the required entries are available without further
+	 * reallocation.
+	 */
+	streams_.clear();
+	streams_.reserve(stream_list->num_streams);
+
+	/* First handle all non-MJPEG streams. */
+	camera3_stream_t *jpegStream = nullptr;
 	for (unsigned int i = 0; i < stream_list->num_streams; ++i) {
 		camera3_stream_t *stream = stream_list->streams[i];
+		Size size(stream->width, stream->height);
+
+		PixelFormat format = toPixelFormat(stream->format);
 
 		LOG(HAL, Info) << "Stream #" << i
 			       << ", direction: " << stream->stream_type
 			       << ", width: " << stream->width
 			       << ", height: " << stream->height
-			       << ", format: " << utils::hex(stream->format);
+			       << ", format: " << utils::hex(stream->format)
+			       << " (" << format.toString() << ")";
+
+		if (!format.isValid())
+			return -EINVAL;
+
+		/* Defer handling of MJPEG streams until all others are known. */
+		if (stream->format == HAL_PIXEL_FORMAT_BLOB) {
+			if (jpegStream) {
+				LOG(HAL, Error)
+					<< "Multiple JPEG streams are not supported";
+				return -EINVAL;
+			}
+
+			jpegStream = stream;
+			continue;
+		}
+
+		StreamConfiguration streamConfiguration;
+		streamConfiguration.size = size;
+		streamConfiguration.pixelFormat = format;
+
+		config_->addConfiguration(streamConfiguration);
+		streams_.emplace_back(this, CameraStream::Type::Direct,
+				      stream, config_->size() - 1);
+		stream->priv = static_cast<void *>(&streams_.back());
 	}
 
-	/* Only one stream is supported. */
-	if (stream_list->num_streams != 1) {
-		LOG(HAL, Error) << "Only one stream supported";
-		return -EINVAL;
-	}
-	camera3_stream_t *camera3Stream = stream_list->streams[0];
+	/* Now handle the MJPEG streams, adding a new stream if required. */
+	if (jpegStream) {
+		CameraStream::Type type;
+		int index = -1;
 
-	/* Translate Android format code to libcamera pixel format. */
-	auto it = formatsMap_.find(camera3Stream->format);
-	if (it == formatsMap_.end()) {
-		LOG(HAL, Error) << "Requested format "
-				<< utils::hex(camera3Stream->format)
-				<< " not supported";
-		return -EINVAL;
-	}
+		/* Search for a compatible stream in the non-JPEG ones. */
+		for (unsigned int i = 0; i < config_->size(); i++) {
+			StreamConfiguration &cfg = config_->at(i);
 
-	/*
-	 * Hardcode viewfinder role, replacing the generated configuration
-	 * parameters with the ones requested by the Android framework.
-	 */
-	StreamRoles roles = { StreamRole::Viewfinder };
-	config_ = camera_->generateConfiguration(roles);
-	if (!config_ || config_->empty()) {
-		LOG(HAL, Error) << "Failed to generate camera configuration";
-		return -EINVAL;
-	}
+			/*
+			 * \todo The PixelFormat must also be compatible with
+			 * the encoder.
+			 */
+			if (cfg.size.width != jpegStream->width ||
+			    cfg.size.height != jpegStream->height)
+				continue;
 
-	StreamConfiguration *streamConfiguration = &config_->at(0);
-	streamConfiguration->size.width = camera3Stream->width;
-	streamConfiguration->size.height = camera3Stream->height;
-	streamConfiguration->pixelFormat = it->second;
+			LOG(HAL, Info)
+				<< "Android JPEG stream mapped to libcamera stream " << i;
+
+			type = CameraStream::Type::Mapped;
+			index = i;
+			break;
+		}
+
+		/*
+		 * Without a compatible match for JPEG encoding we must
+		 * introduce a new stream to satisfy the request requirements.
+		 */
+		if (index < 0) {
+			StreamConfiguration streamConfiguration;
+
+			/*
+			 * \todo The pixelFormat should be a 'best-fit' choice
+			 * and may require a validation cycle. This is not yet
+			 * handled, and should be considered as part of any
+			 * stream configuration reworks.
+			 */
+			streamConfiguration.size.width = jpegStream->width;
+			streamConfiguration.size.height = jpegStream->height;
+			streamConfiguration.pixelFormat = formats::NV12;
+
+			LOG(HAL, Info) << "Adding " << streamConfiguration.toString()
+				       << " for MJPEG support";
+
+			type = CameraStream::Type::Internal;
+			config_->addConfiguration(streamConfiguration);
+			index = config_->size() - 1;
+		}
+
+		streams_.emplace_back(this, type, jpegStream, index);
+		jpegStream->priv = static_cast<void *>(&streams_.back());
+	}
 
 	switch (config_->validate()) {
 	case CameraConfiguration::Valid:
 		break;
 	case CameraConfiguration::Adjusted:
 		LOG(HAL, Info) << "Camera configuration adjusted";
+
+		for (const StreamConfiguration &cfg : *config_)
+			LOG(HAL, Info) << " - " << cfg.toString();
+
 		config_.reset();
 		return -EINVAL;
 	case CameraConfiguration::Invalid:
@@ -984,8 +1299,6 @@ int CameraDevice::configureStreams(camera3_stream_configuration_t *stream_list)
 		return -EINVAL;
 	}
 
-	camera3Stream->max_buffers = streamConfiguration->bufferCount;
-
 	/*
 	 * Once the CameraConfiguration has been adjusted/validated
 	 * it can be applied to the camera.
@@ -993,26 +1306,67 @@ int CameraDevice::configureStreams(camera3_stream_configuration_t *stream_list)
 	int ret = camera_->configure(config_.get());
 	if (ret) {
 		LOG(HAL, Error) << "Failed to configure camera '"
-				<< camera_->name() << "'";
+				<< camera_->id() << "'";
 		return ret;
+	}
+
+	/*
+	 * Configure the HAL CameraStream instances using the associated
+	 * StreamConfiguration and set the number of required buffers in
+	 * the Android camera3_stream_t.
+	 */
+	for (CameraStream &cameraStream : streams_) {
+		int ret = cameraStream.configure();
+		if (ret) {
+			LOG(HAL, Error) << "Failed to configure camera stream";
+			return ret;
+		}
 	}
 
 	return 0;
 }
 
+FrameBuffer *CameraDevice::createFrameBuffer(const buffer_handle_t camera3buffer)
+{
+	std::vector<FrameBuffer::Plane> planes;
+	for (int i = 0; i < camera3buffer->numFds; i++) {
+		/* Skip unused planes. */
+		if (camera3buffer->data[i] == -1)
+			break;
+
+		FrameBuffer::Plane plane;
+		plane.fd = FileDescriptor(camera3buffer->data[i]);
+		if (!plane.fd.isValid()) {
+			LOG(HAL, Error) << "Failed to obtain FileDescriptor ("
+					<< camera3buffer->data[i] << ") "
+					<< " on plane " << i;
+			return nullptr;
+		}
+
+		off_t length = lseek(plane.fd.fd(), 0, SEEK_END);
+		if (length == -1) {
+			LOG(HAL, Error) << "Failed to query plane length";
+			return nullptr;
+		}
+
+		plane.length = length;
+		planes.push_back(std::move(plane));
+	}
+
+	return new FrameBuffer(std::move(planes));
+}
+
 int CameraDevice::processCaptureRequest(camera3_capture_request_t *camera3Request)
 {
-	StreamConfiguration *streamConfiguration = &config_->at(0);
-	Stream *stream = streamConfiguration->stream();
-
-	if (camera3Request->num_output_buffers != 1) {
-		LOG(HAL, Error) << "Invalid number of output buffers: "
-				<< camera3Request->num_output_buffers;
+	if (!camera3Request->num_output_buffers) {
+		LOG(HAL, Error) << "No output buffers provided";
 		return -EINVAL;
 	}
 
 	/* Start the camera if that's the first request we handle. */
 	if (!running_) {
+		worker_.start();
+
 		int ret = camera_->start();
 		if (ret) {
 			LOG(HAL, Error) << "Failed to start camera";
@@ -1035,86 +1389,155 @@ int CameraDevice::processCaptureRequest(camera3_capture_request_t *camera3Reques
 	 * at request complete time.
 	 */
 	Camera3RequestDescriptor *descriptor =
-		new Camera3RequestDescriptor(camera3Request->frame_number,
+		new Camera3RequestDescriptor(camera_.get(), camera3Request->frame_number,
 					     camera3Request->num_output_buffers);
+
+	LOG(HAL, Debug) << "Queueing Request to libcamera with "
+			<< descriptor->numBuffers << " HAL streams";
 	for (unsigned int i = 0; i < descriptor->numBuffers; ++i) {
+		camera3_stream *camera3Stream = camera3Buffers[i].stream;
+		CameraStream *cameraStream =
+			static_cast<CameraStream *>(camera3Buffers[i].stream->priv);
+
 		/*
 		 * Keep track of which stream the request belongs to and store
 		 * the native buffer handles.
-		 *
-		 * \todo Currently we only support one capture buffer. Copy
-		 * all of them to be ready once we'll support more.
 		 */
 		descriptor->buffers[i].stream = camera3Buffers[i].stream;
 		descriptor->buffers[i].buffer = camera3Buffers[i].buffer;
-	}
 
-	/*
-	 * Create a libcamera buffer using the dmabuf descriptors of the first
-	 * and (currently) only supported request buffer.
-	 */
-	const buffer_handle_t camera3Handle = *camera3Buffers[0].buffer;
+		std::stringstream ss;
+		ss << i << " - (" << camera3Stream->width << "x"
+		   << camera3Stream->height << ")"
+		   << "[" << utils::hex(camera3Stream->format) << "] -> "
+		   << "(" << cameraStream->configuration().size.toString() << ")["
+		   << cameraStream->configuration().pixelFormat.toString() << "]";
 
-	std::vector<FrameBuffer::Plane> planes;
-	for (int i = 0; i < 3; i++) {
-		FrameBuffer::Plane plane;
-		plane.fd = FileDescriptor(camera3Handle->data[i]);
 		/*
-		 * Setting length to zero here is OK as the length is only used
-		 * to map the memory of the plane. Libcamera do not need to poke
-		 * at the memory content queued by the HAL.
+		 * Inspect the camera stream type, create buffers opportunely
+		 * and add them to the Request if required.
 		 */
-		plane.length = 0;
-		planes.push_back(std::move(plane));
+		FrameBuffer *buffer = nullptr;
+		switch (cameraStream->type()) {
+		case CameraStream::Type::Mapped:
+			/*
+			 * Mapped streams don't need buffers added to the
+			 * Request.
+			 */
+			LOG(HAL, Debug) << ss.str() << " (mapped)";
+			continue;
+
+		case CameraStream::Type::Direct:
+			/*
+			 * Create a libcamera buffer using the dmabuf
+			 * descriptors of the camera3Buffer for each stream and
+			 * associate it with the Camera3RequestDescriptor for
+			 * lifetime management only.
+			 */
+			buffer = createFrameBuffer(*camera3Buffers[i].buffer);
+			descriptor->frameBuffers.emplace_back(buffer);
+			LOG(HAL, Debug) << ss.str() << " (direct)";
+			break;
+
+		case CameraStream::Type::Internal:
+			/*
+			 * Get the frame buffer from the CameraStream internal
+			 * buffer pool.
+			 *
+			 * The buffer has to be returned to the CameraStream
+			 * once it has been processed.
+			 */
+			buffer = cameraStream->getBuffer();
+			LOG(HAL, Debug) << ss.str() << " (internal)";
+			break;
+		}
+
+		if (!buffer) {
+			LOG(HAL, Error) << "Failed to create buffer";
+			delete descriptor;
+			return -ENOMEM;
+		}
+
+		descriptor->request->addBuffer(cameraStream->stream(), buffer,
+					       camera3Buffers[i].acquire_fence);
 	}
 
-	FrameBuffer *buffer = new FrameBuffer(std::move(planes));
-	if (!buffer) {
-		LOG(HAL, Error) << "Failed to create buffer";
-		delete descriptor;
-		return -ENOMEM;
-	}
-
-	Request *request =
-		camera_->createRequest(reinterpret_cast<uint64_t>(descriptor));
-	request->addBuffer(stream, buffer);
-
-	int ret = camera_->queueRequest(request);
-	if (ret) {
-		LOG(HAL, Error) << "Failed to queue request";
-		delete request;
-		delete descriptor;
-		return ret;
-	}
+	/* Queue the request to the CameraWorker. */
+	worker_.queueRequest(descriptor->request.get());
 
 	return 0;
 }
 
 void CameraDevice::requestComplete(Request *request)
 {
-	const std::map<Stream *, FrameBuffer *> &buffers = request->buffers();
-	FrameBuffer *buffer = buffers.begin()->second;
+	const Request::BufferMap &buffers = request->buffers();
 	camera3_buffer_status status = CAMERA3_BUFFER_STATUS_OK;
 	std::unique_ptr<CameraMetadata> resultMetadata;
+	Camera3RequestDescriptor *descriptor =
+		reinterpret_cast<Camera3RequestDescriptor *>(request->cookie());
 
 	if (request->status() != Request::RequestComplete) {
-		LOG(HAL, Error) << "Request not succesfully completed: "
+		LOG(HAL, Error) << "Request not successfully completed: "
 				<< request->status();
 		status = CAMERA3_BUFFER_STATUS_ERROR;
 	}
 
-	/* Prepare to call back the Android camera stack. */
-	Camera3RequestDescriptor *descriptor =
-		reinterpret_cast<Camera3RequestDescriptor *>(request->cookie());
+	/*
+	 * \todo The timestamp used for the metadata is currently always taken
+	 * from the first buffer (which may be the first stream) in the Request.
+	 * It might be appropriate to return a 'correct' (as determined by
+	 * pipeline handlers) timestamp in the Request itself.
+	 */
+	FrameBuffer *buffer = buffers.begin()->second;
+	resultMetadata = getResultMetadata(descriptor->frameNumber,
+					   buffer->metadata().timestamp);
 
+	/* Handle any JPEG compression. */
+	for (unsigned int i = 0; i < descriptor->numBuffers; ++i) {
+		CameraStream *cameraStream =
+			static_cast<CameraStream *>(descriptor->buffers[i].stream->priv);
+
+		if (cameraStream->camera3Stream().format != HAL_PIXEL_FORMAT_BLOB)
+			continue;
+
+		FrameBuffer *buffer = request->findBuffer(cameraStream->stream());
+		if (!buffer) {
+			LOG(HAL, Error) << "Failed to find a source stream buffer";
+			continue;
+		}
+
+		/*
+		 * \todo Buffer mapping and compression should be moved to a
+		 * separate thread.
+		 */
+
+		MappedCamera3Buffer mapped(*descriptor->buffers[i].buffer,
+					   PROT_READ | PROT_WRITE);
+		if (!mapped.isValid()) {
+			LOG(HAL, Error) << "Failed to mmap android blob buffer";
+			continue;
+		}
+
+		int ret = cameraStream->process(*buffer, &mapped,
+						resultMetadata.get());
+		if (ret) {
+			status = CAMERA3_BUFFER_STATUS_ERROR;
+			continue;
+		}
+
+		/*
+		 * Return the FrameBuffer to the CameraStream now that we're
+		 * done processing it.
+		 */
+		if (cameraStream->type() == CameraStream::Type::Internal)
+			cameraStream->putBuffer(buffer);
+	}
+
+	/* Prepare to call back the Android camera stack. */
 	camera3_capture_result_t captureResult = {};
 	captureResult.frame_number = descriptor->frameNumber;
 	captureResult.num_output_buffers = descriptor->numBuffers;
 	for (unsigned int i = 0; i < descriptor->numBuffers; ++i) {
-		/*
-		 * \todo Currently we only support one capture buffer. Prepare
-		 * all of them to be ready once we'll support more.
-		 */
 		descriptor->buffers[i].acquire_fence = -1;
 		descriptor->buffers[i].release_fence = -1;
 		descriptor->buffers[i].status = status;
@@ -1122,13 +1545,12 @@ void CameraDevice::requestComplete(Request *request)
 	captureResult.output_buffers =
 		const_cast<const camera3_stream_buffer_t *>(descriptor->buffers);
 
+
 	if (status == CAMERA3_BUFFER_STATUS_OK) {
 		notifyShutter(descriptor->frameNumber,
 			      buffer->metadata().timestamp);
 
 		captureResult.partial_result = 1;
-		resultMetadata = getResultMetadata(descriptor->frameNumber,
-						   buffer->metadata().timestamp);
 		captureResult.result = resultMetadata->get();
 	}
 
@@ -1146,12 +1568,11 @@ void CameraDevice::requestComplete(Request *request)
 	callbacks_->process_capture_result(callbacks_, &captureResult);
 
 	delete descriptor;
-	delete buffer;
 }
 
 std::string CameraDevice::logPrefix() const
 {
-	return "'" + camera_->name() + "'";
+	return "'" + camera_->id() + "'";
 }
 
 void CameraDevice::notifyShutter(uint32_t frameNumber, uint64_t timestamp)
@@ -1169,6 +1590,13 @@ void CameraDevice::notifyError(uint32_t frameNumber, camera3_stream_t *stream)
 {
 	camera3_notify_msg_t notify = {};
 
+	/*
+	 * \todo Report and identify the stream number or configuration to
+	 * clarify the stream that failed.
+	 */
+	LOG(HAL, Error) << "Error occurred on frame " << frameNumber << " ("
+			<< toPixelFormat(stream->format).toString() << ")";
+
 	notify.type = CAMERA3_MSG_ERROR;
 	notify.message.error.error_stream = stream;
 	notify.message.error.frame_number = frameNumber;
@@ -1180,15 +1608,16 @@ void CameraDevice::notifyError(uint32_t frameNumber, camera3_stream_t *stream)
 /*
  * Produce a set of fixed result metadata.
  */
-std::unique_ptr<CameraMetadata> CameraDevice::getResultMetadata(int frame_number,
-								int64_t timestamp)
+std::unique_ptr<CameraMetadata>
+CameraDevice::getResultMetadata([[maybe_unused]] int frame_number,
+				int64_t timestamp)
 {
 	/*
 	 * \todo Keep this in sync with the actual number of entries.
-	 * Currently: 12 entries, 36 bytes
+	 * Currently: 18 entries, 62 bytes
 	 */
 	std::unique_ptr<CameraMetadata> resultMetadata =
-		std::make_unique<CameraMetadata>(15, 50);
+		std::make_unique<CameraMetadata>(18, 62);
 	if (!resultMetadata->isValid()) {
 		LOG(HAL, Error) << "Failed to allocate static metadata";
 		return nullptr;

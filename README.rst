@@ -46,8 +46,8 @@ Other distributions may have differing package names:
 A C++ toolchain: [required]
 	Either {g++, clang}
 
-for libcamera: [required]
-        meson (>= 0.47) ninja-build python3-yaml
+Meson Build system: [required]
+        meson (>= 0.51) ninja-build pkg-config
 
         If your distribution doesn't provide a recent enough version of meson,
         you can install or upgrade it using pip3.
@@ -57,20 +57,29 @@ for libcamera: [required]
             pip3 install --user meson
             pip3 install --user --upgrade meson
 
-for device hotplug enumeration: [optional]
-	pkg-config libudev-dev
-
-for documentation: [optional]
-	python3-sphinx doxygen
-
-for gstreamer: [optional]
-	libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+for the libcamera core: [required]
+        python3-yaml
 
 for IPA module signing: [required]
         libgnutls28-dev openssl
 
+for the Raspberry Pi IPA: [optional]
+        libboost-dev
+
+        Support for Raspberry Pi can be disabled through the meson
+         'pipelines' option to avoid this dependency.
+
+for device hotplug enumeration: [optional]
+	libudev-dev
+
+for documentation: [optional]
+	python3-sphinx doxygen graphviz
+
+for gstreamer: [optional]
+	libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+
 for qcam: [optional]
-	qtbase5-dev libqt5core5a libqt5gui5 libqt5widgets5
+	qtbase5-dev libqt5core5a libqt5gui5 libqt5widgets5 qttools5-dev-tools libtiff-dev
 
 Using GStreamer plugin
 ~~~~~~~~~~~~~~~~~~~~~~

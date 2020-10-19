@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: CC0-1.0
 
 libcamera_sources = files([
+    'bayer_format.cpp',
     'bound_method.cpp',
     'buffer.cpp',
     'byte_stream_buffer.cpp',
@@ -41,8 +42,10 @@ libcamera_sources = files([
     'semaphore.cpp',
     'signal.cpp',
     'stream.cpp',
+    'sysfs.cpp',
     'thread.cpp',
     'timer.cpp',
+    'transform.cpp',
     'utils.cpp',
     'v4l2_controls.cpp',
     'v4l2_device.cpp',
@@ -76,8 +79,6 @@ if libudev.found()
     ])
 endif
 
-gen_controls = files('gen-controls.py')
-
 control_sources = []
 
 foreach source : control_source_files
@@ -101,7 +102,6 @@ version_cpp = vcs_tag(command : [gen_version, meson.build_root()],
 libcamera_sources += version_cpp
 
 if ipa_sign_module
-    gen_ipa_pub_key = files('gen-ipa-pub-key.py')
     ipa_pub_key_cpp = custom_target('ipa_pub_key_cpp',
                                     input : [ ipa_priv_key, 'ipa_pub_key.cpp.in' ],
                                     output : 'ipa_pub_key.cpp',
@@ -120,10 +120,12 @@ libcamera_deps = [
 
 libcamera_link_with = []
 
-if get_option('android')
+if android_enabled
     libcamera_sources += android_hal_sources
     includes += android_includes
     libcamera_link_with += android_camera_metadata
+
+    libcamera_deps += android_deps
 endif
 
 # We add '/' to the build_rpath as a 'safe' path to act as a boolean flag.

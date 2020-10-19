@@ -128,6 +128,13 @@ std::string dirname(const std::string &path)
 }
 
 /**
+ * \fn std::vector<typename T::key_type> map_keys(const T &map)
+ * \brief Retrieve the keys of a std::map<>
+ * \param[in] map The map whose keys to retrieve
+ * \return A std::vector<> containing the keys of \a map
+ */
+
+/**
  * \fn libcamera::utils::set_overlap(InputIt1 first1, InputIt1 last1,
  *				     InputIt2 first2, InputIt2 last2)
  * \brief Count the number of elements in the intersection of two ranges
@@ -137,14 +144,6 @@ std::string dirname(const std::string &path)
  * operator< and the ranges must be sorted with respect to the same.
  *
  * \return The number of elements in the intersection of the two ranges
- */
-
-/**
- * \fn libcamera::utils::clamp(const T& v, const T& lo, const T& hi)
- * \param[in] v The value to clamp
- * \param[in] lo The lower boundary to clamp v to
- * \param[in] hi The higher boundary to clamp v to
- * \return lo if v is less than lo, hi if v is greater than hi, otherwise v
  */
 
 /**
@@ -336,6 +335,23 @@ details::StringSplitter split(const std::string &str, const std::string &delim)
 }
 
 /**
+ * \brief Remove any non-ASCII characters from a string
+ * \param[in] str The string to strip
+ *
+ * Remove all non-ASCII characters from a string.
+ *
+ * \return A string equal to \a str stripped out of all non-ASCII characters
+ */
+std::string toAscii(const std::string &str)
+{
+	std::string ret;
+	for (const char &c : str)
+		if (!(c & 0x80))
+			ret += c;
+	return ret;
+}
+
+/**
  * \brief Check if libcamera is installed or not
  *
  * Utilise the build_rpath dynamic tag which is stripped out by meson at
@@ -436,6 +452,22 @@ std::string libcameraSourcePath()
 
 	return path + "/";
 }
+
+/**
+ * \fn alignDown(unsigned int value, unsigned int alignment)
+ * \brief Align \a value down to \a alignment
+ * \param[in] value The value to align
+ * \param[in] alignment The alignment
+ * \return The value rounded down to the nearest multiple of \a alignment
+ */
+
+/**
+ * \fn alignUp(unsigned int value, unsigned int alignment)
+ * \brief Align \a value up to \a alignment
+ * \param[in] value The value to align
+ * \param[in] alignment The alignment
+ * \return The value rounded up to the nearest multiple of \a alignment
+ */
 
 } /* namespace utils */
 

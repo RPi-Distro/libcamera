@@ -11,7 +11,7 @@
 
 #include "contrast.hpp"
 
-using namespace RPi;
+using namespace RPiController;
 
 // This is a very simple control algorithm which simply retrieves the results of
 // AGC and AWB via their "status" metadata, and applies digital gain to the
@@ -137,9 +137,9 @@ Pwl apply_manual_contrast(Pwl const &gamma_curve, double brightness,
 	return new_gamma_curve;
 }
 
-void Contrast::Process(StatisticsPtr &stats, Metadata *image_metadata)
+void Contrast::Process(StatisticsPtr &stats,
+		       [[maybe_unused]] Metadata *image_metadata)
 {
-	(void)image_metadata;
 	double brightness = brightness_, contrast = contrast_;
 	Histogram histogram(stats->hist[0].g_hist, NUM_HISTOGRAM_BINS);
 	// We look at the histogram and adjust the gamma curve in the following

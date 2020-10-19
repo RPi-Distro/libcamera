@@ -72,9 +72,12 @@ public:
 class VimcCameraConfiguration : public CameraConfiguration
 {
 public:
-	VimcCameraConfiguration();
+	VimcCameraConfiguration(VimcCameraData *data);
 
 	Status validate() override;
+
+private:
+	VimcCameraData *data_;
 };
 
 class PipelineHandlerVimc : public PipelineHandler
@@ -115,8 +118,8 @@ static const std::map<PixelFormat, uint32_t> pixelformats{
 
 } /* namespace */
 
-VimcCameraConfiguration::VimcCameraConfiguration()
-	: CameraConfiguration()
+VimcCameraConfiguration::VimcCameraConfiguration(VimcCameraData *data)
+	: CameraConfiguration(), data_(data)
 {
 }
 
@@ -126,6 +129,11 @@ CameraConfiguration::Status VimcCameraConfiguration::validate()
 
 	if (config_.empty())
 		return Invalid;
+
+	if (transform != Transform::Identity) {
+		transform = Transform::Identity;
+		status = Adjusted;
+	}
 
 	/* Cap the number of entries to the available streams. */
 	if (config_.size() > 1) {
@@ -146,11 +154,15 @@ CameraConfiguration::Status VimcCameraConfiguration::validate()
 	/* Clamp the size based on the device limits. */
 	const Size size = cfg.size;
 
-	/* The scaler hardcodes a x3 scale-up ratio. */
+	/*
+	 * The scaler hardcodes a x3 scale-up ratio, and the sensor output size
+	 * is aligned to two pixels in both directions. The output width and
+	 * height thus have to be multiples of 6.
+	 */
 	cfg.size.width = std::max(48U, std::min(4096U, cfg.size.width));
 	cfg.size.height = std::max(48U, std::min(2160U, cfg.size.height));
-	cfg.size.width -= cfg.size.width % 3;
-	cfg.size.height -= cfg.size.height % 3;
+	cfg.size.width -= cfg.size.width % 6;
+	cfg.size.height -= cfg.size.height % 6;
 
 	if (cfg.size != size) {
 		LOG(VIMC, Debug)
@@ -159,6 +171,17 @@ CameraConfiguration::Status VimcCameraConfiguration::validate()
 	}
 
 	cfg.bufferCount = 4;
+
+	V4L2DeviceFormat format = {};
+	format.fourcc = data_->video_->toV4L2PixelFormat(cfg.pixelFormat);
+	format.size = cfg.size;
+
+	int ret = data_->video_->tryFormat(&format);
+	if (ret)
+		return Invalid;
+
+	cfg.stride = format.planes[0].bpl;
+	cfg.frameSize = format.planes[0].size;
 
 	return status;
 }
@@ -171,8 +194,8 @@ PipelineHandlerVimc::PipelineHandlerVimc(CameraManager *manager)
 CameraConfiguration *PipelineHandlerVimc::generateConfiguration(Camera *camera,
 	const StreamRoles &roles)
 {
-	CameraConfiguration *config = new VimcCameraConfiguration();
 	VimcCameraData *data = cameraData(camera);
+	CameraConfiguration *config = new VimcCameraConfiguration(data);
 
 	if (roles.empty())
 		return config;
@@ -242,12 +265,7 @@ int PipelineHandlerVimc::configure(Camera *camera, CameraConfiguration *config)
 		return ret;
 
 	if (data->media_->version() >= KERNEL_VERSION(5, 6, 0)) {
-		Rectangle crop = {
-			.x = 0,
-			.y = 0,
-			.width = subformat.size.width,
-			.height = subformat.size.height,
-		};
+		Rectangle crop{ 0, 0, subformat.size };
 		ret = data->scaler_->setSelection(0, V4L2_SEL_TGT_CROP, &crop);
 		if (ret)
 			return ret;
@@ -282,7 +300,6 @@ int PipelineHandlerVimc::configure(Camera *camera, CameraConfiguration *config)
 		return ret;
 
 	cfg.setStream(&data->stream_);
-	cfg.stride = format.planes[0].bpl;
 
 	return 0;
 }
@@ -352,7 +369,7 @@ int PipelineHandlerVimc::processControls(VimcCameraData *data, Request *request)
 		}
 
 		int32_t value = lroundf(it.second.get<float>() * 128 + offset);
-		controls.set(cid, utils::clamp(value, 0, 255));
+		controls.set(cid, std::clamp(value, 0, 255));
 	}
 
 	for (const auto &ctrl : controls)
@@ -424,9 +441,9 @@ bool PipelineHandlerVimc::match(DeviceEnumerator *enumerator)
 		return false;
 
 	/* Create and register the camera. */
-	std::string name{ "VIMC " + data->sensor_->model() };
 	std::set<Stream *> streams{ &data->stream_ };
-	std::shared_ptr<Camera> camera = Camera::create(this, name, streams);
+	std::shared_ptr<Camera> camera =
+		Camera::create(this, data->sensor_->id(), streams);
 	registerCamera(std::move(camera), std::move(data));
 
 	return true;

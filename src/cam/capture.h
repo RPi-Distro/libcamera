@@ -7,8 +7,9 @@
 #ifndef __CAM_CAPTURE_H__
 #define __CAM_CAPTURE_H__
 
-#include <chrono>
 #include <memory>
+#include <stdint.h>
+#include <vector>
 
 #include <libcamera/buffer.h>
 #include <libcamera/camera.h>
@@ -24,21 +25,27 @@ class Capture
 {
 public:
 	Capture(std::shared_ptr<libcamera::Camera> camera,
-		libcamera::CameraConfiguration *config);
+		libcamera::CameraConfiguration *config,
+		EventLoop *loop);
 
-	int run(EventLoop *loop, const OptionsParser::Options &options);
+	int run(const OptionsParser::Options &options);
 private:
-	int capture(EventLoop *loop,
-		    libcamera::FrameBufferAllocator *allocator);
+	int capture(libcamera::FrameBufferAllocator *allocator);
 
 	void requestComplete(libcamera::Request *request);
 
 	std::shared_ptr<libcamera::Camera> camera_;
 	libcamera::CameraConfiguration *config_;
 
-	std::map<libcamera::Stream *, std::string> streamName_;
+	std::map<const libcamera::Stream *, std::string> streamName_;
 	BufferWriter *writer_;
-	std::chrono::steady_clock::time_point last_;
+	uint64_t last_;
+
+	EventLoop *loop_;
+	unsigned int captureCount_;
+	unsigned int captureLimit_;
+
+	std::vector<std::unique_ptr<libcamera::Request>> requests_;
 };
 
 #endif /* __CAM_CAPTURE_H__ */

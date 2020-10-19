@@ -113,12 +113,12 @@ public:
 	{
 	}
 
-	constexpr Span(pointer ptr, size_type count)
+	constexpr Span(pointer ptr, [[maybe_unused]] size_type count)
 		: data_(ptr)
 	{
 	}
 
-	constexpr Span(pointer first, pointer last)
+	constexpr Span(pointer first, [[maybe_unused]] pointer last)
 		: data_(first)
 	{
 	}
@@ -188,12 +188,7 @@ public:
 	}
 
 	constexpr Span(const Span &other) noexcept = default;
-
-	constexpr Span &operator=(const Span &other) noexcept
-	{
-		data_ = other.data_;
-		return *this;
-	}
+	constexpr Span &operator=(const Span &other) noexcept = default;
 
 	constexpr iterator begin() const { return data(); }
 	constexpr const_iterator cbegin() const { return begin(); }

@@ -462,6 +462,11 @@ const std::string V4L2DeviceFormat::toString() const
  */
 
 /**
+ * \typedef V4L2VideoDevice::Formats
+ * \brief A map of supported V4L2 pixel formats to frame sizes
+ */
+
+/**
  * \brief Construct a V4L2VideoDevice
  * \param[in] deviceNode The file-system path to the video device node
  */
@@ -724,6 +729,26 @@ int V4L2VideoDevice::getFormat(V4L2DeviceFormat *format)
 }
 
 /**
+ * \brief Try an image format on the V4L2 video device
+ * \param[inout] format The image format to test applicability to the video device
+ *
+ * Try the supplied \a format on the video device without applying it, returning
+ * the format that would be applied. This is equivalent to setFormat(), except
+ * that the device configuration is not changed.
+ *
+ * \return 0 on success or a negative error code otherwise
+ */
+int V4L2VideoDevice::tryFormat(V4L2DeviceFormat *format)
+{
+	if (caps_.isMeta())
+		return trySetFormatMeta(format, false);
+	else if (caps_.isMultiplanar())
+		return trySetFormatMultiplane(format, false);
+	else
+		return trySetFormatSingleplane(format, false);
+}
+
+/**
  * \brief Configure an image format on the V4L2 video device
  * \param[inout] format The image format to apply to the video device
  *
@@ -735,11 +760,11 @@ int V4L2VideoDevice::getFormat(V4L2DeviceFormat *format)
 int V4L2VideoDevice::setFormat(V4L2DeviceFormat *format)
 {
 	if (caps_.isMeta())
-		return setFormatMeta(format);
+		return trySetFormatMeta(format, true);
 	else if (caps_.isMultiplanar())
-		return setFormatMultiplane(format);
+		return trySetFormatMultiplane(format, true);
 	else
-		return setFormatSingleplane(format);
+		return trySetFormatSingleplane(format, true);
 }
 
 int V4L2VideoDevice::getFormatMeta(V4L2DeviceFormat *format)
@@ -765,7 +790,7 @@ int V4L2VideoDevice::getFormatMeta(V4L2DeviceFormat *format)
 	return 0;
 }
 
-int V4L2VideoDevice::setFormatMeta(V4L2DeviceFormat *format)
+int V4L2VideoDevice::trySetFormatMeta(V4L2DeviceFormat *format, bool set)
 {
 	struct v4l2_format v4l2Format = {};
 	struct v4l2_meta_format *pix = &v4l2Format.fmt.meta;
@@ -774,9 +799,11 @@ int V4L2VideoDevice::setFormatMeta(V4L2DeviceFormat *format)
 	v4l2Format.type = bufferType_;
 	pix->dataformat = format->fourcc;
 	pix->buffersize = format->planes[0].size;
-	ret = ioctl(VIDIOC_S_FMT, &v4l2Format);
+	ret = ioctl(set ? VIDIOC_S_FMT : VIDIOC_TRY_FMT, &v4l2Format);
 	if (ret) {
-		LOG(V4L2, Error) << "Unable to set format: " << strerror(-ret);
+		LOG(V4L2, Error)
+			<< "Unable to " << (set ? "set" : "try")
+			<< " format: " << strerror(-ret);
 		return ret;
 	}
 
@@ -820,7 +847,7 @@ int V4L2VideoDevice::getFormatMultiplane(V4L2DeviceFormat *format)
 	return 0;
 }
 
-int V4L2VideoDevice::setFormatMultiplane(V4L2DeviceFormat *format)
+int V4L2VideoDevice::trySetFormatMultiplane(V4L2DeviceFormat *format, bool set)
 {
 	struct v4l2_format v4l2Format = {};
 	struct v4l2_pix_format_mplane *pix = &v4l2Format.fmt.pix_mp;
@@ -838,9 +865,11 @@ int V4L2VideoDevice::setFormatMultiplane(V4L2DeviceFormat *format)
 		pix->plane_fmt[i].sizeimage = format->planes[i].size;
 	}
 
-	ret = ioctl(VIDIOC_S_FMT, &v4l2Format);
+	ret = ioctl(set ? VIDIOC_S_FMT : VIDIOC_TRY_FMT, &v4l2Format);
 	if (ret) {
-		LOG(V4L2, Error) << "Unable to set format: " << strerror(-ret);
+		LOG(V4L2, Error)
+			<< "Unable to " << (set ? "set" : "try")
+			<< " format: " << strerror(-ret);
 		return ret;
 	}
 
@@ -883,7 +912,7 @@ int V4L2VideoDevice::getFormatSingleplane(V4L2DeviceFormat *format)
 	return 0;
 }
 
-int V4L2VideoDevice::setFormatSingleplane(V4L2DeviceFormat *format)
+int V4L2VideoDevice::trySetFormatSingleplane(V4L2DeviceFormat *format, bool set)
 {
 	struct v4l2_format v4l2Format = {};
 	struct v4l2_pix_format *pix = &v4l2Format.fmt.pix;
@@ -895,9 +924,11 @@ int V4L2VideoDevice::setFormatSingleplane(V4L2DeviceFormat *format)
 	pix->pixelformat = format->fourcc;
 	pix->bytesperline = format->planes[0].bpl;
 	pix->field = V4L2_FIELD_NONE;
-	ret = ioctl(VIDIOC_S_FMT, &v4l2Format);
+	ret = ioctl(set ? VIDIOC_S_FMT : VIDIOC_TRY_FMT, &v4l2Format);
 	if (ret) {
-		LOG(V4L2, Error) << "Unable to set format: " << strerror(-ret);
+		LOG(V4L2, Error)
+			<< "Unable to " << (set ? "set" : "try")
+			<< " format: " << strerror(-ret);
 		return ret;
 	}
 
@@ -925,9 +956,9 @@ int V4L2VideoDevice::setFormatSingleplane(V4L2DeviceFormat *format)
  *
  * \return A list of the supported video device formats
  */
-std::map<V4L2PixelFormat, std::vector<SizeRange>> V4L2VideoDevice::formats(uint32_t code)
+V4L2VideoDevice::Formats V4L2VideoDevice::formats(uint32_t code)
 {
-	std::map<V4L2PixelFormat, std::vector<SizeRange>> formats;
+	Formats formats;
 
 	for (V4L2PixelFormat pixelFormat : enumPixelformats(code)) {
 		std::vector<SizeRange> sizes = enumSizes(pixelFormat);
@@ -1431,7 +1462,7 @@ int V4L2VideoDevice::queueBuffer(FrameBuffer *buffer)
  * For Capture video devices the FrameBuffer will contain valid data.
  * For Output video devices the FrameBuffer can be considered empty.
  */
-void V4L2VideoDevice::bufferAvailable(EventNotifier *notifier)
+void V4L2VideoDevice::bufferAvailable([[maybe_unused]] EventNotifier *notifier)
 {
 	FrameBuffer *buffer = dequeueBuffer();
 	if (!buffer)
@@ -1508,7 +1539,7 @@ FrameBuffer *V4L2VideoDevice::dequeueBuffer()
  * When this slot is called, a V4L2 event is available to be dequeued from the
  * device.
  */
-void V4L2VideoDevice::eventAvailable(EventNotifier *notifier)
+void V4L2VideoDevice::eventAvailable([[maybe_unused]] EventNotifier *notifier)
 {
 	struct v4l2_event event{};
 	int ret = ioctl(VIDIOC_DQEVENT, &event);

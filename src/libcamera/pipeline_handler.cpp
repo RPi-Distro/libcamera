@@ -257,9 +257,9 @@ void PipelineHandler::unlock()
  * \context This function is \threadsafe.
  * \return A ControlInfoMap listing the controls support by \a camera
  */
-const ControlInfoMap &PipelineHandler::controls(Camera *camera)
+const ControlInfoMap &PipelineHandler::controls(const Camera *camera) const
 {
-	CameraData *data = cameraData(camera);
+	const CameraData *data = cameraData(camera);
 	return data->controlInfo_;
 }
 
@@ -268,9 +268,9 @@ const ControlInfoMap &PipelineHandler::controls(Camera *camera)
  * \param[in] camera The camera
  * \return A ControlList of properties supported by \a camera
  */
-const ControlList &PipelineHandler::properties(Camera *camera)
+const ControlList &PipelineHandler::properties(const Camera *camera) const
 {
-	CameraData *data = cameraData(camera);
+	const CameraData *data = cameraData(camera);
 	return data->properties_;
 }
 
@@ -496,6 +496,10 @@ void PipelineHandler::registerCamera(std::shared_ptr<Camera> camera,
 	cameraData_[camera.get()] = std::move(data);
 	cameras_.push_back(camera);
 
+	if (mediaDevices_.empty())
+		LOG(Pipeline, Fatal)
+			<< "Registering camera with no media devices!";
+
 	/*
 	 * Walk the entity list and map the devnums of all capture video nodes
 	 * to the camera.
@@ -598,6 +602,19 @@ CameraData *PipelineHandler::cameraData(const Camera *camera)
 }
 
 /**
+ * \brief Retrieve the pipeline-specific data associated with a Camera
+ * \param[in] camera The camera whose data to retrieve
+ * \sa cameraData()
+ * \return A const pointer to the pipeline-specific data passed to
+ * registerCamera().
+ */
+const CameraData *PipelineHandler::cameraData(const Camera *camera) const
+{
+	ASSERT(cameraData_.count(camera));
+	return cameraData_.at(camera).get();
+}
+
+/**
  * \var PipelineHandler::manager_
  * \brief The Camera manager associated with the pipeline handler
  *
@@ -672,9 +689,6 @@ void PipelineHandlerFactory::registerType(PipelineHandlerFactory *factory)
 	std::vector<PipelineHandlerFactory *> &factories = PipelineHandlerFactory::factories();
 
 	factories.push_back(factory);
-
-	LOG(Pipeline, Debug)
-		<< "Registered pipeline handler \"" << factory->name() << "\"";
 }
 
 /**

@@ -10,12 +10,12 @@
 #include <linux/media-bus-format.h>
 
 #include <libcamera/formats.h>
+#include <libcamera/geometry.h>
 #include <libcamera/stream.h>
 
 #include "libcamera/internal/camera_sensor.h"
 #include "libcamera/internal/media_device.h"
 #include "libcamera/internal/v4l2_subdevice.h"
-#include "libcamera/internal/v4l2_videodevice.h"
 
 namespace libcamera {
 
@@ -23,7 +23,7 @@ LOG_DECLARE_CATEGORY(IPU3)
 
 namespace {
 
-static const std::map<uint32_t, PixelFormat> mbusCodesToInfo = {
+const std::map<uint32_t, PixelFormat> mbusCodesToPixelFormat = {
 	{ MEDIA_BUS_FMT_SBGGR10_1X10, formats::SBGGR10_IPU3 },
 	{ MEDIA_BUS_FMT_SGBRG10_1X10, formats::SGBRG10_IPU3 },
 	{ MEDIA_BUS_FMT_SGRBG10_1X10, formats::SGRBG10_IPU3 },
@@ -42,6 +42,45 @@ CIO2Device::~CIO2Device()
 	delete output_;
 	delete csi2_;
 	delete sensor_;
+}
+
+/**
+ * \brief Retrieve the list of supported PixelFormats
+ *
+ * Retrieve the list of supported pixel formats by matching the sensor produced
+ * media bus codes with the formats supported by the CIO2 unit.
+ *
+ * \return The list of supported PixelFormat
+ */
+std::vector<PixelFormat> CIO2Device::formats() const
+{
+	if (!sensor_)
+		return {};
+
+	std::vector<PixelFormat> formats;
+	for (unsigned int code : sensor_->mbusCodes()) {
+		auto it = mbusCodesToPixelFormat.find(code);
+		if (it != mbusCodesToPixelFormat.end())
+			formats.push_back(it->second);
+	}
+
+	return formats;
+}
+
+/**
+ * \brief Retrieve the list of supported size ranges
+ * \return The list of supported SizeRange
+ */
+std::vector<SizeRange> CIO2Device::sizes() const
+{
+	if (!sensor_)
+		return {};
+
+	std::vector<SizeRange> sizes;
+	for (const Size &size : sensor_->sizes())
+		sizes.emplace_back(size, size);
+
+	return sizes;
 }
 
 /**
@@ -95,11 +134,7 @@ int CIO2Device::init(const MediaDevice *media, unsigned int index)
 	 * utils::set_overlap requires the ranges to be sorted, keep the
 	 * cio2Codes vector sorted in ascending order.
 	 */
-	std::vector<unsigned int> cio2Codes;
-	cio2Codes.reserve(mbusCodesToInfo.size());
-	std::transform(mbusCodesToInfo.begin(), mbusCodesToInfo.end(),
-		       std::back_inserter(cio2Codes),
-		       [](auto &pair) { return pair.first; });
+	std::vector<unsigned int> cio2Codes = utils::map_keys(mbusCodesToPixelFormat);
 	const std::vector<unsigned int> &sensorCodes = sensor_->mbusCodes();
 	if (!utils::set_overlap(sensorCodes.begin(), sensorCodes.end(),
 				cio2Codes.begin(), cio2Codes.end())) {
@@ -121,13 +156,7 @@ int CIO2Device::init(const MediaDevice *media, unsigned int index)
 
 	std::string cio2Name = "ipu3-cio2 " + std::to_string(index);
 	output_ = V4L2VideoDevice::fromEntityName(media, cio2Name);
-	ret = output_->open();
-	if (ret)
-		return ret;
-
-	output_->bufferReady.connect(this, &CIO2Device::cio2BufferReady);
-
-	return 0;
+	return output_->open();
 }
 
 /**
@@ -145,12 +174,7 @@ int CIO2Device::configure(const Size &size, V4L2DeviceFormat *outputFormat)
 	 * Apply the selected format to the sensor, the CSI-2 receiver and
 	 * the CIO2 output device.
 	 */
-	std::vector<unsigned int> mbusCodes;
-	mbusCodes.reserve(mbusCodesToInfo.size());
-	std::transform(mbusCodesToInfo.begin(), mbusCodesToInfo.end(),
-		       std::back_inserter(mbusCodes),
-		       [](auto &pair) { return pair.first; });
-
+	std::vector<unsigned int> mbusCodes = utils::map_keys(mbusCodesToPixelFormat);
 	sensorFormat = sensor_->getFormat(mbusCodes, size);
 	ret = sensor_->setFormat(&sensorFormat);
 	if (ret)
@@ -160,8 +184,8 @@ int CIO2Device::configure(const Size &size, V4L2DeviceFormat *outputFormat)
 	if (ret)
 		return ret;
 
-	const auto &itInfo = mbusCodesToInfo.find(sensorFormat.mbus_code);
-	if (itInfo == mbusCodesToInfo.end())
+	const auto &itInfo = mbusCodesToPixelFormat.find(sensorFormat.mbus_code);
+	if (itInfo == mbusCodesToPixelFormat.end())
 		return -EINVAL;
 
 	const PixelFormatInfo &info = PixelFormatInfo::info(itInfo->second);
@@ -189,11 +213,7 @@ CIO2Device::generateConfiguration(Size size) const
 		size = sensor_->resolution();
 
 	/* Query the sensor static information for closest match. */
-	std::vector<unsigned int> mbusCodes;
-	std::transform(mbusCodesToInfo.begin(), mbusCodesToInfo.end(),
-		       std::back_inserter(mbusCodes),
-		       [](auto &pair) { return pair.first; });
-
+	std::vector<unsigned int> mbusCodes = utils::map_keys(mbusCodesToPixelFormat);
 	V4L2SubdeviceFormat sensorFormat = sensor_->getFormat(mbusCodes, size);
 	if (!sensorFormat.mbus_code) {
 		LOG(IPU3, Error) << "Sensor does not support mbus code";
@@ -201,7 +221,7 @@ CIO2Device::generateConfiguration(Size size) const
 	}
 
 	cfg.size = sensorFormat.size;
-	cfg.pixelFormat = mbusCodesToInfo.at(sensorFormat.mbus_code);
+	cfg.pixelFormat = mbusCodesToPixelFormat.at(sensorFormat.mbus_code);
 	cfg.bufferCount = CIO2_BUFFER_COUNT;
 
 	return cfg;
@@ -280,18 +300,11 @@ void CIO2Device::tryReturnBuffer(FrameBuffer *buffer)
 
 void CIO2Device::freeBuffers()
 {
-	/* The default std::queue constructor is explicit with gcc 5 and 6. */
-	availableBuffers_ = std::queue<FrameBuffer *>{};
-
+	availableBuffers_ = {};
 	buffers_.clear();
 
 	if (output_->releaseBuffers())
 		LOG(IPU3, Error) << "Failed to release CIO2 buffers";
-}
-
-void CIO2Device::cio2BufferReady(FrameBuffer *buffer)
-{
-	bufferReady.emit(buffer);
 }
 
 } /* namespace libcamera */

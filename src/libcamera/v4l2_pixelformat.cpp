@@ -45,8 +45,11 @@ namespace {
 
 const std::map<V4L2PixelFormat, PixelFormat> vpf2pf{
 	/* RGB formats. */
+	{ V4L2PixelFormat(V4L2_PIX_FMT_RGB565), formats::RGB565 },
 	{ V4L2PixelFormat(V4L2_PIX_FMT_RGB24), formats::BGR888 },
 	{ V4L2PixelFormat(V4L2_PIX_FMT_BGR24), formats::RGB888 },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_XBGR32), formats::XRGB8888 },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_XRGB32), formats::XBGR8888 },
 	{ V4L2PixelFormat(V4L2_PIX_FMT_RGBA32), formats::ABGR8888 },
 	{ V4L2PixelFormat(V4L2_PIX_FMT_ABGR32), formats::ARGB8888 },
 	{ V4L2PixelFormat(V4L2_PIX_FMT_ARGB32), formats::BGRA8888 },
@@ -64,6 +67,7 @@ const std::map<V4L2PixelFormat, PixelFormat> vpf2pf{
 	{ V4L2PixelFormat(V4L2_PIX_FMT_NV12), formats::NV12 },
 	{ V4L2PixelFormat(V4L2_PIX_FMT_NV21), formats::NV21 },
 	{ V4L2PixelFormat(V4L2_PIX_FMT_YUV420), formats::YUV420 },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_YVU420), formats::YVU420 },
 	{ V4L2PixelFormat(V4L2_PIX_FMT_YUV422P), formats::YUV422 },
 
 	/* Greyscale formats. */
@@ -90,6 +94,10 @@ const std::map<V4L2PixelFormat, PixelFormat> vpf2pf{
 	{ V4L2PixelFormat(V4L2_PIX_FMT_SGBRG12P), formats::SGBRG12_CSI2P },
 	{ V4L2PixelFormat(V4L2_PIX_FMT_SGRBG12P), formats::SGRBG12_CSI2P },
 	{ V4L2PixelFormat(V4L2_PIX_FMT_SRGGB12P), formats::SRGGB12_CSI2P },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SBGGR16), formats::SBGGR16 },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SGBRG16), formats::SGBRG16 },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SGRBG16), formats::SGRBG16 },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SRGGB16), formats::SRGGB16 },
 
 	/* Compressed formats. */
 	{ V4L2PixelFormat(V4L2_PIX_FMT_MJPEG), formats::MJPEG },
@@ -190,7 +198,7 @@ PixelFormat V4L2PixelFormat::toPixelFormat() const
  * \return The V4L2PixelFormat corresponding to \a pixelFormat
  */
 V4L2PixelFormat V4L2PixelFormat::fromPixelFormat(const PixelFormat &pixelFormat,
-						 bool multiplanar)
+						 [[maybe_unused]] bool multiplanar)
 {
 	const PixelFormatInfo &info = PixelFormatInfo::info(pixelFormat);
 	if (!info.isValid())

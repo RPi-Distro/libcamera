@@ -39,10 +39,9 @@ public:
 private:
 	bool validateBufferType(uint32_t type);
 	bool validateMemoryType(uint32_t memory);
-	void setFmtFromConfig(StreamConfiguration &streamConfig);
-	unsigned int calculateSizeImage(StreamConfiguration &streamConfig);
+	void setFmtFromConfig(const StreamConfiguration &streamConfig);
 	void querycap(std::shared_ptr<Camera> camera);
-	void tryFormat(struct v4l2_format *arg);
+	int tryFormat(struct v4l2_format *arg);
 	enum v4l2_priority maxPriority();
 	void updateBuffers();
 	void freeBuffers();
@@ -69,24 +68,18 @@ private:
 	int acquire(V4L2CameraFile *file);
 	void release(V4L2CameraFile *file);
 
-	static unsigned int bplMultiplier(uint32_t format);
-	static unsigned int imageSize(uint32_t format, unsigned int width,
-				      unsigned int height);
-
-	static PixelFormat v4l2ToDrm(uint32_t format);
-	static uint32_t drmToV4L2(const PixelFormat &format);
-
 	static const std::set<unsigned long> supportedIoctls_;
 
 	unsigned int refcount_;
 	unsigned int index_;
 
-	struct v4l2_format curV4L2Format_;
 	StreamConfiguration streamConfig_;
-	struct v4l2_capability capabilities_;
 	unsigned int bufferCount_;
 	unsigned int currentBuf_;
 	unsigned int sizeimage_;
+
+	struct v4l2_capability capabilities_;
+	struct v4l2_pix_format v4l2PixFormat_;
 
 	std::vector<struct v4l2_buffer> buffers_;
 	std::map<void *, unsigned int> mmaps_;

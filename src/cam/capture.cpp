@@ -5,7 +5,6 @@
  * capture.cpp - Cam capture
  */
 
-#include <chrono>
 #include <iomanip>
 #include <iostream>
 #include <limits.h>
@@ -16,14 +15,19 @@
 
 using namespace libcamera;
 
-Capture::Capture(std::shared_ptr<Camera> camera, CameraConfiguration *config)
-	: camera_(camera), config_(config), writer_(nullptr)
+Capture::Capture(std::shared_ptr<Camera> camera, CameraConfiguration *config,
+		 EventLoop *loop)
+	: camera_(camera), config_(config), writer_(nullptr), last_(0), loop_(loop),
+	  captureCount_(0), captureLimit_(0)
 {
 }
 
-int Capture::run(EventLoop *loop, const OptionsParser::Options &options)
+int Capture::run(const OptionsParser::Options &options)
 {
 	int ret;
+
+	captureCount_ = 0;
+	captureLimit_ = options[OptCapture].toInteger();
 
 	if (!camera_) {
 		std::cout << "Can't capture without a camera" << std::endl;
@@ -54,19 +58,21 @@ int Capture::run(EventLoop *loop, const OptionsParser::Options &options)
 
 	FrameBufferAllocator *allocator = new FrameBufferAllocator(camera_);
 
-	ret = capture(loop, allocator);
+	ret = capture(allocator);
 
 	if (options.isSet(OptFile)) {
 		delete writer_;
 		writer_ = nullptr;
 	}
 
+	requests_.clear();
+
 	delete allocator;
 
 	return ret;
 }
 
-int Capture::capture(EventLoop *loop, FrameBufferAllocator *allocator)
+int Capture::capture(FrameBufferAllocator *allocator)
 {
 	int ret;
 
@@ -88,9 +94,8 @@ int Capture::capture(EventLoop *loop, FrameBufferAllocator *allocator)
 	 * example pushing a button. For now run all streams all the time.
 	 */
 
-	std::vector<Request *> requests;
 	for (unsigned int i = 0; i < nbuffers; i++) {
-		Request *request = camera_->createRequest();
+		std::unique_ptr<Request> request = camera_->createRequest();
 		if (!request) {
 			std::cerr << "Can't create request" << std::endl;
 			return -ENOMEM;
@@ -113,7 +118,7 @@ int Capture::capture(EventLoop *loop, FrameBufferAllocator *allocator)
 				writer_->mapBuffer(buffer.get());
 		}
 
-		requests.push_back(request);
+		requests_.push_back(std::move(request));
 	}
 
 	ret = camera_->start();
@@ -122,8 +127,8 @@ int Capture::capture(EventLoop *loop, FrameBufferAllocator *allocator)
 		return ret;
 	}
 
-	for (Request *request : requests) {
-		ret = camera_->queueRequest(request);
+	for (std::unique_ptr<Request> &request : requests_) {
+		ret = camera_->queueRequest(request.get());
 		if (ret < 0) {
 			std::cerr << "Can't queue request" << std::endl;
 			camera_->stop();
@@ -131,8 +136,12 @@ int Capture::capture(EventLoop *loop, FrameBufferAllocator *allocator)
 		}
 	}
 
-	std::cout << "Capture until user interrupts by SIGINT" << std::endl;
-	ret = loop->exec();
+	if (captureLimit_)
+		std::cout << "Capture " << captureLimit_ << " frames" << std::endl;
+	else
+		std::cout << "Capture until user interrupts by SIGINT" << std::endl;
+
+	ret = loop_->exec();
 	if (ret)
 		std::cout << "Failed to run capture loop" << std::endl;
 
@@ -148,19 +157,24 @@ void Capture::requestComplete(Request *request)
 	if (request->status() == Request::RequestCancelled)
 		return;
 
-	const std::map<Stream *, FrameBuffer *> &buffers = request->buffers();
+	const Request::BufferMap &buffers = request->buffers();
 
-	std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
-	double fps = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_).count();
-	fps = last_ != std::chrono::steady_clock::time_point() && fps
-	    ? 1000.0 / fps : 0.0;
-	last_ = now;
+	/*
+	 * Compute the frame rate. The timestamp is arbitrarily retrieved from
+	 * the first buffer, as all buffers should have matching timestamps.
+	 */
+	uint64_t ts = buffers.begin()->second->metadata().timestamp;
+	double fps = ts - last_;
+	fps = last_ != 0 && fps ? 1000000000.0 / fps : 0.0;
+	last_ = ts;
 
 	std::stringstream info;
-	info << "fps: " << std::fixed << std::setprecision(2) << fps;
+	info << ts / 1000000000 << "."
+	     << std::setw(6) << std::setfill('0') << ts / 1000 % 1000000
+	     << " (" << std::fixed << std::setprecision(2) << fps << " fps)";
 
 	for (auto it = buffers.begin(); it != buffers.end(); ++it) {
-		Stream *stream = it->first;
+		const Stream *stream = it->first;
 		FrameBuffer *buffer = it->second;
 		const std::string &name = streamName_[stream];
 
@@ -183,22 +197,12 @@ void Capture::requestComplete(Request *request)
 
 	std::cout << info.str() << std::endl;
 
-	/*
-	 * Create a new request and populate it with one buffer for each
-	 * stream.
-	 */
-	request = camera_->createRequest();
-	if (!request) {
-		std::cerr << "Can't create request" << std::endl;
+	captureCount_++;
+	if (captureLimit_ && captureCount_ >= captureLimit_) {
+		loop_->exit(0);
 		return;
 	}
 
-	for (auto it = buffers.begin(); it != buffers.end(); ++it) {
-		Stream *stream = it->first;
-		FrameBuffer *buffer = it->second;
-
-		request->addBuffer(stream, buffer);
-	}
-
+	request->reuse(Request::ReuseBuffers);
 	camera_->queueRequest(request);
 }

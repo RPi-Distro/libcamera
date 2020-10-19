@@ -6,6 +6,7 @@
  */
 
 #include <libcamera/buffer.h>
+#include "libcamera/internal/buffer.h"
 
 #include <errno.h>
 #include <string.h>
@@ -15,8 +16,11 @@
 #include "libcamera/internal/log.h"
 
 /**
- * \file buffer.h
+ * \file libcamera/buffer.h
  * \brief Buffer handling
+ *
+ * \file libcamera/internal/buffer.h
+ * \brief Internal buffer handling support
  */
 
 namespace libcamera {
@@ -174,11 +178,11 @@ FrameBuffer::FrameBuffer(const std::vector<Plane> &planes, unsigned int cookie)
  * The intended callers of this method are buffer completion handlers that
  * need to associate a buffer to the request it belongs to.
  *
- * A Buffer is associated to a request by Request::addBuffer() and the
+ * A FrameBuffer is associated to a request by Request::addBuffer() and the
  * association is valid until the buffer completes. The returned request
  * pointer is valid only during that interval.
  *
- * \return The Request the Buffer belongs to, or nullptr if the buffer is
+ * \return The Request the FrameBuffer belongs to, or nullptr if the buffer is
  * not associated with a request
  */
 
@@ -223,71 +227,148 @@ FrameBuffer::FrameBuffer(const std::vector<Plane> &planes, unsigned int cookie)
  */
 
 /**
- * \brief Copy the contents from another buffer
- * \param[in] src Buffer to copy
+ * \class MappedBuffer
+ * \brief Provide an interface to support managing memory mapped buffers
  *
- * Copy the buffer contents and metadata from \a src to this buffer. The
- * destination FrameBuffer shall have the same number of planes as the source
- * buffer, and each destination plane shall be larger than or equal to the
- * corresponding source plane.
+ * The MappedBuffer interface provides access to a set of MappedPlanes which
+ * are available for access by the CPU.
  *
- * The complete metadata of the source buffer is copied to the destination
- * buffer. If an error occurs during the copy, the destination buffer's metadata
- * status is set to FrameMetadata::FrameError, and other metadata fields are not
- * modified.
+ * This class is not meant to be constructed directly, but instead derived
+ * classes should be used to implement the correct mapping of a source buffer.
  *
- * The operation is performed using memcpy() so is very slow, users needs to
- * consider this before copying buffers.
- *
- * \return 0 on success or a negative error code otherwise
+ * This allows treating CPU accessible memory through a generic interface
+ * regardless of whether it originates from a libcamera FrameBuffer or other
+ * source.
  */
-int FrameBuffer::copyFrom(const FrameBuffer *src)
+
+/**
+ * \typedef MappedBuffer::Plane
+ * \brief A mapped region of memory accessible to the CPU
+ *
+ * The MappedBuffer::Plane uses the Span interface to describe the mapped memory
+ * region.
+ */
+
+/**
+ * \brief Construct an empty MappedBuffer
+ */
+MappedBuffer::MappedBuffer()
+	: error_(0)
 {
-	if (planes_.size() != src->planes_.size()) {
-		LOG(Buffer, Error) << "Different number of planes";
-		metadata_.status = FrameMetadata::FrameError;
-		return -EINVAL;
-	}
+}
 
-	for (unsigned int i = 0; i < planes_.size(); i++) {
-		if (planes_[i].length < src->planes_[i].length) {
-			LOG(Buffer, Error) << "Plane " << i << " is too small";
-			metadata_.status = FrameMetadata::FrameError;
-			return -EINVAL;
+/**
+ * \brief Move constructor, construct the MappedBuffer with the contents of \a
+ * other using move semantics
+ * \param[in] other The other MappedBuffer
+ *
+ * Moving a MappedBuffer moves the mappings contained in the \a other to the new
+ * MappedBuffer and invalidates the \a other.
+ *
+ * No mappings are unmapped or destroyed in this process.
+ */
+MappedBuffer::MappedBuffer(MappedBuffer &&other)
+{
+	*this = std::move(other);
+}
+
+/**
+ * \brief Move assignment operator, replace the mappings with those of \a other
+* \param[in] other The other MappedBuffer
+ *
+ * Moving a MappedBuffer moves the mappings contained in the \a other to the new
+ * MappedBuffer and invalidates the \a other.
+ *
+ * No mappings are unmapped or destroyed in this process.
+ */
+MappedBuffer &MappedBuffer::operator=(MappedBuffer &&other)
+{
+	error_ = other.error_;
+	maps_ = std::move(other.maps_);
+	other.error_ = -ENOENT;
+
+	return *this;
+}
+
+MappedBuffer::~MappedBuffer()
+{
+	for (Plane &map : maps_)
+		munmap(map.data(), map.size());
+}
+
+/**
+ * \fn MappedBuffer::isValid()
+ * \brief Check if the MappedBuffer instance is valid
+ * \return True if the MappedBuffer has valid mappings, false otherwise
+ */
+
+/**
+ * \fn MappedBuffer::error()
+ * \brief Retrieve the map error status
+ *
+ * This function retrieves the error status from the MappedBuffer.
+ * The error status is a negative number as defined by errno.h. If
+ * no error occurred, this function returns 0.
+ *
+ * \return The map error code
+ */
+
+/**
+ * \fn MappedBuffer::maps()
+ * \brief Retrieve the mapped planes
+ *
+ * This function retrieves the successfully mapped planes stored as a vector
+ * of Span<uint8_t> to provide access to the mapped memory.
+ *
+ * \return A vector of the mapped planes
+ */
+
+/**
+ * \var MappedBuffer::error_
+ * \brief Stores the error value if present
+ *
+ * MappedBuffer derived classes shall set this to a negative value as defined
+ * by errno.h if an error occured during the mapping process.
+ */
+
+/**
+ * \var MappedBuffer::maps_
+ * \brief Stores the internal mapped planes
+ *
+ * MappedBuffer derived classes shall store the mappings they create in this
+ * vector which is parsed during destruct to unmap any memory mappings which
+ * completed successfully.
+ */
+
+/**
+ * \class MappedFrameBuffer
+ * \brief Map a FrameBuffer using the MappedBuffer interface
+ */
+
+/**
+ * \brief Map all planes of a FrameBuffer
+ * \param[in] buffer FrameBuffer to be mapped
+ * \param[in] flags Protection flags to apply to map
+ *
+ * Construct an object to map a frame buffer for CPU access.
+ * The flags are passed directly to mmap and should be either PROT_READ,
+ * PROT_WRITE, or a bitwise-or combination of both.
+ */
+MappedFrameBuffer::MappedFrameBuffer(const FrameBuffer *buffer, int flags)
+{
+	maps_.reserve(buffer->planes().size());
+
+	for (const FrameBuffer::Plane &plane : buffer->planes()) {
+		void *address = mmap(nullptr, plane.length, flags,
+				     MAP_SHARED, plane.fd.fd(), 0);
+		if (address == MAP_FAILED) {
+			error_ = -errno;
+			LOG(Buffer, Error) << "Failed to mmap plane";
+			break;
 		}
+
+		maps_.emplace_back(static_cast<uint8_t *>(address), plane.length);
 	}
-
-	for (unsigned int i = 0; i < planes_.size(); i++) {
-		void *dstmem = mmap(nullptr, planes_[i].length, PROT_WRITE,
-				    MAP_SHARED, planes_[i].fd.fd(), 0);
-
-		if (dstmem == MAP_FAILED) {
-			LOG(Buffer, Error)
-				<< "Failed to map destination plane " << i;
-			metadata_.status = FrameMetadata::FrameError;
-			return -EINVAL;
-		}
-
-		void *srcmem = mmap(nullptr, src->planes_[i].length, PROT_READ,
-				    MAP_SHARED, src->planes_[i].fd.fd(), 0);
-
-		if (srcmem == MAP_FAILED) {
-			munmap(dstmem, planes_[i].length);
-			LOG(Buffer, Error)
-				<< "Failed to map source plane " << i;
-			metadata_.status = FrameMetadata::FrameError;
-			return -EINVAL;
-		}
-
-		memcpy(dstmem, srcmem, src->planes_[i].length);
-
-		munmap(srcmem, src->planes_[i].length);
-		munmap(dstmem, planes_[i].length);
-	}
-
-	metadata_ = src->metadata_;
-
-	return 0;
 }
 
 } /* namespace libcamera */

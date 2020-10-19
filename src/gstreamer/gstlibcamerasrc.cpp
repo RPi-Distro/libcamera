@@ -74,6 +74,8 @@ RequestWrap::~RequestWrap()
 		if (item.second)
 			gst_buffer_unref(item.second);
 	}
+
+	delete request_;
 }
 
 void RequestWrap::attachBuffer(GstBuffer *buffer)
@@ -241,12 +243,12 @@ gst_libcamera_src_open(GstLibcameraSrc *self)
 		cam = cm->cameras()[0];
 	}
 
-	GST_INFO_OBJECT(self, "Using camera named '%s'", cam->name().c_str());
+	GST_INFO_OBJECT(self, "Using camera '%s'", cam->id().c_str());
 
 	ret = cam->acquire();
 	if (ret) {
 		GST_ELEMENT_ERROR(self, RESOURCE, BUSY,
-				  ("Camera name '%s' is already in use.", cam->name().c_str()),
+				  ("Camera '%s' is already in use.", cam->id().c_str()),
 				  ("libcamera::Camera::acquire() failed: %s", g_strerror(ret)));
 		return false;
 	}
@@ -266,8 +268,8 @@ gst_libcamera_src_task_run(gpointer user_data)
 	GstLibcameraSrc *self = GST_LIBCAMERA_SRC(user_data);
 	GstLibcameraSrcState *state = self->state;
 
-	Request *request = state->cam_->createRequest();
-	auto wrap = std::make_unique<RequestWrap>(request);
+	std::unique_ptr<Request> request = state->cam_->createRequest();
+	auto wrap = std::make_unique<RequestWrap>(request.get());
 	for (GstPad *srcpad : state->srcpads_) {
 		GstLibcameraPool *pool = gst_libcamera_pad_get_pool(srcpad);
 		GstBuffer *buffer;
@@ -280,8 +282,7 @@ gst_libcamera_src_task_run(gpointer user_data)
 			 * RequestWrap does not take ownership, and we won't be
 			 * queueing this one due to lack of buffers.
 			 */
-			delete request;
-			request = nullptr;
+			request.reset();
 			break;
 		}
 
@@ -291,8 +292,11 @@ gst_libcamera_src_task_run(gpointer user_data)
 	if (request) {
 		GLibLocker lock(GST_OBJECT(self));
 		GST_TRACE_OBJECT(self, "Requesting buffers");
-		state->cam_->queueRequest(request);
+		state->cam_->queueRequest(request.get());
 		state->requests_.push(std::move(wrap));
+
+		/* The request will be deleted in the completion handler. */
+		request.release();
 	}
 
 	GstFlowReturn ret = GST_FLOW_OK;
@@ -338,7 +342,8 @@ gst_libcamera_src_task_run(gpointer user_data)
 }
 
 static void
-gst_libcamera_src_task_enter(GstTask *task, GThread *thread, gpointer user_data)
+gst_libcamera_src_task_enter(GstTask *task, [[maybe_unused]] GThread *thread,
+			     gpointer user_data)
 {
 	GstLibcameraSrc *self = GST_LIBCAMERA_SRC(user_data);
 	GLibRecLocker lock(&self->stream_lock);
@@ -467,7 +472,9 @@ done:
 }
 
 static void
-gst_libcamera_src_task_leave(GstTask *task, GThread *thread, gpointer user_data)
+gst_libcamera_src_task_leave([[maybe_unused]] GstTask *task,
+			     [[maybe_unused]] GThread *thread,
+			     gpointer user_data)
 {
 	GstLibcameraSrc *self = GST_LIBCAMERA_SRC(user_data);
 	GstLibcameraSrcState *state = self->state;
@@ -495,7 +502,7 @@ gst_libcamera_src_close(GstLibcameraSrc *self)
 	ret = state->cam_->release();
 	if (ret) {
 		GST_ELEMENT_WARNING(self, RESOURCE, BUSY,
-				    ("Camera name '%s' is still in use.", state->cam_->name().c_str()),
+				    ("Camera '%s' is still in use.", state->cam_->id().c_str()),
 				    ("libcamera::Camera.release() failed: %s", g_strerror(-ret)));
 	}
 

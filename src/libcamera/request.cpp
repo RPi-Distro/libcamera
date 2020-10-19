@@ -38,6 +38,20 @@ LOG_DEFINE_CATEGORY(Request)
  */
 
 /**
+ * \enum Request::ReuseFlag
+ * Flags to control the behavior of Request::reuse()
+ * \var Request::Default
+ * Don't reuse buffers
+ * \var Request::ReuseBuffers
+ * Reuse the buffers that were previously added by addBuffer()
+ */
+
+/**
+ * \typedef Request::BufferMap
+ * \brief A map of Stream to FrameBuffer pointers
+ */
+
+/**
  * \class Request
  * \brief A frame capture request
  *
@@ -78,6 +92,35 @@ Request::~Request()
 	delete metadata_;
 	delete controls_;
 	delete validator_;
+}
+
+/**
+ * \brief Reset the request for reuse
+ * \param[in] flags Indicate whether or not to reuse the buffers
+ *
+ * Reset the status and controls associated with the request, to allow it to
+ * be reused and requeued without destruction. This function shall be called
+ * prior to queueing the request to the camera, in lieu of constructing a new
+ * request. The application can reuse the buffers that were previously added
+ * to the request via addBuffer() by setting \a flags to ReuseBuffers.
+ */
+void Request::reuse(ReuseFlag flags)
+{
+	pending_.clear();
+	if (flags & ReuseBuffers) {
+		for (auto pair : bufferMap_) {
+			pair.second->request_ = this;
+			pending_.insert(pair.second);
+		}
+	} else {
+		bufferMap_.clear();
+	}
+
+	status_ = RequestPending;
+	cancelled_ = false;
+
+	controls_->clear();
+	metadata_->clear();
 }
 
 /**
@@ -122,7 +165,7 @@ Request::~Request()
  * \retval -EEXIST The request already contains a buffer for the stream
  * \retval -EINVAL The buffer does not reference a valid Stream
  */
-int Request::addBuffer(Stream *stream, FrameBuffer *buffer)
+int Request::addBuffer(const Stream *stream, FrameBuffer *buffer)
 {
 	if (!stream) {
 		LOG(Request, Error) << "Invalid stream reference";
@@ -157,9 +200,9 @@ int Request::addBuffer(Stream *stream, FrameBuffer *buffer)
  * \return The buffer associated with the stream, or nullptr if the stream is
  * not part of this request
  */
-FrameBuffer *Request::findBuffer(Stream *stream) const
+FrameBuffer *Request::findBuffer(const Stream *stream) const
 {
-	auto it = bufferMap_.find(stream);
+	const auto it = bufferMap_.find(stream);
 	if (it == bufferMap_.end())
 		return nullptr;
 
@@ -212,6 +255,10 @@ void Request::complete()
 {
 	ASSERT(!hasPendingBuffers());
 	status_ = cancelled_ ? RequestCancelled : RequestComplete;
+
+	LOG(Request, Debug)
+		<< "Request has completed - cookie: " << cookie_
+		<< (cancelled_ ? " [Cancelled]" : "");
 }
 
 /**

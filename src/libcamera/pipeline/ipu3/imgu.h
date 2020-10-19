@@ -17,15 +17,35 @@ namespace libcamera {
 
 class FrameBuffer;
 class MediaDevice;
-struct Size;
+class Size;
 struct StreamConfiguration;
 
 class ImgUDevice
 {
 public:
+	struct PipeConfig {
+		float bds_sf;
+		Size iif;
+		Size bds;
+		Size gdc;
+
+		bool isNull() const
+		{
+			return iif.isNull() || bds.isNull() || gdc.isNull();
+		}
+	};
+
+	struct Pipe {
+		Size input;
+		Size main;
+		Size viewfinder;
+	};
+
 	int init(MediaDevice *media, unsigned int index);
 
-	int configureInput(const Size &size, V4L2DeviceFormat *inputFormat);
+	PipeConfig calculatePipeConfig(Pipe *pipe);
+
+	int configure(const PipeConfig &pipeConfig, V4L2DeviceFormat *inputFormat);
 
 	int configureOutput(const StreamConfiguration &cfg,
 			    V4L2DeviceFormat *outputFormat)

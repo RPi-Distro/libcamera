@@ -19,7 +19,7 @@ StreamKeyValueParser::StreamKeyValueParser()
 		  ArgumentRequired);
 	addOption("height", OptionInteger, "Height in pixels",
 		  ArgumentRequired);
-	addOption("pixelformat", OptionInteger, "Pixel format",
+	addOption("pixelformat", OptionString, "Pixel format name",
 		  ArgumentRequired);
 }
 
@@ -95,9 +95,8 @@ int StreamKeyValueParser::updateConfiguration(CameraConfiguration *config,
 			cfg.size.height = opts["height"];
 		}
 
-		/* \todo Translate 4CC string to pixelformat with modifier. */
 		if (opts.isSet("pixelformat"))
-			cfg.pixelFormat = PixelFormat(opts["pixelformat"]);
+			cfg.pixelFormat = PixelFormat::fromString(opts["pixelformat"].toString());
 	}
 
 	return 0;
@@ -120,8 +119,8 @@ bool StreamKeyValueParser::parseRole(StreamRole *role,
 	} else if (name == "still") {
 		*role = StreamRole::StillCapture;
 		return true;
-	} else if (name == "stillraw") {
-		*role = StreamRole::StillCaptureRaw;
+	} else if (name == "raw") {
+		*role = StreamRole::Raw;
 		return true;
 	}
 

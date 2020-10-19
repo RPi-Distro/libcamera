@@ -16,7 +16,7 @@
 #include "cam_helper.hpp"
 #include "md_parser.hpp"
 
-using namespace RPi;
+using namespace RPiController;
 
 static std::map<std::string, CamHelperCreateFunc> cam_helpers;
 
@@ -104,12 +104,6 @@ unsigned int CamHelper::MistrustFramesModeSwitch() const
 {
 	/* Many sensors return valid metadata immediately. */
 	return 0;
-}
-
-CamTransform CamHelper::GetOrientation() const
-{
-	/* Most sensors will be mounted the "right" way up? */
-	return CamTransform_IDENTITY;
 }
 
 RegisterCamHelper::RegisterCamHelper(char const *cam_name,

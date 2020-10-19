@@ -88,13 +88,12 @@ headers, and with double quotes for other libcamera headers.
 C++ Specific Rules
 ------------------
 
-The code shall be implemented in C++14, with the following caveats:
+The code shall be implemented in C++17, with the following caveats:
 
 * Type inference (auto and decltype) shall be used with caution, to avoid
   drifting towards an untyped language.
 * The explicit, override and final specifiers are to be used where applicable.
-* General-purpose smart pointers (std::unique_ptr) deprecate std::auto_ptr.
-  Smart pointers, as well as shared pointers and weak pointers, shall not be
+* Smart pointers, as well as shared pointers and weak pointers, shall not be
   overused.
 * Classes are encouraged to define move constructors and assignment operators
   where applicable, and generally make use of the features offered by rvalue
@@ -188,6 +187,25 @@ These rules match the `object ownership rules from the Chromium C++ Style Guide`
    long term borrowing isn't marked through language constructs, it shall be
    documented explicitly in details in the API.
 
+Global Variables
+~~~~~~~~~~~~~~~~
+
+The order of initializations and destructions of global variables cannot be
+reasonably controlled. This can cause problems (including segfaults) when global
+variables depend on each other, directly or indirectly.  For example, if the
+declaration of a global variable calls a constructor which uses another global
+variable that hasn't been initialized yet, incorrect behavior is likely.
+Similar issues may occur when the library is unloaded and global variables are
+destroyed.
+
+Global variables that are statically initialized and have trivial destructors
+(such as an integer constant) do not cause any issue. Other global variables
+shall be avoided when possible, but are allowed when required (for instance to
+implement factories with auto-registration). They shall not depend on any other
+global variable, should run a minimal amount of code in the constructor and
+destructor, and code that contains dependencies should be moved to a later
+point in time. 
+
 C Compatibility Headers
 ~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -196,9 +214,17 @@ them, defines C compatibility headers. The former have a name of the form
 <cxxx> while the later are named <xxx.h>. The C++ headers declare names in the
 std namespace, and may declare the same names in the global namespace. The C
 compatibility headers declare names in the global namespace, and may declare
-the same names in the std namespace. Usage of the C compatibility headers is
-strongly preferred. Code shall not rely on the optional declaration of names in
-the global or std namespace.
+the same names in the std namespace. Code shall not rely on the optional
+declaration of names in the global or std namespace.
+
+Usage of the C compatibility headers is preferred, except for the math.h header.
+Where math.h defines separate functions for different argument types (e.g.
+abs(int), labs(long int), fabs(double) and fabsf(float)) and requires the
+developer to pick the right function, cmath defines overloaded functions
+(std::abs(int), std::abs(long int), std::abs(double) and std::abs(float) to let
+the compiler select the right function. This avoids potential errors such as
+calling abs(int) with a float argument, performing an unwanted implicit integer
+conversion. For this reason, cmath is preferred over math.h.
 
 
 Documentation

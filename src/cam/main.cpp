@@ -36,6 +36,8 @@ public:
 	void quit();
 
 private:
+	void cameraAdded(std::shared_ptr<Camera> cam);
+	void cameraRemoved(std::shared_ptr<Camera> cam);
 	int parseOptions(int argc, char *argv[]);
 	int prepareConfig();
 	int listControls();
@@ -43,18 +45,23 @@ private:
 	int infoConfiguration();
 	int run();
 
+	std::string const cameraName(const Camera *camera);
+
 	static CamApp *app_;
 	OptionsParser::Options options_;
 	CameraManager *cm_;
 	std::shared_ptr<Camera> camera_;
 	std::unique_ptr<libcamera::CameraConfiguration> config_;
 	EventLoop *loop_;
+
+	bool strictFormats_;
 };
 
 CamApp *CamApp::app_ = nullptr;
 
 CamApp::CamApp()
-	: cm_(nullptr), camera_(nullptr), config_(nullptr), loop_(nullptr)
+	: cm_(nullptr), camera_(nullptr), config_(nullptr), loop_(nullptr),
+	  strictFormats_(false)
 {
 	CamApp::app_ = this;
 }
@@ -77,6 +84,9 @@ int CamApp::init(int argc, char **argv)
 	if (ret < 0)
 		return ret;
 
+	if (options_.isSet(OptStrictFormats))
+		strictFormats_ = true;
+
 	cm_ = new CameraManager();
 
 	ret = cm_->start();
@@ -87,34 +97,41 @@ int CamApp::init(int argc, char **argv)
 	}
 
 	if (options_.isSet(OptCamera)) {
-		const std::string &cameraName = options_[OptCamera];
+		const std::string &cameraId = options_[OptCamera];
 		char *endptr;
-		unsigned long index = strtoul(cameraName.c_str(), &endptr, 10);
+		unsigned long index = strtoul(cameraId.c_str(), &endptr, 10);
 		if (*endptr == '\0' && index > 0 && index <= cm_->cameras().size())
 			camera_ = cm_->cameras()[index - 1];
 		else
-			camera_ = cm_->get(cameraName);
+			camera_ = cm_->get(cameraId);
 
 		if (!camera_) {
 			std::cout << "Camera "
 				  << std::string(options_[OptCamera])
 				  << " not found" << std::endl;
-			cm_->stop();
+			cleanup();
 			return -ENODEV;
 		}
 
 		if (camera_->acquire()) {
 			std::cout << "Failed to acquire camera" << std::endl;
-			camera_.reset();
-			cm_->stop();
+			cleanup();
 			return -EINVAL;
 		}
 
-		std::cout << "Using camera " << camera_->name() << std::endl;
+		std::cout << "Using camera " << camera_->id() << std::endl;
 
 		ret = prepareConfig();
-		if (ret)
+		if (ret) {
+			cleanup();
 			return ret;
+		}
+	}
+
+	if (options_.isSet(OptMonitor)) {
+		cm_->cameraAdded.connect(this, &CamApp::cameraAdded);
+		cm_->cameraRemoved.connect(this, &CamApp::cameraRemoved);
+		std::cout << "Monitoring new hotplug and unplug events" << std::endl;
 	}
 
 	loop_ = new EventLoop(cm_->eventDispatcher());
@@ -159,10 +176,11 @@ int CamApp::parseOptions(int argc, char *argv[])
 
 	OptionsParser parser;
 	parser.addOption(OptCamera, OptionString,
-			 "Specify which camera to operate on, by name or by index", "camera",
+			 "Specify which camera to operate on, by id or by index", "camera",
 			 ArgumentRequired, "camera");
-	parser.addOption(OptCapture, OptionNone,
-			 "Capture until interrupted by user", "capture");
+	parser.addOption(OptCapture, OptionInteger,
+			 "Capture until interrupted by user or until <count> frames captured",
+			 "capture", ArgumentOptional, "count");
 	parser.addOption(OptFile, OptionString,
 			 "Write captured frames to disk\n"
 			 "The first '#' character in the file name is expanded to the stream name and frame sequence number.\n"
@@ -179,6 +197,12 @@ int CamApp::parseOptions(int argc, char *argv[])
 			 "list-controls");
 	parser.addOption(OptListProperties, OptionNone, "List cameras properties",
 			 "list-properties");
+	parser.addOption(OptMonitor, OptionNone,
+			 "Monitor for hotplug and unplug camera events",
+			 "monitor");
+	parser.addOption(OptStrictFormats, OptionNone,
+			 "Do not allow requested stream format(s) to be adjusted",
+			 "strict-formats");
 
 	options_ = parser.parse(argc, argv);
 	if (!options_.valid())
@@ -214,6 +238,12 @@ int CamApp::prepareConfig()
 	case CameraConfiguration::Valid:
 		break;
 	case CameraConfiguration::Adjusted:
+		if (strictFormats_) {
+			std::cout << "Adjusting camera configuration disallowed by --strict-formats argument"
+				  << std::endl;
+			config_.reset();
+			return -EINVAL;
+		}
 		std::cout << "Camera configuration adjusted" << std::endl;
 		break;
 	case CameraConfiguration::Invalid:
@@ -293,6 +323,16 @@ int CamApp::infoConfiguration()
 	return 0;
 }
 
+void CamApp::cameraAdded(std::shared_ptr<Camera> cam)
+{
+	std::cout << "Camera Added: " << cam->id() << std::endl;
+}
+
+void CamApp::cameraRemoved(std::shared_ptr<Camera> cam)
+{
+	std::cout << "Camera Removed: " << cam->id() << std::endl;
+}
+
 int CamApp::run()
 {
 	int ret;
@@ -302,7 +342,7 @@ int CamApp::run()
 
 		unsigned int index = 1;
 		for (const std::shared_ptr<Camera> &cam : cm_->cameras()) {
-			std::cout << index << ": " << cam->name() << std::endl;
+			std::cout << index << ": " << cameraName(cam.get()) << std::endl;
 			index++;
 		}
 	}
@@ -326,14 +366,45 @@ int CamApp::run()
 	}
 
 	if (options_.isSet(OptCapture)) {
-		Capture capture(camera_, config_.get());
-		return capture.run(loop_, options_);
+		Capture capture(camera_, config_.get(), loop_);
+		return capture.run(options_);
+	}
+
+	if (options_.isSet(OptMonitor)) {
+		std::cout << "Press Ctrl-C to interrupt" << std::endl;
+		ret = loop_->exec();
+		if (ret)
+			std::cout << "Failed to run monitor loop" << std::endl;
 	}
 
 	return 0;
 }
 
-void signalHandler(int signal)
+std::string const CamApp::cameraName(const Camera *camera)
+{
+	const ControlList &props = camera->properties();
+	std::string name;
+
+	switch (props.get(properties::Location)) {
+	case properties::CameraLocationFront:
+		name = "Internal front camera";
+		break;
+	case properties::CameraLocationBack:
+		name = "Internal back camera";
+		break;
+	case properties::CameraLocationExternal:
+		name = "External camera";
+		if (props.contains(properties::Model))
+			name += " '" + props.get(properties::Model) + "'";
+		break;
+	}
+
+	name += " (" + camera->id() + ")";
+
+	return name;
+}
+
+void signalHandler([[maybe_unused]] int signal)
 {
 	std::cout << "Exiting" << std::endl;
 	CamApp::instance()->quit();

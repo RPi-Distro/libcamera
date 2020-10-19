@@ -12,3 +12,7 @@
    Home <self>
    Docs <docs>
    Contribute <contributing>
+
+   Developer Guide <guides/introduction>
+   Application Writer's Guide <guides/application-developer>
+   Pipeline Handler Writer's Guide <guides/pipeline-handler>

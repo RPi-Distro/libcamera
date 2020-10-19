@@ -51,6 +51,10 @@ protected:
 		args.push_back(to_string(exitCode));
 		proc_.finished.connect(this, &ProcessTest::procFinished);
 
+		/* Test that kill() on an unstarted process is safe. */
+		proc_.kill();
+
+		/* Test starting the process and retrieving the exit code. */
 		int ret = proc_.start("/proc/self/exe", args);
 		if (ret) {
 			cerr << "failed to start process" << endl;
@@ -76,11 +80,14 @@ protected:
 	}
 
 private:
-	void procFinished(Process *proc, enum Process::ExitStatus exitStatus, int exitCode)
+	void procFinished([[maybe_unused]] Process *proc,
+			  enum Process::ExitStatus exitStatus, int exitCode)
 	{
 		exitStatus_ = exitStatus;
 		exitCode_ = exitCode;
 	}
+
+	ProcessManager processManager_;
 
 	Process proc_;
 	enum Process::ExitStatus exitStatus_;

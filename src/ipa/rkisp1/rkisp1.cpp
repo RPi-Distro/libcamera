@@ -13,6 +13,7 @@
 #include <sys/mman.h>
 
 #include <linux/rkisp1-config.h>
+#include <linux/v4l2-controls.h>
 
 #include <libcamera/buffer.h>
 #include <libcamera/control_ids.h>
@@ -24,7 +25,6 @@
 #include <libipa/ipa_interface_wrapper.h>
 
 #include "libcamera/internal/log.h"
-#include "libcamera/internal/utils.h"
 
 namespace libcamera {
 
@@ -33,19 +33,24 @@ LOG_DEFINE_CATEGORY(IPARkISP1)
 class IPARkISP1 : public IPAInterface
 {
 public:
-	int init(const IPASettings &settings) override { return 0; }
+	int init([[maybe_unused]] const IPASettings &settings) override
+	{
+		return 0;
+	}
 	int start() override { return 0; }
 	void stop() override {}
 
 	void configure(const CameraSensorInfo &info,
 		       const std::map<unsigned int, IPAStream> &streamConfig,
-		       const std::map<unsigned int, const ControlInfoMap &> &entityControls) override;
+		       const std::map<unsigned int, const ControlInfoMap &> &entityControls,
+		       const IPAOperationData &ipaConfig,
+		       IPAOperationData *response) override;
 	void mapBuffers(const std::vector<IPABuffer> &buffers) override;
 	void unmapBuffers(const std::vector<unsigned int> &ids) override;
 	void processEvent(const IPAOperationData &event) override;
 
 private:
-	void queueRequest(unsigned int frame, rkisp1_isp_params_cfg *params,
+	void queueRequest(unsigned int frame, rkisp1_params_cfg *params,
 			  const ControlList &controls);
 	void updateStatistics(unsigned int frame,
 			      const rkisp1_stat_buffer *stats);
@@ -74,9 +79,11 @@ private:
  * assemble one. Make sure the reported sensor information are relevant
  * before accessing them.
  */
-void IPARkISP1::configure(const CameraSensorInfo &info,
-			  const std::map<unsigned int, IPAStream> &streamConfig,
-			  const std::map<unsigned int, const ControlInfoMap &> &entityControls)
+void IPARkISP1::configure([[maybe_unused]] const CameraSensorInfo &info,
+			  [[maybe_unused]] const std::map<unsigned int, IPAStream> &streamConfig,
+			  const std::map<unsigned int, const ControlInfoMap &> &entityControls,
+			  [[maybe_unused]] const IPAOperationData &ipaConfig,
+			  [[maybe_unused]] IPAOperationData *result)
 {
 	if (entityControls.empty())
 		return;
@@ -169,19 +176,19 @@ void IPARkISP1::processEvent(const IPAOperationData &event)
 		unsigned int frame = event.data[0];
 		unsigned int bufferId = event.data[1];
 
-		rkisp1_isp_params_cfg *params =
-			static_cast<rkisp1_isp_params_cfg *>(buffersMemory_[bufferId]);
+		rkisp1_params_cfg *params =
+			static_cast<rkisp1_params_cfg *>(buffersMemory_[bufferId]);
 
 		queueRequest(frame, params, event.controls[0]);
 		break;
 	}
 	default:
-		LOG(IPARkISP1, Error) << "Unkown event " << event.operation;
+		LOG(IPARkISP1, Error) << "Unknown event " << event.operation;
 		break;
 	}
 }
 
-void IPARkISP1::queueRequest(unsigned int frame, rkisp1_isp_params_cfg *params,
+void IPARkISP1::queueRequest(unsigned int frame, rkisp1_params_cfg *params,
 			     const ControlList &controls)
 {
 	/* Prepare parameters buffer. */
@@ -191,9 +198,9 @@ void IPARkISP1::queueRequest(unsigned int frame, rkisp1_isp_params_cfg *params,
 	if (controls.contains(controls::AeEnable)) {
 		autoExposure_ = controls.get(controls::AeEnable);
 		if (autoExposure_)
-			params->module_ens = CIFISP_MODULE_AEC;
+			params->module_ens = RKISP1_CIF_ISP_MODULE_AEC;
 
-		params->module_en_update = CIFISP_MODULE_AEC;
+		params->module_en_update = RKISP1_CIF_ISP_MODULE_AEC;
 	}
 
 	IPAOperationData op;
@@ -205,17 +212,17 @@ void IPARkISP1::queueRequest(unsigned int frame, rkisp1_isp_params_cfg *params,
 void IPARkISP1::updateStatistics(unsigned int frame,
 				 const rkisp1_stat_buffer *stats)
 {
-	const cifisp_stat *params = &stats->params;
+	const rkisp1_cif_isp_stat *params = &stats->params;
 	unsigned int aeState = 0;
 
-	if (stats->meas_type & CIFISP_STAT_AUTOEXP) {
-		const cifisp_ae_stat *ae = &params->ae;
+	if (stats->meas_type & RKISP1_CIF_ISP_STAT_AUTOEXP) {
+		const rkisp1_cif_isp_ae_stat *ae = &params->ae;
 
 		const unsigned int target = 60;
 
 		unsigned int value = 0;
 		unsigned int num = 0;
-		for (int i = 0; i < CIFISP_AE_MEAN_MAX; i++) {
+		for (int i = 0; i < RKISP1_CIF_ISP_AE_MEAN_MAX; i++) {
 			if (ae->exp_mean[i] <= 15)
 				continue;
 
@@ -230,13 +237,13 @@ void IPARkISP1::updateStatistics(unsigned int frame,
 			double exposure;
 
 			exposure = factor * exposure_ * gain_ / minGain_;
-			exposure_ = utils::clamp<uint64_t>((uint64_t)exposure,
-							   minExposure_,
-							   maxExposure_);
+			exposure_ = std::clamp<uint64_t>((uint64_t)exposure,
+							 minExposure_,
+							 maxExposure_);
 
 			exposure = exposure / exposure_ * minGain_;
-			gain_ = utils::clamp<uint64_t>((uint64_t)exposure,
-						       minGain_, maxGain_);
+			gain_ = std::clamp<uint64_t>((uint64_t)exposure,
+						     minGain_, maxGain_);
 
 			setControls(frame + 1);
 		}

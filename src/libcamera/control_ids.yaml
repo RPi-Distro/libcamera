@@ -208,6 +208,17 @@ controls:
           value: 7
           description: Maximum allowed value (place any new values above here).
 
+  - AwbLocked:
+      type: bool
+      description: |
+        Report the lock status of a running AWB algorithm.
+
+        If the AWB algorithm is locked the value shall be set to true, if it's
+        converging it shall be set to false. If the AWB algorithm is not
+        running the control shall not be present in the metadata control list.
+
+        \sa AwbEnable
+
   - ColourGains:
       type: float
       description: |
@@ -251,4 +262,26 @@ controls:
         higher than anyone could reasonably want. Negative values are
         not allowed. Note also that sharpening is not applied to raw
         streams.
+
+  - FocusFoM:
+      type: int32_t
+      description: |
+        Reports a Figure of Merit (FoM) to indicate how in-focus the frame is.
+        A larger FocusFoM value indicates a more in-focus frame. This control
+        depends on the IPA to gather ISP statistics from the defined focus
+        region, and combine them in a suitable way to generate a FocusFoM value.
+        In this respect, it is not necessarily aimed at providing a way to
+        implement a focus algorithm by the application, rather an indication of
+        how in-focus a frame is.
+
+  - ColourCorrectionMatrix:
+      type: float
+      description: |
+        The 3x3 matrix that converts camera RGB to sRGB within the
+        imaging pipeline. This should describe the matrix that is used
+        after pixels have been white-balanced, but before any gamma
+        transformation. The 3x3 matrix is stored in conventional reading
+        order in an array of 9 floating point values.
+
+      size: [3x3]
 ...

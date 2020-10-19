@@ -49,6 +49,7 @@ namespace {
 
 static const SimplePipelineInfo supportedDevices[] = {
 	{ "imx7-csi", "pxp" },
+	{ "qcom-camss", nullptr },
 	{ "sun6i-csi", nullptr },
 };
 
@@ -251,6 +252,14 @@ int SimpleCameraData::init()
 	int ret;
 
 	/*
+	 * Setup links first as some subdev drivers take active links into
+	 * account to propagate TRY formats. Such is life :-(
+	 */
+	ret = setupLinks();
+	if (ret < 0)
+		return ret;
+
+	/*
 	 * Enumerate the possible pipeline configurations. For each media bus
 	 * format supported by the sensor, propagate the formats through the
 	 * pipeline, and enumerate the corresponding possible V4L2 pixel
@@ -259,23 +268,16 @@ int SimpleCameraData::init()
 	for (unsigned int code : sensor_->mbusCodes()) {
 		V4L2SubdeviceFormat format{ code, sensor_->resolution() };
 
-		/*
-		 * Setup links first as some subdev drivers take active links
-		 * into account to propagate TRY formats. Such is life :-(
-		 */
-		ret = setupLinks();
-		if (ret < 0)
-			return ret;
-
 		ret = setupFormats(&format, V4L2Subdevice::TryFormat);
 		if (ret < 0) {
-			LOG(SimplePipeline, Error)
-				<< "Failed to setup pipeline for media bus code "
-				<< utils::hex(code, 4);
-			return ret;
+			LOG(SimplePipeline, Debug)
+				<< "Media bus code " << utils::hex(code, 4)
+				<< " not supported for this pipeline";
+			/* Try next mbus_code supported by the sensor */
+			continue;
 		}
 
-		std::map<V4L2PixelFormat, std::vector<SizeRange>> videoFormats =
+		V4L2VideoDevice::Formats videoFormats =
 			video_->formats(format.mbus_code);
 
 		LOG(SimplePipeline, Debug)
@@ -388,10 +390,24 @@ int SimpleCameraData::setupFormats(V4L2SubdeviceFormat *format,
 		}
 
 		if (sink->entity()->function() != MEDIA_ENT_F_IO_V4L) {
+			V4L2SubdeviceFormat sourceFormat = *format;
+
 			V4L2Subdevice *subdev = pipe->subdev(sink->entity());
 			ret = subdev->setFormat(sink->index(), format, whence);
 			if (ret < 0)
 				return ret;
+
+			if (format->mbus_code != sourceFormat.mbus_code ||
+			    format->size != sourceFormat.size) {
+				LOG(SimplePipeline, Debug)
+					<< "Source '" << source->entity()->name()
+					<< "':" << source->index()
+					<< " produces " << sourceFormat.toString()
+					<< ", sink '" << sink->entity()->name()
+					<< "':" << sink->index()
+					<< " requires " << format->toString();
+				return -EINVAL;
+			}
 		}
 
 		LOG(SimplePipeline, Debug)
@@ -422,6 +438,11 @@ CameraConfiguration::Status SimpleCameraConfiguration::validate()
 
 	if (config_.empty())
 		return Invalid;
+
+	if (transform != Transform::Identity) {
+		transform = Transform::Identity;
+		status = Adjusted;
+	}
 
 	/* Cap the number of entries to the available streams. */
 	if (config_.size() > 1) {
@@ -456,6 +477,30 @@ CameraConfiguration::Status SimpleCameraConfiguration::validate()
 			|| cfg.size != pipeConfig.captureSize;
 
 	cfg.bufferCount = 3;
+
+	/* Set the stride and frameSize. */
+	if (!needConversion_) {
+		V4L2DeviceFormat format = {};
+		format.fourcc = data_->video_->toV4L2PixelFormat(cfg.pixelFormat);
+		format.size = cfg.size;
+
+		int ret = data_->video_->tryFormat(&format);
+		if (ret < 0)
+			return Invalid;
+
+		cfg.stride = format.planes[0].bpl;
+		cfg.frameSize = format.planes[0].size;
+
+		return status;
+	}
+
+	SimplePipelineHandler *pipe = static_cast<SimplePipelineHandler *>(data_->pipe_);
+	SimpleConverter *converter = pipe->converter();
+
+	std::tie(cfg.stride, cfg.frameSize) =
+		converter->strideAndFrameSize(cfg.size, cfg.pixelFormat);
+	if (cfg.stride == 0)
+		return Invalid;
 
 	return status;
 }
@@ -548,6 +593,12 @@ int SimplePipelineHandler::configure(Camera *camera, CameraConfiguration *c)
 	if (ret)
 		return ret;
 
+	if (captureFormat.planesCount != 1) {
+		LOG(SimplePipeline, Error)
+			<< "Planar formats using non-contiguous memory not supported";
+		return -EINVAL;
+	}
+
 	if (captureFormat.fourcc != videoFormat ||
 	    captureFormat.size != pipeConfig.captureSize) {
 		LOG(SimplePipeline, Error)
@@ -556,8 +607,6 @@ int SimplePipelineHandler::configure(Camera *camera, CameraConfiguration *c)
 			<< videoFormat.toString();
 		return -EINVAL;
 	}
-
-	cfg.stride = captureFormat.planes[0].bpl;
 
 	/* Configure the converter if required. */
 	useConverter_ = config->needConversion();
@@ -778,7 +827,7 @@ bool SimplePipelineHandler::match(DeviceEnumerator *enumerator)
 			continue;
 
 		std::shared_ptr<Camera> camera =
-			Camera::create(this, data->sensor_->entity()->name(),
+			Camera::create(this, data->sensor_->id(),
 				       data->streams());
 		registerCamera(std::move(camera), std::move(data));
 	}
@@ -802,12 +851,6 @@ V4L2VideoDevice *SimplePipelineHandler::video(const MediaEntity *entity)
 		std::make_unique<V4L2VideoDevice>(entity);
 	if (video->open() < 0)
 		return nullptr;
-
-	if (video->caps().isMultiplanar()) {
-		LOG(SimplePipeline, Error)
-			<< "V4L2 multiplanar devices are not supported";
-		return nullptr;
-	}
 
 	video->bufferReady.connect(this, &SimplePipelineHandler::bufferReady);
 

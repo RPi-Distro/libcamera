@@ -18,6 +18,7 @@
 #include "libcamera/internal/ipa_manager.h"
 #include "libcamera/internal/log.h"
 #include "libcamera/internal/pipeline_handler.h"
+#include "libcamera/internal/process.h"
 #include "libcamera/internal/thread.h"
 #include "libcamera/internal/utils.h"
 
@@ -67,6 +68,7 @@ private:
 	std::unique_ptr<DeviceEnumerator> enumerator_;
 
 	IPAManager ipaManager_;
+	ProcessManager processManager_;
 };
 
 CameraManager::Private::Private(CameraManager *cm)
@@ -140,6 +142,9 @@ void CameraManager::Private::createPipelineHandlers()
 		PipelineHandlerFactory::factories();
 
 	for (PipelineHandlerFactory *factory : factories) {
+		LOG(Camera, Debug)
+			<< "Found registered pipeline handler '"
+			<< factory->name() << "'";
 		/*
 		 * Try each pipeline handler until it exhaust
 		 * all pipelines it can provide.
@@ -164,9 +169,13 @@ void CameraManager::Private::cleanup()
 
 	/*
 	 * Release all references to cameras to ensure they all get destroyed
-	 * before the device enumerator deletes the media devices.
+	 * before the device enumerator deletes the media devices. Cameras are
+	 * destroyed via Object::deleteLater() API, hence we need to explicitly
+	 * process deletion requests from the thread's message queue as the event
+	 * loop is not in action here.
 	 */
 	cameras_.clear();
+	dispatchMessages(Message::Type::DeferredDelete);
 
 	enumerator_.reset(nullptr);
 }
@@ -177,11 +186,11 @@ void CameraManager::Private::addCamera(std::shared_ptr<Camera> camera,
 	MutexLocker locker(mutex_);
 
 	for (std::shared_ptr<Camera> c : cameras_) {
-		if (c->name() == camera->name()) {
-			LOG(Camera, Warning)
-				<< "Registering camera with duplicate name '"
-				<< camera->name() << "'";
-			break;
+		if (c->id() == camera->id()) {
+			LOG(Camera, Fatal)
+				<< "Trying to register a camera with a duplicated ID '"
+				<< camera->id() << "'";
+			return;
 		}
 	}
 
@@ -204,7 +213,7 @@ void CameraManager::Private::removeCamera(Camera *camera)
 		return;
 
 	LOG(Camera, Debug)
-		<< "Unregistering camera '" << camera->name() << "'";
+		<< "Unregistering camera '" << camera->id() << "'";
 
 	auto iter_d = std::find_if(camerasByDevnum_.begin(), camerasByDevnum_.end(),
 				   [camera](const std::pair<dev_t, std::weak_ptr<Camera>> &p) {
@@ -325,8 +334,8 @@ std::vector<std::shared_ptr<Camera>> CameraManager::cameras() const
 }
 
 /**
- * \brief Get a camera based on name
- * \param[in] name Name of camera to get
+ * \brief Get a camera based on ID
+ * \param[in] id ID of camera to get
  *
  * Before calling this function the caller is responsible for ensuring that
  * the camera manager is running.
@@ -335,12 +344,12 @@ std::vector<std::shared_ptr<Camera>> CameraManager::cameras() const
  *
  * \return Shared pointer to Camera object or nullptr if camera not found
  */
-std::shared_ptr<Camera> CameraManager::get(const std::string &name)
+std::shared_ptr<Camera> CameraManager::get(const std::string &id)
 {
 	MutexLocker locker(p_->mutex_);
 
 	for (std::shared_ptr<Camera> camera : p_->cameras_) {
-		if (camera->name() == name)
+		if (camera->id() == id)
 			return camera;
 	}
 

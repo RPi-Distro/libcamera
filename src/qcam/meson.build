@@ -6,12 +6,12 @@ qcam_sources = files([
     'format_converter.cpp',
     'main.cpp',
     'main_window.cpp',
-    'viewfinder.cpp',
+    'viewfinder_qt.cpp',
 ])
 
 qcam_moc_headers = files([
     'main_window.h',
-    'viewfinder.h',
+    'viewfinder_qt.h',
 ])
 
 qcam_resources = files([
@@ -22,7 +22,8 @@ qt5 = import('qt5')
 qt5_dep = dependency('qt5',
                      method : 'pkg-config',
                      modules : ['Core', 'Gui', 'Widgets'],
-                     required : get_option('qcam'))
+                     required : get_option('qcam'),
+                     version : '>=5.4')
 
 if qt5_dep.found()
     qcam_deps = [
@@ -38,6 +39,19 @@ if qt5_dep.found()
         qcam_deps += [ tiff_dep ]
         qcam_sources += files([
             'dng_writer.cpp',
+        ])
+    endif
+
+    if cxx.has_header_symbol('QOpenGLWidget', 'QOpenGLWidget',
+                             dependencies : qt5_dep, args : '-fPIC')
+        qcam_sources += files([
+            'viewfinder_gl.cpp',
+        ])
+        qcam_moc_headers += files([
+            'viewfinder_gl.h',
+        ])
+        qcam_resources += files([
+            'assets/shader/shaders.qrc'
         ])
     endif
 

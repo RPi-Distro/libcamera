@@ -12,12 +12,12 @@ subdir('pipeline')
 subdir('process')
 subdir('serialization')
 subdir('stream')
+subdir('v4l2_compat')
 subdir('v4l2_subdevice')
 subdir('v4l2_videodevice')
 
 public_tests = [
     ['geometry',                        'geometry.cpp'],
-    ['list-cameras',                    'list-cameras.cpp'],
     ['signal',                          'signal.cpp'],
     ['span',                            'span.cpp'],
 ]
@@ -31,8 +31,10 @@ internal_tests = [
     ['file',                            'file.cpp'],
     ['file-descriptor',                 'file-descriptor.cpp'],
     ['hotplug-cameras',                 'hotplug-cameras.cpp'],
+    ['mapped-buffer',                   'mapped-buffer.cpp'],
     ['message',                         'message.cpp'],
     ['object',                          'object.cpp'],
+    ['object-delete',                   'object-delete.cpp'],
     ['object-invoke',                   'object-invoke.cpp'],
     ['pixel-format',                    'pixel-format.cpp'],
     ['signal-threads',                  'signal-threads.cpp'],

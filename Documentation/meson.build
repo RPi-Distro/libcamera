@@ -7,9 +7,10 @@ doc_install_dir = join_paths(get_option('datadir'), 'doc',
 # Doxygen
 #
 
-doxygen = find_program('doxygen', required : false)
+doxygen = find_program('doxygen', required : get_option('documentation'))
+dot = find_program('dot', required : get_option('documentation'))
 
-if doxygen.found()
+if doxygen.found() and dot.found()
     cdata = configuration_data()
     cdata.set('VERSION', 'v@0@'.format(libcamera_git_version))
     cdata.set('TOP_SRCDIR', meson.source_root())
@@ -41,7 +42,7 @@ endif
 
 sphinx = find_program('sphinx-build-3', required : false)
 if not sphinx.found()
-    sphinx = find_program('sphinx-build', required : false)
+    sphinx = find_program('sphinx-build', required : get_option('documentation'))
 endif
 
 if sphinx.found()
@@ -52,6 +53,9 @@ if sphinx.found()
         'contributing.rst',
         'docs.rst',
         'index.rst',
+        'guides/introduction.rst',
+        'guides/application-developer.rst',
+        'guides/pipeline-handler.rst',
     ]
 
     release = 'release=v' + libcamera_git_version

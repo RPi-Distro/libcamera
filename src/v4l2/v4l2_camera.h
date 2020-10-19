@@ -37,16 +37,19 @@ public:
 	V4L2Camera(std::shared_ptr<Camera> camera);
 	~V4L2Camera();
 
-	int open();
+	int open(StreamConfiguration *streamConfig);
 	void close();
 	void bind(int efd);
 	void unbind();
-	void getStreamConfig(StreamConfiguration *streamConfig);
+
 	std::vector<Buffer> completedBuffers();
 
 	int configure(StreamConfiguration *streamConfigOut,
 		      const Size &size, const PixelFormat &pixelformat,
 		      unsigned int bufferCount);
+	int validateConfiguration(const PixelFormat &pixelformat,
+				  const Size &size,
+				  StreamConfiguration *streamConfigOut);
 
 	int allocBuffers(unsigned int count);
 	void freeBuffers();
@@ -73,7 +76,9 @@ private:
 	std::mutex bufferLock_;
 	FrameBufferAllocator *bufferAllocator_;
 
-	std::deque<std::unique_ptr<Request>> pendingRequests_;
+	std::vector<std::unique_ptr<Request>> requestPool_;
+
+	std::deque<Request *> pendingRequests_;
 	std::deque<std::unique_ptr<Buffer>> completedBuffers_;
 
 	int efd_;

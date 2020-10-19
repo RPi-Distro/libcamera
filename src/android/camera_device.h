@@ -20,15 +20,27 @@
 #include <libcamera/request.h>
 #include <libcamera/stream.h>
 
+#include "libcamera/internal/buffer.h"
 #include "libcamera/internal/log.h"
 #include "libcamera/internal/message.h"
 
+#include "camera_stream.h"
+#include "camera_worker.h"
+#include "jpeg/encoder.h"
+
 class CameraMetadata;
+
+class MappedCamera3Buffer : public libcamera::MappedBuffer
+{
+public:
+	MappedCamera3Buffer(const buffer_handle_t camera3buffer, int flags);
+};
 
 class CameraDevice : protected libcamera::Loggable
 {
 public:
-	CameraDevice(unsigned int id, const std::shared_ptr<libcamera::Camera> &camera);
+	static std::shared_ptr<CameraDevice> create(unsigned int id,
+						    const std::shared_ptr<libcamera::Camera> &cam);
 	~CameraDevice();
 
 	int initialize();
@@ -38,9 +50,15 @@ public:
 
 	unsigned int id() const { return id_; }
 	camera3_device_t *camera3Device() { return &camera3Device_; }
+	std::shared_ptr<libcamera::Camera> camera() const { return camera_; }
+	libcamera::CameraConfiguration *cameraConfiguration() const
+	{
+		return config_.get();
+	}
 
 	int facing() const { return facing_; }
 	int orientation() const { return orientation_; }
+	unsigned int maxJpegBufferSize() const { return maxJpegBufferSize_; }
 
 	void setCallbacks(const camera3_callback_ops_t *callbacks);
 	const camera_metadata_t *getStaticMetadata();
@@ -53,44 +71,64 @@ protected:
 	std::string logPrefix() const override;
 
 private:
+	CameraDevice(unsigned int id, const std::shared_ptr<libcamera::Camera> &camera);
+
 	struct Camera3RequestDescriptor {
-		Camera3RequestDescriptor(unsigned int frameNumber,
+		Camera3RequestDescriptor(libcamera::Camera *camera,
+					 unsigned int frameNumber,
 					 unsigned int numBuffers);
 		~Camera3RequestDescriptor();
 
 		uint32_t frameNumber;
 		uint32_t numBuffers;
 		camera3_stream_buffer_t *buffers;
+		std::vector<std::unique_ptr<libcamera::FrameBuffer>> frameBuffers;
+		std::unique_ptr<CaptureRequest> request;
 	};
 
 	struct Camera3StreamConfiguration {
 		libcamera::Size resolution;
-		int androidScalerCode;
+		int androidFormat;
 	};
 
 	int initializeStreamConfigurations();
+	std::vector<libcamera::Size>
+	getYUVResolutions(libcamera::CameraConfiguration *cameraConfig,
+			  const libcamera::PixelFormat &pixelFormat,
+			  const std::vector<libcamera::Size> &resolutions);
+	std::vector<libcamera::Size>
+	getRawResolutions(const libcamera::PixelFormat &pixelFormat);
+
 	std::tuple<uint32_t, uint32_t> calculateStaticMetadataSize();
+	libcamera::FrameBuffer *createFrameBuffer(const buffer_handle_t camera3buffer);
 	void notifyShutter(uint32_t frameNumber, uint64_t timestamp);
 	void notifyError(uint32_t frameNumber, camera3_stream_t *stream);
+	CameraMetadata *requestTemplatePreview();
+	libcamera::PixelFormat toPixelFormat(int format);
 	std::unique_ptr<CameraMetadata> getResultMetadata(int frame_number,
 							  int64_t timestamp);
 
 	unsigned int id_;
 	camera3_device_t camera3Device_;
 
+	CameraWorker worker_;
+
 	bool running_;
 	std::shared_ptr<libcamera::Camera> camera_;
 	std::unique_ptr<libcamera::CameraConfiguration> config_;
 
 	CameraMetadata *staticMetadata_;
-	std::map<unsigned int, CameraMetadata *> requestTemplates_;
+	std::map<unsigned int, const CameraMetadata *> requestTemplates_;
 	const camera3_callback_ops_t *callbacks_;
 
 	std::vector<Camera3StreamConfiguration> streamConfigurations_;
 	std::map<int, libcamera::PixelFormat> formatsMap_;
+	std::vector<CameraStream> streams_;
 
 	int facing_;
 	int orientation_;
+
+	unsigned int maxJpegBufferSize_;
 };
 
 #endif /* __ANDROID_CAMERA_DEVICE_H__ */

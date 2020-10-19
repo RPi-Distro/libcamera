@@ -18,7 +18,7 @@
 
 #include "agc.hpp"
 
-using namespace RPi;
+using namespace RPiController;
 
 #define NAME "rpi.agc"
 
@@ -221,7 +221,8 @@ void Agc::SetConstraintMode(std::string const &constraint_mode_name)
 	constraint_mode_name_ = constraint_mode_name;
 }
 
-void Agc::SwitchMode(CameraMode const &camera_mode, Metadata *metadata)
+void Agc::SwitchMode([[maybe_unused]] CameraMode const &camera_mode,
+		     Metadata *metadata)
 {
 	// On a mode switch, it's possible the exposure profile could change,
 	// so we run through the dividing up of exposure/gain again and

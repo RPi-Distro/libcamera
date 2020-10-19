@@ -10,34 +10,41 @@
 #include <libcamera/control_ids.h>
 #include <libcamera/controls.h>
 
-enum RPiOperations {
-	RPI_IPA_ACTION_V4L2_SET_STAGGERED = 1,
-	RPI_IPA_ACTION_V4L2_SET_ISP,
-	RPI_IPA_ACTION_STATS_METADATA_COMPLETE,
-	RPI_IPA_ACTION_RUN_ISP,
-	RPI_IPA_ACTION_RUN_ISP_AND_DROP_FRAME,
-	RPI_IPA_ACTION_SET_SENSOR_CONFIG,
-	RPI_IPA_ACTION_EMBEDDED_COMPLETE,
-	RPI_IPA_EVENT_SIGNAL_STAT_READY,
-	RPI_IPA_EVENT_SIGNAL_ISP_PREPARE,
-	RPI_IPA_EVENT_QUEUE_REQUEST,
-	RPI_IPA_EVENT_LS_TABLE_ALLOCATION,
+namespace libcamera {
+
+namespace RPi {
+
+enum ConfigParameters {
+	IPA_CONFIG_LS_TABLE = (1 << 0),
+	IPA_CONFIG_STAGGERED_WRITE = (1 << 1),
+	IPA_CONFIG_SENSOR = (1 << 2),
+	IPA_CONFIG_DROP_FRAMES = (1 << 3),
 };
 
-enum RPiIpaMask {
-	ID		= 0x0ffff,
-	STATS		= 0x10000,
-	EMBEDDED_DATA	= 0x20000,
-	BAYER_DATA	= 0x40000
+enum Operations {
+	IPA_ACTION_V4L2_SET_STAGGERED = 1,
+	IPA_ACTION_V4L2_SET_ISP,
+	IPA_ACTION_STATS_METADATA_COMPLETE,
+	IPA_ACTION_RUN_ISP,
+	IPA_ACTION_EMBEDDED_COMPLETE,
+	IPA_EVENT_SIGNAL_STAT_READY,
+	IPA_EVENT_SIGNAL_ISP_PREPARE,
+	IPA_EVENT_QUEUE_REQUEST,
+};
+
+enum BufferMask {
+	ID		= 0x00ffff,
+	STATS		= 0x010000,
+	EMBEDDED_DATA	= 0x020000,
+	BAYER_DATA	= 0x040000,
+	EXTERNAL_BUFFER	= 0x100000,
 };
 
 /* Size of the LS grid allocation. */
-#define MAX_LS_GRID_SIZE (32 << 10)
-
-namespace libcamera {
+static constexpr unsigned int MaxLsGridSize = 32 << 10;
 
 /* List of controls handled by the Raspberry Pi IPA */
-static const ControlInfoMap RPiControls = {
+static const ControlInfoMap Controls = {
 	{ &controls::AeEnable, ControlInfo(false, true) },
 	{ &controls::ExposureTime, ControlInfo(0, 999999) },
 	{ &controls::AnalogueGain, ControlInfo(1.0f, 32.0f) },
@@ -52,7 +59,10 @@ static const ControlInfoMap RPiControls = {
 	{ &controls::Contrast, ControlInfo(0.0f, 32.0f) },
 	{ &controls::Saturation, ControlInfo(0.0f, 32.0f) },
 	{ &controls::Sharpness, ControlInfo(0.0f, 16.0f, 1.0f) },
+	{ &controls::ColourCorrectionMatrix, ControlInfo(-16.0f, 16.0f) },
 };
+
+} /* namespace RPi */
 
 } /* namespace libcamera */
 

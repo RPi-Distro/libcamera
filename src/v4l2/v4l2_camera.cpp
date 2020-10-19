@@ -28,7 +28,7 @@ V4L2Camera::~V4L2Camera()
 	close();
 }
 
-int V4L2Camera::open()
+int V4L2Camera::open(StreamConfiguration *streamConfig)
 {
 	if (camera_->acquire() < 0) {
 		LOG(V4L2Compat, Error) << "Failed to acquire camera";
@@ -43,11 +43,14 @@ int V4L2Camera::open()
 
 	bufferAllocator_ = new FrameBufferAllocator(camera_);
 
+	*streamConfig = config_->at(0);
 	return 0;
 }
 
 void V4L2Camera::close()
 {
+	requestPool_.clear();
+
 	delete bufferAllocator_;
 	bufferAllocator_ = nullptr;
 
@@ -62,11 +65,6 @@ void V4L2Camera::bind(int efd)
 void V4L2Camera::unbind()
 {
 	efd_ = -1;
-}
-
-void V4L2Camera::getStreamConfig(StreamConfiguration *streamConfig)
-{
-	*streamConfig = config_->at(0);
 }
 
 std::vector<V4L2Camera::Buffer> V4L2Camera::completedBuffers()
@@ -100,6 +98,7 @@ void V4L2Camera::requestComplete(Request *request)
 	if (ret != sizeof(data))
 		LOG(V4L2Compat, Error) << "Failed to signal eventfd POLLIN";
 
+	request->reuse();
 	{
 		MutexLocker locker(bufferMutex_);
 		bufferAvailableCount_++;
@@ -138,24 +137,58 @@ int V4L2Camera::configure(StreamConfiguration *streamConfigOut,
 	return 0;
 }
 
+int V4L2Camera::validateConfiguration(const PixelFormat &pixelFormat,
+				      const Size &size,
+				      StreamConfiguration *streamConfigOut)
+{
+	std::unique_ptr<CameraConfiguration> config =
+		camera_->generateConfiguration({ StreamRole::Viewfinder });
+	StreamConfiguration &cfg = config->at(0);
+	cfg.size = size;
+	cfg.pixelFormat = pixelFormat;
+	cfg.bufferCount = 1;
+
+	CameraConfiguration::Status validation = config->validate();
+	if (validation == CameraConfiguration::Invalid)
+		return -EINVAL;
+
+	*streamConfigOut = cfg;
+
+	return 0;
+}
+
 int V4L2Camera::allocBuffers(unsigned int count)
 {
-	Stream *stream = *camera_->streams().begin();
+	Stream *stream = config_->at(0).stream();
 
-	return bufferAllocator_->allocate(stream);
+	int ret = bufferAllocator_->allocate(stream);
+	if (ret < 0)
+		return ret;
+
+	for (unsigned int i = 0; i < count; i++) {
+		std::unique_ptr<Request> request = camera_->createRequest(i);
+		if (!request) {
+			requestPool_.clear();
+			return -ENOMEM;
+		}
+		requestPool_.push_back(std::move(request));
+	}
+
+	return ret;
 }
 
 void V4L2Camera::freeBuffers()
 {
 	pendingRequests_.clear();
+	requestPool_.clear();
 
-	Stream *stream = *camera_->streams().begin();
+	Stream *stream = config_->at(0).stream();
 	bufferAllocator_->free(stream);
 }
 
 FileDescriptor V4L2Camera::getBufferFd(unsigned int index)
 {
-	Stream *stream = *camera_->streams().begin();
+	Stream *stream = config_->at(0).stream();
 	const std::vector<std::unique_ptr<FrameBuffer>> &buffers =
 		bufferAllocator_->buffers(stream);
 
@@ -176,9 +209,9 @@ int V4L2Camera::streamOn()
 
 	isRunning_ = true;
 
-	for (std::unique_ptr<Request> &req : pendingRequests_) {
+	for (Request *req : pendingRequests_) {
 		/* \todo What should we do if this returns -EINVAL? */
-		ret = camera_->queueRequest(req.release());
+		ret = camera_->queueRequest(req);
 		if (ret < 0)
 			return ret == -EACCES ? -EBUSY : ret;
 	}
@@ -190,8 +223,12 @@ int V4L2Camera::streamOn()
 
 int V4L2Camera::streamOff()
 {
-	if (!isRunning_)
+	if (!isRunning_) {
+		for (std::unique_ptr<Request> &req : requestPool_)
+			req->reuse();
+
 		return 0;
+	}
 
 	pendingRequests_.clear();
 
@@ -210,12 +247,11 @@ int V4L2Camera::streamOff()
 
 int V4L2Camera::qbuf(unsigned int index)
 {
-	std::unique_ptr<Request> request =
-		std::unique_ptr<Request>(camera_->createRequest(index));
-	if (!request) {
-		LOG(V4L2Compat, Error) << "Can't create request";
-		return -ENOMEM;
+	if (index >= requestPool_.size()) {
+		LOG(V4L2Compat, Error) << "Invalid index";
+		return -EINVAL;
 	}
+	Request *request = requestPool_[index].get();
 
 	Stream *stream = config_->at(0).stream();
 	FrameBuffer *buffer = bufferAllocator_->buffers(stream)[index].get();
@@ -226,11 +262,11 @@ int V4L2Camera::qbuf(unsigned int index)
 	}
 
 	if (!isRunning_) {
-		pendingRequests_.push_back(std::move(request));
+		pendingRequests_.push_back(request);
 		return 0;
 	}
 
-	ret = camera_->queueRequest(request.release());
+	ret = camera_->queueRequest(request);
 	if (ret < 0) {
 		LOG(V4L2Compat, Error) << "Can't queue request";
 		return ret == -EACCES ? -EBUSY : ret;

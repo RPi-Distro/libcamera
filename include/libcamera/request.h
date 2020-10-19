@@ -31,16 +31,25 @@ public:
 		RequestCancelled,
 	};
 
+	enum ReuseFlag {
+		Default = 0,
+		ReuseBuffers = (1 << 0),
+	};
+
+	using BufferMap = std::map<const Stream *, FrameBuffer *>;
+
 	Request(Camera *camera, uint64_t cookie = 0);
 	Request(const Request &) = delete;
 	Request &operator=(const Request &) = delete;
 	~Request();
 
+	void reuse(ReuseFlag flags = Default);
+
 	ControlList &controls() { return *controls_; }
 	ControlList &metadata() { return *metadata_; }
-	const std::map<Stream *, FrameBuffer *> &buffers() const { return bufferMap_; }
-	int addBuffer(Stream *stream, FrameBuffer *buffer);
-	FrameBuffer *findBuffer(Stream *stream) const;
+	const BufferMap &buffers() const { return bufferMap_; }
+	int addBuffer(const Stream *stream, FrameBuffer *buffer);
+	FrameBuffer *findBuffer(const Stream *stream) const;
 
 	uint64_t cookie() const { return cookie_; }
 	Status status() const { return status_; }
@@ -58,7 +67,7 @@ private:
 	CameraControlValidator *validator_;
 	ControlList *controls_;
 	ControlList *metadata_;
-	std::map<Stream *, FrameBuffer *> bufferMap_;
+	BufferMap bufferMap_;
 	std::unordered_set<FrameBuffer *> pending_;
 
 	const uint64_t cookie_;

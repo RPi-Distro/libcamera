@@ -6,6 +6,7 @@
  */
 
 #include <iostream>
+#include <map>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -143,6 +144,38 @@ protected:
 		/* utils::dirname() tests. */
 		if (TestPass != testDirname())
 			return TestFail;
+
+
+		/* utils::map_keys() test. */
+		const std::map<std::string, unsigned int> map{
+			{ "zero", 0 },
+			{ "one", 1 },
+			{ "two", 2 },
+		};
+		std::vector<std::string> expectedKeys{
+			"zero",
+			"one",
+			"two",
+		};
+
+		std::sort(expectedKeys.begin(), expectedKeys.end());
+
+		const std::vector<std::string> keys = utils::map_keys(map);
+		if (keys != expectedKeys) {
+			cerr << "utils::map_keys() test failed" << endl;
+			return TestFail;
+		}
+
+		/* utils::alignUp() and utils::alignDown() tests. */
+		if (utils::alignDown(6, 3) != 6 || utils::alignDown(7, 3) != 6) {
+			cerr << "utils::alignDown test failed" << endl;
+			return TestFail;
+		}
+
+		if (utils::alignUp(6, 3) != 6 || utils::alignUp(7, 3) != 9) {
+			cerr << "utils::alignUp test failed" << endl;
+			return TestFail;
+		}
 
 		return TestPass;
 	}

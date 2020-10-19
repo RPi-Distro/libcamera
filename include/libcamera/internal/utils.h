@@ -15,6 +15,7 @@
 #include <string>
 #include <string.h>
 #include <sys/time.h>
+#include <vector>
 
 #define ARRAY_SIZE(a)	(sizeof(a) / sizeof(a[0]))
 
@@ -36,6 +37,15 @@ const char *basename(const char *path);
 char *secure_getenv(const char *name);
 std::string dirname(const std::string &path);
 
+template<typename T>
+std::vector<typename T::key_type> map_keys(const T &map)
+{
+	std::vector<typename T::key_type> keys;
+	std::transform(map.begin(), map.end(), std::back_inserter(keys),
+		       [](const auto &value) { return value.first; });
+	return keys;
+}
+
 template<class InputIt1, class InputIt2>
 unsigned int set_overlap(InputIt1 first1, InputIt1 last1,
 			 InputIt2 first2, InputIt2 last2)
@@ -53,13 +63,6 @@ unsigned int set_overlap(InputIt1 first1, InputIt1 last1,
 	}
 
 	return count;
-}
-
-/* C++11 doesn't provide std::clamp */
-template <typename T>
-const T& clamp(const T& v, const T& lo, const T& hi)
-{
-	return std::max(lo, std::min(v, hi));
 }
 
 using clock = std::chrono::steady_clock;
@@ -187,8 +190,20 @@ private:
 
 details::StringSplitter split(const std::string &str, const std::string &delim);
 
+std::string toAscii(const std::string &str);
+
 std::string libcameraBuildPath();
 std::string libcameraSourcePath();
+
+constexpr unsigned int alignDown(unsigned int value, unsigned int alignment)
+{
+	return value / alignment * alignment;
+}
+
+constexpr unsigned int alignUp(unsigned int value, unsigned int alignment)
+{
+	return (value + alignment - 1) / alignment * alignment;
+}
 
 } /* namespace utils */
 

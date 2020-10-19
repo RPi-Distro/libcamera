@@ -8,6 +8,7 @@
 #ifndef __LIBCAMERA_INTERNAL_FORMATS_H__
 #define __LIBCAMERA_INTERNAL_FORMATS_H__
 
+#include <array>
 #include <map>
 #include <vector>
 
@@ -18,18 +19,10 @@
 
 namespace libcamera {
 
-class ImageFormats
+struct PixelFormatPlaneInfo
 {
-public:
-	int addFormat(unsigned int format, const std::vector<SizeRange> &sizes);
-
-	bool isEmpty() const;
-	std::vector<unsigned int> formats() const;
-	const std::vector<SizeRange> &sizes(unsigned int format) const;
-	const std::map<unsigned int, std::vector<SizeRange>> &data() const;
-
-private:
-	std::map<unsigned int, std::vector<SizeRange>> data_;
+	unsigned int bytesPerGroup;
+	unsigned int verticalSubSampling;
 };
 
 class PixelFormatInfo
@@ -44,6 +37,16 @@ public:
 	bool isValid() const { return format.isValid(); }
 
 	static const PixelFormatInfo &info(const PixelFormat &format);
+	static const PixelFormatInfo &info(const V4L2PixelFormat &format);
+	static const PixelFormatInfo &info(const std::string &name);
+
+	unsigned int stride(unsigned int width, unsigned int plane,
+			    unsigned int align = 1) const;
+	unsigned int frameSize(const Size &size, unsigned int align = 1) const;
+	unsigned int frameSize(const Size &size,
+			       const std::array<unsigned int, 3> &strides) const;
+
+	unsigned int numPlanes() const;
 
 	/* \todo Add support for non-contiguous memory planes */
 	const char *name;
@@ -52,6 +55,10 @@ public:
 	unsigned int bitsPerPixel;
 	enum ColourEncoding colourEncoding;
 	bool packed;
+
+	unsigned int pixelsPerGroup;
+
+	std::array<PixelFormatPlaneInfo, 3> planes;
 };
 
 } /* namespace libcamera */

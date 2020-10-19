@@ -110,10 +110,13 @@ void IPAContextWrapper::stop()
 
 void IPAContextWrapper::configure(const CameraSensorInfo &sensorInfo,
 				  const std::map<unsigned int, IPAStream> &streamConfig,
-				  const std::map<unsigned int, const ControlInfoMap &> &entityControls)
+				  const std::map<unsigned int, const ControlInfoMap &> &entityControls,
+				  const IPAOperationData &ipaConfig,
+				  IPAOperationData *result)
 {
 	if (intf_)
-		return intf_->configure(sensorInfo, streamConfig, entityControls);
+		return intf_->configure(sensorInfo, streamConfig,
+					entityControls, ipaConfig, result);
 
 	if (!ctx_)
 		return;
@@ -174,6 +177,7 @@ void IPAContextWrapper::configure(const CameraSensorInfo &sensorInfo,
 		++i;
 	}
 
+	/* \todo Translate the ipaConfig and reponse */
 	ctx_->ops->configure(ctx_, &sensor_info, c_streams, streamConfig.size(),
 			     c_info_maps, entityControls.size());
 }
@@ -283,7 +287,7 @@ void IPAContextWrapper::queue_frame_action(void *ctx, unsigned int frame,
 #ifndef __DOXYGEN__
 /*
  * This construct confuses Doxygen and makes it believe that all members of the
- * operations is a member of IPAInterfaceWrapper. It must thus be hidden.
+ * operations is a member of IPAContextWrapper. It must thus be hidden.
  */
 const struct ipa_callback_ops IPAContextWrapper::callbacks_ = {
 	.queue_frame_action = &IPAContextWrapper::queue_frame_action,

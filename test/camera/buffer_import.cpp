@@ -12,6 +12,9 @@
 #include <numeric>
 #include <vector>
 
+#include <libcamera/event_dispatcher.h>
+#include <libcamera/timer.h>
+
 #include "libcamera/internal/device_enumerator.h"
 #include "libcamera/internal/media_device.h"
 #include "libcamera/internal/v4l2_videodevice.h"
@@ -28,12 +31,13 @@ class BufferImportTest : public CameraTest, public Test
 {
 public:
 	BufferImportTest()
-		: CameraTest("VIMC Sensor B")
+		: CameraTest("platform/vimc.0 Sensor B")
 	{
 	}
 
 protected:
-	void bufferComplete(Request *request, FrameBuffer *buffer)
+	void bufferComplete([[maybe_unused]] Request *request,
+			    FrameBuffer *buffer)
 	{
 		if (buffer->metadata().status != FrameMetadata::FrameSuccess)
 			return;
@@ -46,15 +50,15 @@ protected:
 		if (request->status() != Request::RequestComplete)
 			return;
 
-		const std::map<Stream *, FrameBuffer *> &buffers = request->buffers();
+		const Request::BufferMap &buffers = request->buffers();
 
 		completeRequestsCount_++;
 
 		/* Create a new request. */
-		Stream *stream = buffers.begin()->first;
+		const Stream *stream = buffers.begin()->first;
 		FrameBuffer *buffer = buffers.begin()->second;
 
-		request = camera_->createRequest();
+		request->reuse();
 		request->addBuffer(stream, buffer);
 		camera_->queueRequest(request);
 	}
@@ -94,9 +98,8 @@ protected:
 		if (ret != TestPass)
 			return ret;
 
-		std::vector<Request *> requests;
 		for (const std::unique_ptr<FrameBuffer> &buffer : source.buffers()) {
-			Request *request = camera_->createRequest();
+			std::unique_ptr<Request> request = camera_->createRequest();
 			if (!request) {
 				std::cout << "Failed to create request" << std::endl;
 				return TestFail;
@@ -107,7 +110,7 @@ protected:
 				return TestFail;
 			}
 
-			requests.push_back(request);
+			requests_.push_back(std::move(request));
 		}
 
 		completeRequestsCount_ = 0;
@@ -121,8 +124,8 @@ protected:
 			return TestFail;
 		}
 
-		for (Request *request : requests) {
-			if (camera_->queueRequest(request)) {
+		for (std::unique_ptr<Request> &request : requests_) {
+			if (camera_->queueRequest(request.get())) {
 				std::cout << "Failed to queue request" << std::endl;
 				return TestFail;
 			}
@@ -156,6 +159,8 @@ protected:
 	}
 
 private:
+	std::vector<std::unique_ptr<Request>> requests_;
+
 	unsigned int completeBuffersCount_;
 	unsigned int completeRequestsCount_;
 	std::unique_ptr<CameraConfiguration> config_;

@@ -18,67 +18,6 @@
 namespace libcamera {
 
 /**
- * \struct Rectangle
- * \brief Describe a rectangle's position and dimensions
- *
- * Rectangles are used to identify an area of an image. They are specified by
- * the coordinates of top-left corner and their horizontal and vertical size.
- *
- * The measure unit of the rectangle coordinates and size, as well as the
- * reference point from which the Rectangle::x and Rectangle::y displacements
- * refers to, are defined by the context were rectangle is used.
- */
-
-/**
- * \var Rectangle::x
- * \brief The horizontal coordinate of the rectangle's top-left corner
- */
-
-/**
- * \var Rectangle::y
- * \brief The vertical coordinate of the rectangle's top-left corner
- */
-
-/**
- * \var Rectangle::width
- * \brief The distance between the left and right sides
- */
-
-/**
- * \var Rectangle::height
- * \brief The distance between the top and bottom sides
- */
-
-/**
- * \brief Assemble and return a string describing the rectangle
- * \return A string describing the Rectangle
- */
-const std::string Rectangle::toString() const
-{
-	std::stringstream ss;
-
-	ss << "(" << x << "x" << y << ")/" << width << "x" << height;
-
-	return ss.str();
-}
-
-/**
- * \brief Compare rectangles for equality
- * \return True if the two rectangles are equal, false otherwise
- */
-bool operator==(const Rectangle &lhs, const Rectangle &rhs)
-{
-	return lhs.x == rhs.x && lhs.y == rhs.y &&
-	       lhs.width == rhs.width && lhs.height == rhs.height;
-}
-
-/**
- * \fn bool operator!=(const Rectangle &lhs, const Rectangle &rhs)
- * \brief Compare rectangles for inequality
- * \return True if the two rectangles are not equal, false otherwise
- */
-
-/**
  * \struct Size
  * \brief Describe a two-dimensional size
  *
@@ -121,6 +60,88 @@ const std::string Size::toString() const
 {
 	return std::to_string(width) + "x" + std::to_string(height);
 }
+
+/**
+ * \fn Size::alignDownTo(unsigned int hAlignment, unsigned int vAlignment)
+ * \brief Align the size down horizontally and vertically in place
+ * \param[in] hAlignment Horizontal alignment
+ * \param[in] vAlignment Vertical alignment
+ *
+ * This functions rounds the width and height down to the nearest multiple of
+ * \a hAlignment and \a vAlignment respectively.
+ *
+ * \return A reference to this object
+ */
+
+/**
+ * \fn Size::alignUpTo(unsigned int hAlignment, unsigned int vAlignment)
+ * \brief Align the size up horizontally and vertically in place
+ * \param[in] hAlignment Horizontal alignment
+ * \param[in] vAlignment Vertical alignment
+ *
+ * This functions rounds the width and height up to the nearest multiple of
+ * \a hAlignment and \a vAlignment respectively.
+ *
+ * \return A reference to this object
+ */
+
+/**
+ * \fn Size::boundTo(const Size &bound)
+ * \brief Bound the size to \a bound in place
+ * \param[in] bound The maximum size
+ *
+ * This function sets the width and height to the minimum of this size and the
+ * \a bound size.
+ *
+ * \return A reference to this object
+ */
+
+/**
+ * \fn Size::expandTo(const Size &expand)
+ * \brief Expand the size to \a expand
+ * \param[in] expand The minimum size
+ *
+ * This function sets the width and height to the maximum of this size and the
+ * \a expand size.
+ *
+ * \return A reference to this object
+ */
+
+/**
+ * \fn Size::alignedDownTo(unsigned int hAlignment, unsigned int vAlignment)
+ * \brief Align the size down horizontally and vertically
+ * \param[in] hAlignment Horizontal alignment
+ * \param[in] vAlignment Vertical alignment
+ * \return A Size whose width and height are equal to the width and height of
+ * this size rounded down to the nearest multiple of \a hAlignment and
+ * \a vAlignment respectively
+ */
+
+/**
+ * \fn Size::alignedUpTo(unsigned int hAlignment, unsigned int vAlignment)
+ * \brief Align the size up horizontally and vertically
+ * \param[in] hAlignment Horizontal alignment
+ * \param[in] vAlignment Vertical alignment
+ * \return A Size whose width and height are equal to the width and height of
+ * this size rounded up to the nearest multiple of \a hAlignment and
+ * \a vAlignment respectively
+ */
+
+/**
+ * \fn Size::boundedTo(const Size &bound)
+ * \brief Bound the size to \a bound
+ * \param[in] bound The maximum size
+ * \return A Size whose width and height are the minimum of the width and
+ * height of this size and the \a bound size
+ */
+
+/**
+ * \fn Size::expandedTo(const Size &expand)
+ * \brief Expand the size to \a expand
+ * \param[in] expand The minimum size
+ * \return A Size whose width and height are the maximum of the width and
+ * height of this size and the \a expand size
+ */
 
 /**
  * \brief Compare sizes for equality
@@ -308,6 +329,95 @@ bool operator==(const SizeRange &lhs, const SizeRange &rhs)
  * \fn bool operator!=(const SizeRange &lhs, const SizeRange &rhs)
  * \brief Compare size ranges for inequality
  * \return True if the two size ranges are not equal, false otherwise
+ */
+
+/**
+ * \struct Rectangle
+ * \brief Describe a rectangle's position and dimensions
+ *
+ * Rectangles are used to identify an area of an image. They are specified by
+ * the coordinates of top-left corner and their horizontal and vertical size.
+ *
+ * The measure unit of the rectangle coordinates and size, as well as the
+ * reference point from which the Rectangle::x and Rectangle::y displacements
+ * refers to, are defined by the context were rectangle is used.
+ */
+
+/**
+ * \fn Rectangle::Rectangle()
+ * \brief Construct a Rectangle with all coordinates set to 0
+ */
+
+/**
+ * \fn Rectangle::Rectangle(int x, int y, const Size &size)
+ * \brief Construct a Rectangle with the given position and size
+ * \param[in] x The horizontal coordinate of the top-left corner
+ * \param[in] y The vertical coordinate of the top-left corner
+ * \param[in] size The size
+ */
+
+/**
+ * \fn Rectangle::Rectangle(int x, int y, unsigned int width, unsigned int height)
+ * \brief Construct a Rectangle with the given position and size
+ * \param[in] x The horizontal coordinate of the top-left corner
+ * \param[in] y The vertical coordinate of the top-left corner
+ * \param[in] width The width
+ * \param[in] height The height
+ */
+
+/**
+ * \var Rectangle::x
+ * \brief The horizontal coordinate of the rectangle's top-left corner
+ */
+
+/**
+ * \var Rectangle::y
+ * \brief The vertical coordinate of the rectangle's top-left corner
+ */
+
+/**
+ * \var Rectangle::width
+ * \brief The distance between the left and right sides
+ */
+
+/**
+ * \var Rectangle::height
+ * \brief The distance between the top and bottom sides
+ */
+
+/**
+ * \fn bool Rectangle::isNull() const
+ * \brief Check if the rectangle is null
+ * \return True if both the width and height are 0, or false otherwise
+ */
+
+/**
+ * \brief Assemble and return a string describing the rectangle
+ * \return A string describing the Rectangle
+ */
+const std::string Rectangle::toString() const
+{
+	std::stringstream ss;
+
+	ss << "(" << x << "x" << y << ")/" << width << "x" << height;
+
+	return ss.str();
+}
+
+/**
+ * \brief Compare rectangles for equality
+ * \return True if the two rectangles are equal, false otherwise
+ */
+bool operator==(const Rectangle &lhs, const Rectangle &rhs)
+{
+	return lhs.x == rhs.x && lhs.y == rhs.y &&
+	       lhs.width == rhs.width && lhs.height == rhs.height;
+}
+
+/**
+ * \fn bool operator!=(const Rectangle &lhs, const Rectangle &rhs)
+ * \brief Compare rectangles for inequality
+ * \return True if the two rectangles are not equal, false otherwise
  */
 
 } /* namespace libcamera */

@@ -12,6 +12,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <libcamera/event_notifier.h>
+
 #include "libcamera/internal/log.h"
 
 /**
@@ -308,7 +310,7 @@ int IPCUnixSocket::recvData(void *buffer, size_t length,
 	return 0;
 }
 
-void IPCUnixSocket::dataNotifier(EventNotifier *notifier)
+void IPCUnixSocket::dataNotifier([[maybe_unused]] EventNotifier *notifier)
 {
 	int ret;
 

@@ -37,12 +37,14 @@ public:
 	int start() override;
 	void stop() override;
 
-	void configure(const CameraSensorInfo &sensorInfo,
-		       const std::map<unsigned int, IPAStream> &streamConfig,
-		       const std::map<unsigned int, const ControlInfoMap &> &entityControls) override {}
-	void mapBuffers(const std::vector<IPABuffer> &buffers) override {}
-	void unmapBuffers(const std::vector<unsigned int> &ids) override {}
-	void processEvent(const IPAOperationData &event) override {}
+	void configure([[maybe_unused]] const CameraSensorInfo &sensorInfo,
+		       [[maybe_unused]] const std::map<unsigned int, IPAStream> &streamConfig,
+		       [[maybe_unused]] const std::map<unsigned int, const ControlInfoMap &> &entityControls,
+		       [[maybe_unused]] const IPAOperationData &ipaConfig,
+		       [[maybe_unused]] IPAOperationData *result) override {}
+	void mapBuffers([[maybe_unused]] const std::vector<IPABuffer> &buffers) override {}
+	void unmapBuffers([[maybe_unused]] const std::vector<unsigned int> &ids) override {}
+	void processEvent([[maybe_unused]] const IPAOperationData &event) override {}
 
 private:
 	void initTrace();
@@ -59,7 +61,7 @@ IPAVimc::IPAVimc()
 
 IPAVimc::~IPAVimc()
 {
-	if (fd_)
+	if (fd_ != -1)
 		::close(fd_);
 }
 

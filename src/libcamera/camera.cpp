@@ -16,6 +16,7 @@
 
 #include "libcamera/internal/log.h"
 #include "libcamera/internal/pipeline_handler.h"
+#include "libcamera/internal/thread.h"
 #include "libcamera/internal/utils.h"
 
 /**
@@ -93,7 +94,7 @@ LOG_DECLARE_CATEGORY(Camera)
  * \brief Create an empty camera configuration
  */
 CameraConfiguration::CameraConfiguration()
-	: config_({})
+	: transform(Transform::Identity), config_({})
 {
 }
 
@@ -251,6 +252,20 @@ std::size_t CameraConfiguration::size() const
 }
 
 /**
+ * \var CameraConfiguration::transform
+ * \brief User-specified transform to be applied to the image
+ *
+ * The transform is a user-specified 2D plane transform that will be applied
+ * to the camera images by the processing pipeline before being handed to
+ * the application. This is subsequent to any transform that is already
+ * required to fix up any platform-defined rotation.
+ *
+ * The usual 2D plane transforms are allowed here (horizontal/vertical
+ * flips, multiple of 90-degree rotations etc.), but the validate() function
+ * may adjust this field at its discretion if the selection is not supported.
+ */
+
+/**
  * \var CameraConfiguration::config_
  * \brief The vector of stream configurations
  */
@@ -265,7 +280,7 @@ public:
 		CameraRunning,
 	};
 
-	Private(PipelineHandler *pipe, const std::string &name,
+	Private(PipelineHandler *pipe, const std::string &id,
 		const std::set<Stream *> &streams);
 	~Private();
 
@@ -277,18 +292,18 @@ public:
 	void setState(State state);
 
 	std::shared_ptr<PipelineHandler> pipe_;
-	std::string name_;
+	std::string id_;
 	std::set<Stream *> streams_;
-	std::set<Stream *> activeStreams_;
+	std::set<const Stream *> activeStreams_;
 
 private:
 	bool disconnected_;
 	std::atomic<State> state_;
 };
 
-Camera::Private::Private(PipelineHandler *pipe, const std::string &name,
+Camera::Private::Private(PipelineHandler *pipe, const std::string &id,
 			 const std::set<Stream *> &streams)
-	: pipe_(pipe->shared_from_this()), name_(name), streams_(streams),
+	: pipe_(pipe->shared_from_this()), id_(id), streams_(streams),
 	  disconnected_(false), state_(CameraAvailable)
 {
 }
@@ -450,37 +465,61 @@ void Camera::Private::setState(State state)
 /**
  * \brief Create a camera instance
  * \param[in] pipe The pipeline handler responsible for the camera device
- * \param[in] name The name of the camera device
+ * \param[in] id The ID of the camera device
  * \param[in] streams Array of streams the camera provides
  *
- * The caller is responsible for guaranteeing unicity of the camera name.
+ * The caller is responsible for guaranteeing a stable and unique camera ID
+ * matching the constraints described by Camera::id(). Parameters that are
+ * allocated dynamically at system startup, such as bus numbers that may be
+ * enumerated differently, are therefore not suitable to use in the ID.
+ *
+ * Pipeline handlers that use a CameraSensor may use the CameraSensor::id() to
+ * generate an ID that satisfies the criteria of a stable and unique camera ID.
  *
  * \return A shared pointer to the newly created camera object
  */
 std::shared_ptr<Camera> Camera::create(PipelineHandler *pipe,
-				       const std::string &name,
+				       const std::string &id,
 				       const std::set<Stream *> &streams)
 {
 	struct Deleter : std::default_delete<Camera> {
 		void operator()(Camera *camera)
 		{
-			delete camera;
+			if (Thread::current() == camera->thread())
+				delete camera;
+			else
+				camera->deleteLater();
 		}
 	};
 
-	Camera *camera = new Camera(pipe, name, streams);
+	Camera *camera = new Camera(pipe, id, streams);
 
 	return std::shared_ptr<Camera>(camera, Deleter());
 }
 
 /**
- * \brief Retrieve the name of the camera
+ * \brief Retrieve the ID of the camera
+ *
+ * The camera ID is a free-form string that identifies a camera in the system.
+ * IDs are guaranteed to be unique and stable: the same camera, when connected
+ * to the system in the same way (e.g. in the same USB port), will have the same
+ * ID across both unplug/replug and system reboots.
+ *
+ * Applications may store the camera ID and use it later to acquire the same
+ * camera. They shall treat the ID as an opaque identifier, without interpreting
+ * its value.
+ *
+ * Camera IDs may change when the system hardware or firmware is modified, for
+ * instance when replacing a PCI USB controller or moving it to another PCI
+ * slot, or updating the ACPI tables or Device Tree.
+ *
  * \context This function is \threadsafe.
- * \return Name of the camera device
+ *
+ * \return ID of the camera device
  */
-const std::string &Camera::name() const
+const std::string &Camera::id() const
 {
-	return p_->name_;
+	return p_->id_;
 }
 
 /**
@@ -506,9 +545,9 @@ const std::string &Camera::name() const
  * application API calls by returning errors immediately.
  */
 
-Camera::Camera(PipelineHandler *pipe, const std::string &name,
+Camera::Camera(PipelineHandler *pipe, const std::string &id,
 	       const std::set<Stream *> &streams)
-	: p_(new Private(pipe, name, streams))
+	: p_(new Private(pipe, id, streams))
 {
 }
 
@@ -530,7 +569,7 @@ Camera::~Camera()
  */
 void Camera::disconnect()
 {
-	LOG(Camera, Debug) << "Disconnecting camera " << name();
+	LOG(Camera, Debug) << "Disconnecting camera " << id();
 
 	p_->disconnect();
 	disconnected.emit(this);
@@ -637,7 +676,7 @@ int Camera::release()
  *
  * \return A ControlInfoMap listing the controls supported by the camera
  */
-const ControlInfoMap &Camera::controls()
+const ControlInfoMap &Camera::controls() const
 {
 	return p_->pipe_->controls(this);
 }
@@ -650,7 +689,7 @@ const ControlInfoMap &Camera::controls()
  *
  * \return A ControlList of properties supported by the camera
  */
-const ControlList &Camera::properties()
+const ControlList &Camera::properties() const
 {
 	return p_->pipe_->properties(this);
 }
@@ -753,6 +792,9 @@ int Camera::configure(CameraConfiguration *config)
 	if (ret < 0)
 		return ret;
 
+	for (auto it : *config)
+		it.setStream(nullptr);
+
 	if (config->validate() != CameraConfiguration::Valid) {
 		LOG(Camera, Error)
 			<< "Can't configure camera with invalid configuration";
@@ -763,7 +805,6 @@ int Camera::configure(CameraConfiguration *config)
 
 	for (unsigned int index = 0; index < config->size(); ++index) {
 		StreamConfiguration &cfg = config->at(index);
-		cfg.setStream(nullptr);
 		msg << " (" << index << ") " << cfg.toString();
 	}
 
@@ -806,21 +847,22 @@ int Camera::configure(CameraConfiguration *config)
  * handler, and is completely opaque to libcamera.
  *
  * The ownership of the returned request is passed to the caller, which is
- * responsible for either queueing the request or deleting it.
+ * responsible for deleting it. The request may be deleted in the completion
+ * handler, or reused after resetting its state with Request::reuse().
  *
  * \context This function is \threadsafe. It may only be called when the camera
  * is in the Configured or Running state as defined in \ref camera_operation.
  *
  * \return A pointer to the newly created request, or nullptr on error
  */
-Request *Camera::createRequest(uint64_t cookie)
+std::unique_ptr<Request> Camera::createRequest(uint64_t cookie)
 {
 	int ret = p_->isAccessAllowed(Private::CameraConfigured,
 				      Private::CameraRunning);
 	if (ret < 0)
 		return nullptr;
 
-	return new Request(this, cookie);
+	return std::make_unique<Request>(this, cookie);
 }
 
 /**
@@ -835,9 +877,6 @@ Request *Camera::createRequest(uint64_t cookie)
  *
  * Once the request has been queued, the camera will notify its completion
  * through the \ref requestCompleted signal.
- *
- * Ownership of the request is transferred to the camera. It will be deleted
- * automatically after it completes.
  *
  * \context This function is \threadsafe. It may only be called when the camera
  * is in the Running state as defined in \ref camera_operation.
@@ -866,7 +905,7 @@ int Camera::queueRequest(Request *request)
 	}
 
 	for (auto const &it : request->buffers()) {
-		Stream *stream = it.first;
+		const Stream *stream = it.first;
 
 		if (p_->activeStreams_.find(stream) == p_->activeStreams_.end()) {
 			LOG(Camera, Error) << "Invalid request";
@@ -947,13 +986,11 @@ int Camera::stop()
  * \param[in] request The request that has completed
  *
  * This function is called by the pipeline handler to notify the camera that
- * the request has completed. It emits the requestCompleted signal and deletes
- * the request.
+ * the request has completed. It emits the requestCompleted signal.
  */
 void Camera::requestComplete(Request *request)
 {
 	requestCompleted.emit(request);
-	delete request;
 }
 
 } /* namespace libcamera */

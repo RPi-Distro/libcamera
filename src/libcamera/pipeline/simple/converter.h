@@ -10,6 +10,7 @@
 
 #include <memory>
 #include <queue>
+#include <tuple>
 #include <vector>
 
 #include <libcamera/pixel_format.h>
@@ -19,7 +20,7 @@ namespace libcamera {
 
 class FrameBuffer;
 class MediaDevice;
-struct Size;
+class Size;
 class SizeRange;
 struct StreamConfiguration;
 class V4L2M2MDevice;
@@ -45,6 +46,9 @@ public:
 	void stop();
 
 	int queueBuffers(FrameBuffer *input, FrameBuffer *output);
+
+	std::tuple<unsigned int, unsigned int>
+	strideAndFrameSize(const Size &size, const PixelFormat &pixelFormat);
 
 	Signal<FrameBuffer *, FrameBuffer *> bufferReady;
 

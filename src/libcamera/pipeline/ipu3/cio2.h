@@ -13,16 +13,18 @@
 
 #include <libcamera/signal.h>
 
+#include "libcamera/internal/v4l2_videodevice.h"
+
 namespace libcamera {
 
 class CameraSensor;
 class FrameBuffer;
 class MediaDevice;
+class PixelFormat;
 class Request;
-class V4L2DeviceFormat;
+class Size;
+class SizeRange;
 class V4L2Subdevice;
-class V4L2VideoDevice;
-struct Size;
 struct StreamConfiguration;
 
 class CIO2Device
@@ -32,6 +34,9 @@ public:
 
 	CIO2Device();
 	~CIO2Device();
+
+	std::vector<PixelFormat> formats() const;
+	std::vector<SizeRange> sizes() const;
 
 	int init(const MediaDevice *media, unsigned int index);
 	int configure(const Size &size, V4L2DeviceFormat *outputFormat);
@@ -45,10 +50,11 @@ public:
 	int stop();
 
 	CameraSensor *sensor() { return sensor_; }
+	const CameraSensor *sensor() const { return sensor_; }
 
 	int queueBuffer(Request *request, FrameBuffer *rawBuffer);
 	void tryReturnBuffer(FrameBuffer *buffer);
-	Signal<FrameBuffer *> bufferReady;
+	Signal<FrameBuffer *> &bufferReady() { return output_->bufferReady; }
 
 private:
 	void freeBuffers();

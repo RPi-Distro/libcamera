@@ -16,13 +16,11 @@
 
 #include "libcamera/internal/formats.h"
 #include "libcamera/internal/log.h"
+#include "libcamera/internal/v4l2_subdevice.h"
 
 namespace libcamera {
 
 class MediaEntity;
-class V4L2Subdevice;
-
-struct V4L2SubdeviceFormat;
 
 struct CameraSensorInfo {
 	std::string model;
@@ -49,6 +47,7 @@ public:
 	int init();
 
 	const std::string &model() const { return model_; }
+	const std::string &id() const { return id_; }
 	const MediaEntity *entity() const { return entity_; }
 	const std::vector<unsigned int> &mbusCodes() const { return mbusCodes_; }
 	const std::vector<Size> &sizes() const { return sizes_; }
@@ -69,13 +68,16 @@ protected:
 	std::string logPrefix() const override;
 
 private:
+	int generateId();
+
 	const MediaEntity *entity_;
 	std::unique_ptr<V4L2Subdevice> subdev_;
 	unsigned int pad_;
 
 	std::string model_;
+	std::string id_;
 
-	ImageFormats formats_;
+	V4L2Subdevice::Formats formats_;
 	Size resolution_;
 	std::vector<unsigned int> mbusCodes_;
 	std::vector<Size> sizes_;
