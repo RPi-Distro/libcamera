@@ -1,3 +1,18 @@
+libcamera (0~git20200629+e7aa92a-7) unstable; urgency=medium
+
+  [ You-Sheng Yang ]
+  * debian: build with v4l2.
+  * debian: build gstlibcamera.
+  * debian: move documentation into libcamera-doc.
+  * debian: lintian: fix embedded-javascript-library.
+  * lintian: override repeated-path-segment warnings.
+  * debian: fix spelling error.
+
+  [ IOhannes m zmölnig (Debian/GNU) ]
+  * Bump dh-compat to 13.
+
+ -- Andrej Shadura <andrewsh@debian.org>  Mon, 19 Oct 2020 15:32:04 +0200
+
 libcamera (0~git20200629+e7aa92a-6) unstable; urgency=medium
 
   * Stop shipping this symbols file, the symbols change all the time
