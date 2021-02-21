@@ -19,6 +19,7 @@ Build-Depends: debhelper-compat (= 13),
                libjs-underscore <!nodoc>,
                libboost-dev,
                libtiff-dev,
+               openssl,
                qtbase5-dev <!pkg.libcamera.noqt>,
                libgstreamer-plugins-base1.0-dev (>= 1.14.0),
 Standards-Version: 4.5.0
