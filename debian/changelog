@@ -1,3 +1,12 @@
+libcamera (0~git20200629+e7aa92a-8) unstable; urgency=medium
+
+  * Explicitly not install *.so.sign — or maybe we should?
+  * Support nodoc build profile.
+  * Add the missing doxygen dependency.
+  * Add openssl as an explicit dependency.
+
+ -- Andrej Shadura <andrew.shadura@collabora.co.uk>  Sun, 21 Feb 2021 15:51:17 +0100
+
 libcamera (0~git20200629+e7aa92a-7) unstable; urgency=medium
 
   [ You-Sheng Yang ]
