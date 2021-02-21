@@ -11,11 +11,11 @@ Build-Depends: debhelper-compat (= 13),
                pkgconf | pkg-config,
                libudev-dev,
                libgnutls28-dev | gnutls-dev,
-               python3-sphinx,
+               python3-sphinx <!nodoc>,
                python3-yaml,
-               libjs-jquery,
-               libjs-sphinxdoc,
-               libjs-underscore,
+               libjs-jquery <!nodoc>,
+               libjs-sphinxdoc <!nodoc>,
+               libjs-underscore <!nodoc>,
                libboost-dev,
                libtiff-dev,
                qtbase5-dev <!pkg.libcamera.noqt>,
@@ -44,6 +44,7 @@ Description: complex camera support library (development files)
 Package: libcamera-doc
 Section: doc
 Architecture: all
+Build-Profiles: <!nodoc>
 Depends: ${shlibs:Depends},
          ${misc:Depends},
          libjs-jquery,
