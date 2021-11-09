@@ -1,3 +1,15 @@
+libcamera (0~git20211108+1b30992b623e-1) unstable; urgency=medium
+
+  * New upstream snapshot.
+  * Drop patch applied upstream, refresh the remaining one.
+  * Update copyrights.
+  * Update build dependencies.
+  * Update install lists for the new ipa_proxy binary name.
+  * Install v4l2-compat.so into the non-dev package.
+  * Update standards version to 4.6.0, no changes needed.
+
+ -- Andrej Shadura <andrew.shadura@collabora.co.uk>  Tue, 09 Nov 2021 18:17:51 +0100
+
 libcamera (0~git20200629+e7aa92a-8) unstable; urgency=medium
 
   * Explicitly not install *.so.sign — or maybe we should?
