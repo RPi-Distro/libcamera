@@ -14,20 +14,18 @@
 #include "camera_test.h"
 #include "test.h"
 
-using namespace libcamera;
-
 class SerializationTest : public CameraTest, public Test
 {
 public:
 	SerializationTest()
-		: CameraTest("VIMC Sensor B")
+		: CameraTest("platform/vimc.0 Sensor B")
 	{
 	}
 
-	static bool equals(const ControlInfoMap &lhs,
-			   const ControlInfoMap &rhs);
-	static bool equals(const ControlList &lhs,
-			   const ControlList &rhs);
+	static bool equals(const libcamera::ControlInfoMap &lhs,
+			   const libcamera::ControlInfoMap &rhs);
+	static bool equals(const libcamera::ControlList &lhs,
+			   const libcamera::ControlList &rhs);
 };
 
 #endif /* __LIBCAMERA_SERIALIZATION_TEST_H__ */

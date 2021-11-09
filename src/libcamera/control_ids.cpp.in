@@ -8,6 +8,7 @@
  */
 
 #include <libcamera/control_ids.h>
+#include <libcamera/controls.h>
 
 /**
  * \file control_ids.h
@@ -23,12 +24,27 @@ namespace controls {
 
 ${controls_doc}
 
+/**
+ * \brief Namespace for libcamera draft controls
+ */
+namespace draft {
+
+${draft_controls_doc}
+
+} /* namespace draft */
+
 #ifndef __DOXYGEN__
 /*
  * Keep the controls definitions hidden from doxygen as it incorrectly parses
  * them as functions.
  */
 ${controls_def}
+
+namespace draft {
+
+${draft_controls_def}
+
+} /* namespace draft */
 #endif
 
 /**

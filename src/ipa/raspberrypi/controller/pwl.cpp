@@ -10,7 +10,7 @@
 
 #include "pwl.hpp"
 
-using namespace RPi;
+using namespace RPiController;
 
 void Pwl::Read(boost::property_tree::ptree const &params)
 {
@@ -112,6 +112,36 @@ Pwl::PerpType Pwl::Invert(Point const &xy, Point &perp, int &span,
 		}
 	}
 	return PerpType::None;
+}
+
+Pwl Pwl::Inverse(bool *true_inverse, const double eps) const
+{
+	bool appended = false, prepended = false, neither = false;
+	Pwl inverse;
+
+	for (Point const &p : points_) {
+		if (inverse.Empty())
+			inverse.Append(p.y, p.x, eps);
+		else if (std::abs(inverse.points_.back().x - p.y) <= eps ||
+			 std::abs(inverse.points_.front().x - p.y) <= eps)
+			/* do nothing */;
+		else if (p.y > inverse.points_.back().x) {
+			inverse.Append(p.y, p.x, eps);
+			appended = true;
+		} else if (p.y < inverse.points_.front().x) {
+			inverse.Prepend(p.y, p.x, eps);
+			prepended = true;
+		} else
+			neither = true;
+	}
+
+	// This is not a proper inverse if we found ourselves putting points
+	// onto both ends of the inverse, or if there were points that couldn't
+	// go on either.
+	if (true_inverse)
+		*true_inverse = !(neither || (appended && prepended));
+
+	return inverse;
 }
 
 Pwl Pwl::Compose(Pwl const &other, const double eps) const

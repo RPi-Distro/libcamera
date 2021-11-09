@@ -13,7 +13,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "libcamera/internal/file.h"
+#include <libcamera/base/file.h>
 
 #include "test.h"
 
@@ -30,11 +30,10 @@ protected:
 		if (fd == -1)
 			return TestFail;
 
-		ssize_t ret = write(fd, "libcamera", 9);
-
 		close(fd);
+		unlink(fileName_.c_str());
 
-		return ret == 9 ? TestPass : TestFail;
+		return TestPass;
 	}
 
 	int run()
@@ -47,6 +46,11 @@ protected:
 
 		if (File::exists("/dev/null/invalid")) {
 			cerr << "Invalid file should not exist" << endl;
+			return TestFail;
+		}
+
+		if (File::exists("/dev")) {
+			cerr << "Directories should not be treated as files" << endl;
 			return TestFail;
 		}
 
@@ -68,7 +72,7 @@ protected:
 			return TestFail;
 		}
 
-		if (file.openMode() != File::NotOpen) {
+		if (file.openMode() != File::OpenModeFlag::NotOpen) {
 			cerr << "File has invalid open mode after construction"
 			     << endl;
 			return TestFail;
@@ -79,7 +83,7 @@ protected:
 			return TestFail;
 		}
 
-		if (file.open(File::ReadWrite)) {
+		if (file.open(File::OpenModeFlag::ReadWrite)) {
 			cerr << "Opening unnamed file succeeded" << endl;
 			return TestFail;
 		}
@@ -107,7 +111,7 @@ protected:
 			return TestFail;
 		}
 
-		if (file.openMode() != File::NotOpen) {
+		if (file.openMode() != File::OpenModeFlag::NotOpen) {
 			cerr << "Invalid file has invalid open mode after construction"
 			     << endl;
 			return TestFail;
@@ -118,7 +122,7 @@ protected:
 			return TestFail;
 		}
 
-		if (file.open(File::ReadWrite)) {
+		if (file.open(File::OpenModeFlag::ReadWrite)) {
 			cerr << "Opening invalid file succeeded" << endl;
 			return TestFail;
 		}
@@ -136,7 +140,7 @@ protected:
 			return TestFail;
 		}
 
-		if (file.openMode() != File::NotOpen) {
+		if (file.openMode() != File::OpenModeFlag::NotOpen) {
 			cerr << "Valid file has invalid open mode after construction"
 			     << endl;
 			return TestFail;
@@ -148,7 +152,7 @@ protected:
 		}
 
 		/* Test open and close. */
-		if (!file.open(File::ReadWrite)) {
+		if (!file.open(File::OpenModeFlag::ReadWrite)) {
 			cerr << "Opening file failed" << endl;
 			return TestFail;
 		}
@@ -158,7 +162,7 @@ protected:
 			return TestFail;
 		}
 
-		if (file.openMode() != File::ReadWrite) {
+		if (file.openMode() != File::OpenModeFlag::ReadWrite) {
 			cerr << "Open file has invalid open mode" << endl;
 			return TestFail;
 		}
@@ -170,7 +174,7 @@ protected:
 			return TestFail;
 		}
 
-		if (file.openMode() != File::NotOpen) {
+		if (file.openMode() != File::OpenModeFlag::NotOpen) {
 			cerr << "Closed file has invalid open mode" << endl;
 			return TestFail;
 		}
@@ -183,7 +187,7 @@ protected:
 			return TestFail;
 		}
 
-		file.open(File::ReadOnly);
+		file.open(File::OpenModeFlag::ReadOnly);
 
 		ssize_t size = file.size();
 		if (size <= 0) {
@@ -191,7 +195,91 @@ protected:
 			return TestFail;
 		}
 
+		file.close();
+
+		/* Test file creation. */
+		file.setFileName(fileName_);
+
+		if (file.exists()) {
+			cerr << "Temporary file already exists" << endl;
+			return TestFail;
+		}
+
+		if (file.open(File::OpenModeFlag::ReadOnly)) {
+			cerr << "Read-only open succeeded on nonexistent file" << endl;
+			return TestFail;
+		}
+
+		if (!file.open(File::OpenModeFlag::WriteOnly)) {
+			cerr << "Write-only open failed on nonexistent file" << endl;
+			return TestFail;
+		}
+
+		if (!file.exists()) {
+			cerr << "Write-only open failed to create file" << endl;
+			return TestFail;
+		}
+
+		file.close();
+
+		/* Test read and write. */
+		std::array<uint8_t, 256> buffer = { 0 };
+
+		strncpy(reinterpret_cast<char *>(buffer.data()), "libcamera",
+			buffer.size());
+
+		if (file.read(buffer) >= 0) {
+			cerr << "Read succeeded on closed file" << endl;
+			return TestFail;
+		}
+
+		if (file.write(buffer) >= 0) {
+			cerr << "Write succeeded on closed file" << endl;
+			return TestFail;
+		}
+
+		file.open(File::OpenModeFlag::ReadOnly);
+
+		if (file.write(buffer) >= 0) {
+			cerr << "Write succeeded on read-only file" << endl;
+			return TestFail;
+		}
+
+		file.close();
+
+		file.open(File::OpenModeFlag::ReadWrite);
+
+		if (file.write({ buffer.data(), 9 }) != 9) {
+			cerr << "Write test failed" << endl;
+			return TestFail;
+		}
+
+		if (file.read(buffer) != 0) {
+			cerr << "Read at end of file test failed" << endl;
+			return TestFail;
+		}
+
+		if (file.seek(0) != 0) {
+			cerr << "Seek test failed" << endl;
+			return TestFail;
+		}
+
+		if (file.read(buffer) != 9) {
+			cerr << "Read test failed" << endl;
+			return TestFail;
+		}
+
+		if (file.pos() != 9) {
+			cerr << "Position test failed" << endl;
+			return TestFail;
+		}
+
+		file.close();
+
 		/* Test mapping and unmapping. */
+		file.setFileName("/proc/self/exe");
+		file.open(File::OpenModeFlag::ReadOnly);
+
 		Span<uint8_t> data = file.map();
 		if (data.empty()) {
 			cerr << "Mapping of complete file failed" << endl;
@@ -228,9 +316,9 @@ protected:
 
 		/* Test private mapping. */
 		file.setFileName(fileName_);
-		file.open(File::ReadWrite);
+		file.open(File::OpenModeFlag::ReadWrite);
 
-		data = file.map(0, -1, File::MapPrivate);
+		data = file.map(0, -1, File::MapFlag::Private);
 		if (data.empty()) {
 			cerr << "Private mapping failed" << endl;
 			return TestFail;

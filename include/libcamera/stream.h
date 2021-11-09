@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-#include <libcamera/buffer.h>
+#include <libcamera/framebuffer.h>
 #include <libcamera/geometry.h>
 #include <libcamera/pixel_format.h>
 
@@ -43,6 +43,7 @@ struct StreamConfiguration {
 	PixelFormat pixelFormat;
 	Size size;
 	unsigned int stride;
+	unsigned int frameSize;
 
 	unsigned int bufferCount;
 
@@ -58,8 +59,8 @@ private:
 };
 
 enum StreamRole {
+	Raw,
 	StillCapture,
-	StillCaptureRaw,
 	VideoRecording,
 	Viewfinder,
 };

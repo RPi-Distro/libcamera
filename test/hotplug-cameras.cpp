@@ -13,11 +13,11 @@
 
 #include <libcamera/camera.h>
 #include <libcamera/camera_manager.h>
-#include <libcamera/event_dispatcher.h>
-#include <libcamera/timer.h>
 
-#include "libcamera/internal/file.h"
-#include "libcamera/internal/thread.h"
+#include <libcamera/base/event_dispatcher.h>
+#include <libcamera/base/file.h>
+#include <libcamera/base/thread.h>
+#include <libcamera/base/timer.h>
 
 #include "test.h"
 
@@ -26,12 +26,12 @@ using namespace libcamera;
 class HotplugTest : public Test
 {
 protected:
-	void cameraAddedHandler(std::shared_ptr<Camera> cam)
+	void cameraAddedHandler([[maybe_unused]] std::shared_ptr<Camera> cam)
 	{
 		cameraAdded_ = true;
 	}
 
-	void cameraRemovedHandler(std::shared_ptr<Camera> cam)
+	void cameraRemovedHandler([[maybe_unused]] std::shared_ptr<Camera> cam)
 	{
 		cameraRemoved_ = true;
 	}

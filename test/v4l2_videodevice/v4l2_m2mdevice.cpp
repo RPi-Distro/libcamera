@@ -7,13 +7,14 @@
 
 #include <iostream>
 
-#include <libcamera/buffer.h>
-#include <libcamera/event_dispatcher.h>
-#include <libcamera/timer.h>
+#include <libcamera/framebuffer.h>
+
+#include <libcamera/base/event_dispatcher.h>
+#include <libcamera/base/thread.h>
+#include <libcamera/base/timer.h>
 
 #include "libcamera/internal/device_enumerator.h"
 #include "libcamera/internal/media_device.h"
-#include "libcamera/internal/thread.h"
 #include "libcamera/internal/v4l2_videodevice.h"
 
 #include "test.h"
@@ -187,7 +188,7 @@ protected:
 	void cleanup()
 	{
 		delete vim2m_;
-	};
+	}
 
 private:
 	std::unique_ptr<DeviceEnumerator> enumerator_;
@@ -201,4 +202,4 @@ private:
 	unsigned int captureFrames_;
 };
 
-TEST_REGISTER(V4L2M2MDeviceTest);
+TEST_REGISTER(V4L2M2MDeviceTest)

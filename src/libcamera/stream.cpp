@@ -15,8 +15,9 @@
 
 #include <libcamera/request.h>
 
-#include "libcamera/internal/log.h"
-#include "libcamera/internal/utils.h"
+#include <libcamera/base/log.h>
+#include <libcamera/base/utils.h>
+
 
 /**
  * \file stream.h
@@ -275,11 +276,12 @@ SizeRange StreamFormats::range(const PixelFormat &pixelformat) const
  */
 
 /**
- * \todo This method is deprecated and should be removed once all pipeline
+ * \todo This function is deprecated and should be removed once all pipeline
  * handlers provide StreamFormats.
  */
 StreamConfiguration::StreamConfiguration()
-	: pixelFormat(0), stride(0), bufferCount(0), stream_(nullptr)
+	: pixelFormat(0), stride(0), frameSize(0), bufferCount(0),
+	  stream_(nullptr)
 {
 }
 
@@ -287,8 +289,8 @@ StreamConfiguration::StreamConfiguration()
  * \brief Construct a configuration with stream formats
  */
 StreamConfiguration::StreamConfiguration(const StreamFormats &formats)
-	: pixelFormat(0), stride(0), bufferCount(0), stream_(nullptr),
-	  formats_(formats)
+	: pixelFormat(0), stride(0), frameSize(0), bufferCount(0),
+	  stream_(nullptr), formats_(formats)
 {
 }
 
@@ -308,11 +310,18 @@ StreamConfiguration::StreamConfiguration(const StreamFormats &formats)
  *
  * The stride value reports the number of bytes between the beginning of
  * successive lines in an image buffer for this stream. The value is
- * valid after successfully configuring the camera with this
- * configuration with a call to Camera::Configure().
+ * valid after successfully validating the configuration with a call to
+ * CameraConfiguration::validate().
+ */
+
+/**
+ * \var StreamConfiguration::frameSize
+ * \brief Frame size for the stream, in bytes
  *
- * \todo Update this value when configuration is validated instead of when
- * the camera is configured.
+ * The frameSize value reports the number of bytes necessary to contain one
+ * frame of an image buffer for this stream. This total includes the bytes
+ * required for all image planes. The value is valid after successfully
+ * validating the configuration with a call to CameraConfiguration::validate().
  */
 
 /**
@@ -325,7 +334,7 @@ StreamConfiguration::StreamConfiguration(const StreamFormats &formats)
  * \brief Retrieve the stream associated with the configuration
  *
  * When a camera is configured with Camera::configure() Stream instances are
- * associated with each stream configuration entry. This method retrieves the
+ * associated with each stream configuration entry. This function retrieves the
  * associated Stream, which remains valid until the next call to
  * Camera::configure() or Camera::release().
  *
@@ -336,8 +345,8 @@ StreamConfiguration::StreamConfiguration(const StreamFormats &formats)
  * \fn StreamConfiguration::setStream()
  * \brief Associate a stream with a configuration
  *
- * This method is meant for the PipelineHandler::configure() method and shall
- * not be called by applications.
+ * This function is meant for the PipelineHandler::configure() function and
+ * shall not be called by applications.
  *
  * \param[in] stream The stream
  */
@@ -346,10 +355,11 @@ StreamConfiguration::StreamConfiguration(const StreamFormats &formats)
  * \fn StreamConfiguration::formats()
  * \brief Retrieve advisory stream format information
  *
- * This method retrieves information about the pixel formats and sizes supported
- * by the stream configuration. The sizes are advisory and not all of them are
- * guaranteed to be supported by the stream. Users shall always inspect the size
- * in the stream configuration after calling CameraConfiguration::validate().
+ * This function retrieves information about the pixel formats and sizes
+ * supported by the stream configuration. The sizes are advisory and not all of
+ * them are guaranteed to be supported by the stream. Users shall always inspect
+ * the size in the stream configuration after calling
+ * CameraConfiguration::validate().
  *
  * \return Stream formats information
  */
@@ -372,12 +382,11 @@ std::string StreamConfiguration::toString() const
  * are specified by applications and passed to cameras, that then select the
  * most appropriate streams and their default configurations.
  *
+ * \var Raw
+ * The stream is intended to capture raw frames from the sensor.
  * \var StillCapture
  * The stream is intended to capture high-resolution, high-quality still images
  * with low frame rate. The captured frames may be exposed with flash.
- * \var StillCaptureRaw
- * The stream is intended to capture high-resolution, raw still images with low
- * frame rate.
  * \var VideoRecording
  * The stream is intended to capture video for the purpose of recording or
  * streaming. The video stream may produce a high frame rate and may be

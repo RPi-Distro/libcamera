@@ -12,20 +12,19 @@
 #include <sys/types.h>
 #include <vector>
 
-#include <libcamera/object.h>
-#include <libcamera/signal.h>
+#include <libcamera/base/class.h>
+#include <libcamera/base/object.h>
+#include <libcamera/base/signal.h>
 
 namespace libcamera {
 
 class Camera;
-class EventDispatcher;
 
-class CameraManager : public Object
+class CameraManager : public Object, public Extensible
 {
+	LIBCAMERA_DECLARE_PRIVATE()
 public:
 	CameraManager();
-	CameraManager(const CameraManager &) = delete;
-	CameraManager &operator=(const CameraManager &) = delete;
 	~CameraManager();
 
 	int start();
@@ -41,18 +40,14 @@ public:
 
 	static const std::string &version() { return version_; }
 
-	void setEventDispatcher(std::unique_ptr<EventDispatcher> dispatcher);
-	EventDispatcher *eventDispatcher();
-
 	Signal<std::shared_ptr<Camera>> cameraAdded;
 	Signal<std::shared_ptr<Camera>> cameraRemoved;
 
 private:
+	LIBCAMERA_DISABLE_COPY(CameraManager)
+
 	static const std::string version_;
 	static CameraManager *self_;
-
-	class Private;
-	std::unique_ptr<Private> p_;
 };
 
 } /* namespace libcamera */

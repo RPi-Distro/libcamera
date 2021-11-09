@@ -19,7 +19,7 @@
 #include "device_status.h"
 #include "metadata.hpp"
 
-namespace RPi {
+namespace RPiController {
 
 class Algorithm;
 typedef std::unique_ptr<Algorithm> AlgorithmPtr;
@@ -27,8 +27,8 @@ typedef std::shared_ptr<bcm2835_isp_stats> StatisticsPtr;
 
 // The Controller holds a pointer to some global_metadata, which is how
 // different controllers and control algorithms within them can exchange
-// information. The Prepare method returns a pointer to metadata for this
-// specific image, and which should be passed on to the Process method.
+// information. The Prepare function returns a pointer to metadata for this
+// specific image, and which should be passed on to the Process function.
 
 class Controller
 {
@@ -51,4 +51,4 @@ protected:
 	bool switch_mode_called_;
 };
 
-} // namespace RPi
+} // namespace RPiController

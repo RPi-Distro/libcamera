@@ -11,27 +11,31 @@
 #include <queue>
 #include <vector>
 
-#include <libcamera/signal.h>
+#include <libcamera/base/signal.h>
+
+#include "libcamera/internal/v4l2_subdevice.h"
+#include "libcamera/internal/v4l2_videodevice.h"
 
 namespace libcamera {
 
 class CameraSensor;
 class FrameBuffer;
 class MediaDevice;
+class PixelFormat;
 class Request;
-class V4L2DeviceFormat;
-class V4L2Subdevice;
-class V4L2VideoDevice;
-struct Size;
+class Size;
+class SizeRange;
 struct StreamConfiguration;
 
 class CIO2Device
 {
 public:
-	static constexpr unsigned int CIO2_BUFFER_COUNT = 4;
+	static constexpr unsigned int kBufferCount = 4;
 
 	CIO2Device();
-	~CIO2Device();
+
+	std::vector<PixelFormat> formats() const;
+	std::vector<SizeRange> sizes(const PixelFormat &format) const;
 
 	int init(const MediaDevice *media, unsigned int index);
 	int configure(const Size &size, V4L2DeviceFormat *outputFormat);
@@ -41,23 +45,30 @@ public:
 	int exportBuffers(unsigned int count,
 			  std::vector<std::unique_ptr<FrameBuffer>> *buffers);
 
+	V4L2SubdeviceFormat getSensorFormat(const std::vector<unsigned int> &mbusCodes,
+					    const Size &size) const;
+
 	int start();
 	int stop();
 
-	CameraSensor *sensor() { return sensor_; }
+	CameraSensor *sensor() { return sensor_.get(); }
+	const CameraSensor *sensor() const { return sensor_.get(); }
 
-	int queueBuffer(Request *request, FrameBuffer *rawBuffer);
+	FrameBuffer *queueBuffer(Request *request, FrameBuffer *rawBuffer);
 	void tryReturnBuffer(FrameBuffer *buffer);
-	Signal<FrameBuffer *> bufferReady;
+	Signal<FrameBuffer *> &bufferReady() { return output_->bufferReady; }
+	Signal<uint32_t> &frameStart() { return csi2_->frameStart; }
+
+	Signal<> bufferAvailable;
 
 private:
 	void freeBuffers();
 
 	void cio2BufferReady(FrameBuffer *buffer);
 
-	CameraSensor *sensor_;
-	V4L2Subdevice *csi2_;
-	V4L2VideoDevice *output_;
+	std::unique_ptr<CameraSensor> sensor_;
+	std::unique_ptr<V4L2Subdevice> csi2_;
+	std::unique_ptr<V4L2VideoDevice> output_;
 
 	std::vector<std::unique_ptr<FrameBuffer>> buffers_;
 	std::queue<FrameBuffer *> availableBuffers_;

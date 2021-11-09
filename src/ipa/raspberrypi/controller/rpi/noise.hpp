@@ -11,7 +11,7 @@
 
 // This is our implementation of the "noise algorithm".
 
-namespace RPi {
+namespace RPiController {
 
 class Noise : public Algorithm
 {
@@ -26,7 +26,7 @@ private:
 	// the noise profile for analogue gain of 1.0
 	double reference_constant_;
 	double reference_slope_;
-	std::atomic<double> mode_factor_;
+	double mode_factor_;
 };
 
-} // namespace RPi
+} // namespace RPiController

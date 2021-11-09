@@ -6,13 +6,12 @@
  */
 #pragma once
 
-#include <atomic>
 #include <mutex>
 
 #include "../contrast_algorithm.hpp"
 #include "../pwl.hpp"
 
-namespace RPi {
+namespace RPiController {
 
 // Back End algorithm to appaly correct digital gain. Should be placed after
 // Back End AWB.
@@ -42,10 +41,10 @@ public:
 
 private:
 	ContrastConfig config_;
-	std::atomic<double> brightness_;
-	std::atomic<double> contrast_;
+	double brightness_;
+	double contrast_;
 	ContrastStatus status_;
 	std::mutex mutex_;
 };
 
-} // namespace RPi
+} // namespace RPiController

@@ -8,10 +8,12 @@
 #include <libcamera/file_descriptor.h>
 
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 #include <utility>
 
-#include "libcamera/internal/log.h"
+#include <libcamera/base/log.h>
 
 /**
  * \file file_descriptor.h
@@ -42,16 +44,16 @@ LOG_DEFINE_CATEGORY(FileDescriptor)
  *   constructor.
  *
  * - The FileDescriptor(int &&) constructor takes over the numerical file
- *   descriptor and wraps it in a Descriptor. The caller is shall not touch the
+ *   descriptor and wraps it in a Descriptor. The caller shall not touch the
  *   original file descriptor once the function returns, and the value returned
  *   by fd() will be identical to the value passed to the constructor.
  *
  * The copy constructor and assignment operator create copies that share the
- * Descriptor, while the move versions of those methods additionally make the
+ * Descriptor, while the move versions of those functions additionally make the
  * other FileDescriptor invalid. When the last FileDescriptor that references a
  * Descriptor is destroyed, the file descriptor is closed.
  *
- * The numerical file descriptor is available through the fd() method. All
+ * The numerical file descriptor is available through the fd() function. All
  * FileDescriptor instances created as copies of a FileDescriptor will report
  * the same fd() value. Callers can perform operations on the fd(), but shall
  * never close it manually.
@@ -68,7 +70,7 @@ LOG_DEFINE_CATEGORY(FileDescriptor)
  * FileDescriptor instances that reference it are destroyed.
  *
  * If the \a fd is negative, the FileDescriptor is constructed as invalid and
- * the fd() method will return -1.
+ * the fd() function will return -1.
  */
 FileDescriptor::FileDescriptor(const int &fd)
 {
@@ -92,7 +94,7 @@ FileDescriptor::FileDescriptor(const int &fd)
  * destroyed.
  *
  * If the \a fd is negative, the FileDescriptor is constructed as invalid and
- * the fd() method will return -1.
+ * the fd() function will return -1.
  */
 FileDescriptor::FileDescriptor(int &&fd)
 {
@@ -129,7 +131,7 @@ FileDescriptor::FileDescriptor(const FileDescriptor &other)
  *
  * Moving a FileDescriptor moves the reference to the wrapped descriptor owned
  * by \a other to the new FileDescriptor. The \a other FileDescriptor is
- * invalidated and its fd() method will return -1. The wrapped file descriptor
+ * invalidated and its fd() function will return -1. The wrapped file descriptor
  * will be closed automatically when all FileDescriptor instances that
  * reference it are destroyed.
  */
@@ -178,7 +180,7 @@ FileDescriptor &FileDescriptor::operator=(const FileDescriptor &other)
  * Moving a FileDescriptor moves the reference to the wrapped descriptor owned
  * by \a other to the new FileDescriptor. If \a other is invalid, *this will
  * also be invalid. The \a other FileDescriptor is invalidated and its fd()
- * method will return -1. The wrapped file descriptor will be closed
+ * function will return -1. The wrapped file descriptor will be closed
  * automatically when all FileDescriptor instances that reference it are
  * destroyed.
  *
@@ -209,7 +211,7 @@ FileDescriptor &FileDescriptor::operator=(FileDescriptor &&other)
  *
  * Duplicating a FileDescriptor creates a duplicate of the wrapped file
  * descriptor and returns a new FileDescriptor instance that wraps the
- * duplicate. The fd() method of the original and duplicate instances will
+ * duplicate. The fd() function of the original and duplicate instances will
  * return different values. The duplicate instance will not be affected by
  * destruction of the original instance or its copies.
  *
@@ -219,6 +221,30 @@ FileDescriptor &FileDescriptor::operator=(FileDescriptor &&other)
 FileDescriptor FileDescriptor::dup() const
 {
 	return FileDescriptor(fd());
+}
+
+/**
+ * \brief Retrieve the file descriptor inode
+ *
+ * \todo Should this move to the File class ?
+ *
+ * \return The file descriptor inode on success, or 0 on error
+ */
+ino_t FileDescriptor::inode() const
+{
+	if (!isValid())
+		return 0;
+
+	struct stat st;
+	int ret = fstat(fd_->fd(), &st);
+	if (ret < 0) {
+		ret = -errno;
+		LOG(FileDescriptor, Fatal)
+			<< "Failed to fstat() fd: " << strerror(-ret);
+		return 0;
+	}
+
+	return st.st_ino;
 }
 
 FileDescriptor::Descriptor::Descriptor(int fd, bool duplicate)

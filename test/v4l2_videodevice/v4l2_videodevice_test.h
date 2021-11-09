@@ -9,7 +9,7 @@
 
 #include <memory>
 
-#include <libcamera/buffer.h>
+#include <libcamera/framebuffer.h>
 
 #include "libcamera/internal/camera_sensor.h"
 #include "libcamera/internal/device_enumerator.h"
@@ -18,8 +18,6 @@
 #include "libcamera/internal/v4l2_videodevice.h"
 
 #include "test.h"
-
-using namespace libcamera;
 
 class V4L2VideoDeviceTest : public Test
 {
@@ -36,12 +34,12 @@ protected:
 
 	std::string driver_;
 	std::string entity_;
-	std::unique_ptr<DeviceEnumerator> enumerator_;
-	std::shared_ptr<MediaDevice> media_;
-	CameraSensor *sensor_;
-	V4L2Subdevice *debayer_;
-	V4L2VideoDevice *capture_;
-	std::vector<std::unique_ptr<FrameBuffer>> buffers_;
+	std::unique_ptr<libcamera::DeviceEnumerator> enumerator_;
+	std::shared_ptr<libcamera::MediaDevice> media_;
+	libcamera::CameraSensor *sensor_;
+	libcamera::V4L2Subdevice *debayer_;
+	libcamera::V4L2VideoDevice *capture_;
+	std::vector<std::unique_ptr<libcamera::FrameBuffer>> buffers_;
 };
 
 #endif /* __LIBCAMERA_V4L2_DEVICE_TEST_H_ */

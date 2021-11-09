@@ -7,13 +7,17 @@
 
 #include <math.h>
 
+#include <libcamera/base/log.h>
+
 #include "../device_status.h"
-#include "../logging.hpp"
 #include "../noise_status.h"
 
 #include "noise.hpp"
 
-using namespace RPi;
+using namespace RPiController;
+using namespace libcamera;
+
+LOG_DEFINE_CATEGORY(RPiNoise)
 
 #define NAME "rpi.noise"
 
@@ -27,10 +31,9 @@ char const *Noise::Name() const
 	return NAME;
 }
 
-void Noise::SwitchMode(CameraMode const &camera_mode, Metadata *metadata)
+void Noise::SwitchMode(CameraMode const &camera_mode,
+		       [[maybe_unused]] Metadata *metadata)
 {
-	(void)metadata;
-
 	// For example, we would expect a 2x2 binned mode to have a "noise
 	// factor" of sqrt(2x2) = 2. (can't be less than one, right?)
 	mode_factor_ = std::max(1.0, camera_mode.noise_factor);
@@ -38,7 +41,6 @@ void Noise::SwitchMode(CameraMode const &camera_mode, Metadata *metadata)
 
 void Noise::Read(boost::property_tree::ptree const &params)
 {
-	RPI_LOG(Name());
 	reference_constant_ = params.get<double>("reference_constant");
 	reference_slope_ = params.get<double>("reference_slope");
 }
@@ -59,10 +61,11 @@ void Noise::Prepare(Metadata *image_metadata)
 		status.noise_constant = reference_constant_ * factor;
 		status.noise_slope = reference_slope_ * factor;
 		image_metadata->Set("noise.status", status);
-		RPI_LOG(Name() << ": constant " << status.noise_constant
-			       << " slope " << status.noise_slope);
+		LOG(RPiNoise, Debug)
+			<< "constant " << status.noise_constant
+			<< " slope " << status.noise_slope;
 	} else
-		RPI_WARN(Name() << " no metadata");
+		LOG(RPiNoise, Warning) << " no metadata";
 }
 
 // Register algorithm with the system.

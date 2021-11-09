@@ -6,30 +6,36 @@
  */
 
 #include <assert.h>
+#include <cmath>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <libcamera/base/log.h>
+
 #include "cam_helper.hpp"
 #include "md_parser.hpp"
 
-using namespace RPi;
+using namespace RPiController;
+using namespace libcamera;
+using libcamera::utils::Duration;
 
-/* Metadata parser implementation specific to Sony IMX477 sensors. */
+namespace libcamera {
+LOG_DECLARE_CATEGORY(IPARPI)
+}
 
-class MdParserImx477 : public MdParserSmia
-{
-public:
-	MdParserImx477();
-	Status Parse(void *data) override;
-	Status GetExposureLines(unsigned int &lines) override;
-	Status GetGainCode(unsigned int &gain_code) override;
-private:
-	/* Offset of the register's value in the metadata block. */
-	int reg_offsets_[4];
-	/* Value of the register, once read from the metadata block. */
-	int reg_values_[4];
-};
+/*
+ * We care about two gain registers and a pair of exposure registers. Their
+ * I2C addresses from the Sony IMX477 datasheet:
+ */
+constexpr uint32_t expHiReg = 0x0202;
+constexpr uint32_t expLoReg = 0x0203;
+constexpr uint32_t gainHiReg = 0x0204;
+constexpr uint32_t gainLoReg = 0x0205;
+constexpr uint32_t frameLengthHiReg = 0x0340;
+constexpr uint32_t frameLengthLoReg = 0x0341;
+constexpr std::initializer_list<uint32_t> registerList =
+	{ expHiReg, expLoReg, gainHiReg, gainLoReg, frameLengthHiReg, frameLengthLoReg  };
 
 class CamHelperImx477 : public CamHelper
 {
@@ -37,12 +43,30 @@ public:
 	CamHelperImx477();
 	uint32_t GainCode(double gain) const override;
 	double Gain(uint32_t gain_code) const override;
+	void Prepare(libcamera::Span<const uint8_t> buffer, Metadata &metadata) override;
+	uint32_t GetVBlanking(Duration &exposure, Duration minFrameDuration,
+			      Duration maxFrameDuration) const override;
+	void GetDelays(int &exposure_delay, int &gain_delay,
+		       int &vblank_delay) const override;
 	bool SensorEmbeddedDataPresent() const override;
-	CamTransform GetOrientation() const override;
+
+private:
+	/*
+	 * Smallest difference between the frame length and integration time,
+	 * in units of lines.
+	 */
+	static constexpr int frameIntegrationDiff = 22;
+	/* Maximum frame length allowable for long exposure calculations. */
+	static constexpr int frameLengthMax = 0xffdc;
+	/* Largest long exposure scale factor given as a left shift on the frame length. */
+	static constexpr int longExposureShiftMax = 7;
+
+	void PopulateMetadata(const MdParser::RegisterMap &registers,
+			      Metadata &metadata) const override;
 };
 
 CamHelperImx477::CamHelperImx477()
-	: CamHelper(new MdParserImx477())
+	: CamHelper(std::make_unique<MdParserSmia>(registerList), frameIntegrationDiff)
 {
 }
 
@@ -56,15 +80,99 @@ double CamHelperImx477::Gain(uint32_t gain_code) const
 	return 1024.0 / (1024 - gain_code);
 }
 
+void CamHelperImx477::Prepare(libcamera::Span<const uint8_t> buffer, Metadata &metadata)
+{
+	MdParser::RegisterMap registers;
+	DeviceStatus deviceStatus;
+
+	if (metadata.Get("device.status", deviceStatus)) {
+		LOG(IPARPI, Error) << "DeviceStatus not found from DelayedControls";
+		return;
+	}
+
+	parseEmbeddedData(buffer, metadata);
+
+	/*
+	 * The DeviceStatus struct is first populated with values obtained from
+	 * DelayedControls. If this reports frame length is > frameLengthMax,
+	 * it means we are using a long exposure mode. Since the long exposure
+	 * scale factor is not returned back through embedded data, we must rely
+	 * on the existing exposure lines and frame length values returned by
+	 * DelayedControls.
+	 *
+	 * Otherwise, all values are updated with what is reported in the
+	 * embedded data.
+	 */
+	if (deviceStatus.frame_length > frameLengthMax) {
+		DeviceStatus parsedDeviceStatus;
+
+		metadata.Get("device.status", parsedDeviceStatus);
+		parsedDeviceStatus.shutter_speed = deviceStatus.shutter_speed;
+		parsedDeviceStatus.frame_length = deviceStatus.frame_length;
+		metadata.Set("device.status", parsedDeviceStatus);
+
+		LOG(IPARPI, Debug) << "Metadata updated for long exposure: "
+				   << parsedDeviceStatus;
+	}
+}
+
+uint32_t CamHelperImx477::GetVBlanking(Duration &exposure,
+				       Duration minFrameDuration,
+				       Duration maxFrameDuration) const
+{
+	uint32_t frameLength, exposureLines;
+	unsigned int shift = 0;
+
+	frameLength = mode_.height + CamHelper::GetVBlanking(exposure, minFrameDuration,
+							     maxFrameDuration);
+	/*
+	 * Check if the frame length calculated needs to be setup for long
+	 * exposure mode. This will require us to use a long exposure scale
+	 * factor provided by a shift operation in the sensor.
+	 */
+	while (frameLength > frameLengthMax) {
+		if (++shift > longExposureShiftMax) {
+			shift = longExposureShiftMax;
+			frameLength = frameLengthMax;
+			break;
+		}
+		frameLength >>= 1;
+	}
+
+	if (shift) {
+		/* Account for any rounding in the scaled frame length value. */
+		frameLength <<= shift;
+		exposureLines = ExposureLines(exposure);
+		exposureLines = std::min(exposureLines, frameLength - frameIntegrationDiff);
+		exposure = Exposure(exposureLines);
+	}
+
+	return frameLength - mode_.height;
+}
+
+void CamHelperImx477::GetDelays(int &exposure_delay, int &gain_delay,
+				int &vblank_delay) const
+{
+	exposure_delay = 2;
+	gain_delay = 2;
+	vblank_delay = 3;
+}
+
 bool CamHelperImx477::SensorEmbeddedDataPresent() const
 {
 	return true;
 }
 
-CamTransform CamHelperImx477::GetOrientation() const
+void CamHelperImx477::PopulateMetadata(const MdParser::RegisterMap &registers,
+				       Metadata &metadata) const
 {
-	/* Camera is "upside down" on this board. */
-	return CamTransform_HFLIP | CamTransform_VFLIP;
+	DeviceStatus deviceStatus;
+
+	deviceStatus.shutter_speed = Exposure(registers.at(expHiReg) * 256 + registers.at(expLoReg));
+	deviceStatus.analogue_gain = Gain(registers.at(gainHiReg) * 256 + registers.at(gainLoReg));
+	deviceStatus.frame_length = registers.at(frameLengthHiReg) * 256 + registers.at(frameLengthLoReg);
+
+	metadata.Set("device.status", deviceStatus);
 }
 
 static CamHelper *Create()
@@ -73,90 +181,3 @@ static CamHelper *Create()
 }
 
 static RegisterCamHelper reg("imx477", &Create);
-
-/*
- * We care about two gain registers and a pair of exposure registers. Their
- * I2C addresses from the Sony IMX477 datasheet:
- */
-#define EXPHI_REG 0x0202
-#define EXPLO_REG 0x0203
-#define GAINHI_REG 0x0204
-#define GAINLO_REG 0x0205
-
-/*
- * Index of each into the reg_offsets and reg_values arrays. Must be in register
- * address order.
- */
-#define EXPHI_INDEX 0
-#define EXPLO_INDEX 1
-#define GAINHI_INDEX 2
-#define GAINLO_INDEX 3
-
-MdParserImx477::MdParserImx477()
-{
-	reg_offsets_[0] = reg_offsets_[1] = reg_offsets_[2] = reg_offsets_[3] = -1;
-}
-
-MdParser::Status MdParserImx477::Parse(void *data)
-{
-	bool try_again = false;
-
-	if (reset_) {
-		/*
-		 * Search again through the metadata for the gain and exposure
-		 * registers.
-		 */
-		assert(bits_per_pixel_);
-		assert(num_lines_ || buffer_size_bytes_);
-		/* Need to be ordered */
-		uint32_t regs[4] = {
-			EXPHI_REG,
-			EXPLO_REG,
-			GAINHI_REG,
-			GAINLO_REG
-		};
-		reg_offsets_[0] = reg_offsets_[1] = reg_offsets_[2] = reg_offsets_[3] = -1;
-		int ret = static_cast<int>(findRegs(static_cast<uint8_t *>(data),
-						    regs, reg_offsets_, 4));
-		/*
-		 * > 0 means "worked partially but parse again next time",
-		 * < 0 means "hard error".
-		 */
-		if (ret > 0)
-			try_again = true;
-		else if (ret < 0)
-			return ERROR;
-	}
-
-	for (int i = 0; i < 4; i++) {
-		if (reg_offsets_[i] == -1)
-			continue;
-
-		reg_values_[i] = static_cast<uint8_t *>(data)[reg_offsets_[i]];
-	}
-
-	/* Re-parse next time if we were unhappy in some way. */
-	reset_ = try_again;
-
-	return OK;
-}
-
-MdParser::Status MdParserImx477::GetExposureLines(unsigned int &lines)
-{
-	if (reg_offsets_[EXPHI_INDEX] == -1 || reg_offsets_[EXPLO_INDEX] == -1)
-		return NOTFOUND;
-
-	lines = reg_values_[EXPHI_INDEX] * 256 + reg_values_[EXPLO_INDEX];
-
-	return OK;
-}
-
-MdParser::Status MdParserImx477::GetGainCode(unsigned int &gain_code)
-{
-	if (reg_offsets_[GAINHI_INDEX] == -1 || reg_offsets_[GAINLO_INDEX] == -1)
-		return NOTFOUND;
-
-	gain_code = reg_values_[GAINHI_INDEX] * 256 + reg_values_[GAINLO_INDEX];
-
-	return OK;
-}

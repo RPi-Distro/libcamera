@@ -7,12 +7,11 @@
 #pragma once
 
 #include <vector>
-#include <atomic>
 
 #include "../ccm_algorithm.hpp"
 #include "../pwl.hpp"
 
-namespace RPi {
+namespace RPiController {
 
 // Algorithm to calculate colour matrix. Should be placed after AWB.
 
@@ -70,7 +69,7 @@ public:
 
 private:
 	CcmConfig config_;
-	std::atomic<double> saturation_;
+	double saturation_;
 };
 
-} // namespace RPi
+} // namespace RPiController

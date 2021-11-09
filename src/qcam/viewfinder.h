@@ -2,70 +2,33 @@
 /*
  * Copyright (C) 2019, Google Inc.
  *
- * viewfinder.h - qcam - Viewfinder
+ * viewfinder.h - qcam - Viewfinder base class
  */
 #ifndef __QCAM_VIEWFINDER_H__
 #define __QCAM_VIEWFINDER_H__
 
-#include <stddef.h>
-
-#include <QIcon>
-#include <QList>
 #include <QImage>
-#include <QMutex>
+#include <QList>
 #include <QSize>
-#include <QWidget>
 
-#include <libcamera/buffer.h>
-#include <libcamera/pixel_format.h>
+#include <libcamera/formats.h>
+#include <libcamera/framebuffer.h>
 
-#include "format_converter.h"
+class Image;
 
-class QImage;
-
-struct MappedBuffer {
-	void *memory;
-	size_t size;
-};
-
-class ViewFinder : public QWidget
+class ViewFinder
 {
-	Q_OBJECT
-
 public:
-	ViewFinder(QWidget *parent);
-	~ViewFinder();
+	virtual ~ViewFinder() = default;
 
-	const QList<libcamera::PixelFormat> &nativeFormats() const;
+	virtual const QList<libcamera::PixelFormat> &nativeFormats() const = 0;
 
-	int setFormat(const libcamera::PixelFormat &format, const QSize &size);
-	void render(libcamera::FrameBuffer *buffer, MappedBuffer *map);
-	void stop();
+	virtual int setFormat(const libcamera::PixelFormat &format, const QSize &size,
+			      unsigned int stride) = 0;
+	virtual void render(libcamera::FrameBuffer *buffer, Image *image) = 0;
+	virtual void stop() = 0;
 
-	QImage getCurrentImage();
-
-Q_SIGNALS:
-	void renderComplete(libcamera::FrameBuffer *buffer);
-
-protected:
-	void paintEvent(QPaintEvent *) override;
-	QSize sizeHint() const override;
-
-private:
-	FormatConverter converter_;
-
-	libcamera::PixelFormat format_;
-	QSize size_;
-
-	/* Camera stopped icon */
-	QSize vfSize_;
-	QIcon icon_;
-	QPixmap pixmap_;
-
-	/* Buffer and render image */
-	libcamera::FrameBuffer *buffer_;
-	QImage image_;
-	QMutex mutex_; /* Prevent concurrent access to image_ */
+	virtual QImage getCurrentImage() = 0;
 };
 
-#endif /* __QCAM_VIEWFINDER__ */
+#endif /* __QCAM_VIEWFINDER_H__ */

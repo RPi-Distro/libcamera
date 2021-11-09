@@ -1,15 +1,18 @@
 # SPDX-License-Identifier: CC0-1.0
 
 libipa_headers = files([
-    'ipa_interface_wrapper.h',
+    'camera_sensor_helper.h',
+    'histogram.h'
 ])
 
 libipa_sources = files([
-    'ipa_interface_wrapper.cpp',
+    'camera_sensor_helper.cpp',
+    'histogram.cpp',
+    'libipa.cpp',
 ])
 
 libipa_includes = include_directories('..')
 
-libipa = static_library('ipa', libipa_sources,
+libipa = static_library('ipa', [libipa_sources, libipa_headers],
                         include_directories : ipa_includes,
-                        dependencies : libcamera_dep)
+                        dependencies : libcamera_private)

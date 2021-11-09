@@ -11,9 +11,7 @@
 #include <string>
 #include <vector>
 
-#include <linux/media.h>
-
-#include <libcamera/signal.h>
+#include <libcamera/base/signal.h>
 
 namespace libcamera {
 
@@ -49,7 +47,7 @@ public:
 
 protected:
 	std::unique_ptr<MediaDevice> createDevice(const std::string &deviceNode);
-	void addDevice(std::unique_ptr<MediaDevice> &&media);
+	void addDevice(std::unique_ptr<MediaDevice> media);
 	void removeDevice(const std::string &deviceNode);
 
 private:

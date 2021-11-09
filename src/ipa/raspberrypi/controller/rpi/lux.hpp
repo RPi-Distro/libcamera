@@ -6,15 +6,16 @@
  */
 #pragma once
 
-#include <atomic>
 #include <mutex>
+
+#include <libcamera/base/utils.h>
 
 #include "../lux_status.h"
 #include "../algorithm.hpp"
 
 // This is our implementation of the "lux control algorithm".
 
-namespace RPi {
+namespace RPiController {
 
 class Lux : public Algorithm
 {
@@ -29,14 +30,14 @@ public:
 private:
 	// These values define the conditions of the reference image, against
 	// which we compare the new image.
-	double reference_shutter_speed_; // in micro-seconds
+	libcamera::utils::Duration reference_shutter_speed_;
 	double reference_gain_;
 	double reference_aperture_; // units of 1/f
 	double reference_Y_; // out of 65536
 	double reference_lux_;
-	std::atomic<double> current_aperture_;
+	double current_aperture_;
 	LuxStatus status_;
 	std::mutex mutex_;
 };
 
-} // namespace RPi
+} // namespace RPiController

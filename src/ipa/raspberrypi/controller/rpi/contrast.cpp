@@ -6,12 +6,17 @@
  */
 #include <stdint.h>
 
+#include <libcamera/base/log.h>
+
 #include "../contrast_status.h"
 #include "../histogram.hpp"
 
 #include "contrast.hpp"
 
-using namespace RPi;
+using namespace RPiController;
+using namespace libcamera;
+
+LOG_DEFINE_CATEGORY(RPiContrast)
 
 // This is a very simple control algorithm which simply retrieves the results of
 // AGC and AWB via their "status" metadata, and applies digital gain to the
@@ -97,11 +102,13 @@ Pwl compute_stretch_curve(Histogram const &histogram,
 	double hist_lo = histogram.Quantile(config.lo_histogram) *
 			 (65536 / NUM_HISTOGRAM_BINS);
 	double level_lo = config.lo_level * 65536;
-	RPI_LOG("Move histogram point " << hist_lo << " to " << level_lo);
+	LOG(RPiContrast, Debug)
+		<< "Move histogram point " << hist_lo << " to " << level_lo;
 	hist_lo = std::max(
 		level_lo,
 		std::min(65535.0, std::min(hist_lo, level_lo + config.lo_max)));
-	RPI_LOG("Final values " << hist_lo << " -> " << level_lo);
+	LOG(RPiContrast, Debug)
+		<< "Final values " << hist_lo << " -> " << level_lo;
 	enhance.Append(hist_lo, level_lo);
 	// Keep the mid-point (median) in the same place, though, to limit the
 	// apparent amount of global brightness shift.
@@ -113,11 +120,13 @@ Pwl compute_stretch_curve(Histogram const &histogram,
 	double hist_hi = histogram.Quantile(config.hi_histogram) *
 			 (65536 / NUM_HISTOGRAM_BINS);
 	double level_hi = config.hi_level * 65536;
-	RPI_LOG("Move histogram point " << hist_hi << " to " << level_hi);
+	LOG(RPiContrast, Debug)
+		<< "Move histogram point " << hist_hi << " to " << level_hi;
 	hist_hi = std::min(
 		level_hi,
 		std::max(0.0, std::max(hist_hi, level_hi - config.hi_max)));
-	RPI_LOG("Final values " << hist_hi << " -> " << level_hi);
+	LOG(RPiContrast, Debug)
+		<< "Final values " << hist_hi << " -> " << level_hi;
 	enhance.Append(hist_hi, level_hi);
 	enhance.Append(65535, 65535);
 	return enhance;
@@ -127,7 +136,8 @@ Pwl apply_manual_contrast(Pwl const &gamma_curve, double brightness,
 			  double contrast)
 {
 	Pwl new_gamma_curve;
-	RPI_LOG("Manual brightness " << brightness << " contrast " << contrast);
+	LOG(RPiContrast, Debug)
+		<< "Manual brightness " << brightness << " contrast " << contrast;
 	gamma_curve.Map([&](double x, double y) {
 		new_gamma_curve.Append(
 			x, std::max(0.0, std::min(65535.0,
@@ -137,10 +147,9 @@ Pwl apply_manual_contrast(Pwl const &gamma_curve, double brightness,
 	return new_gamma_curve;
 }
 
-void Contrast::Process(StatisticsPtr &stats, Metadata *image_metadata)
+void Contrast::Process(StatisticsPtr &stats,
+		       [[maybe_unused]] Metadata *image_metadata)
 {
-	(void)image_metadata;
-	double brightness = brightness_, contrast = contrast_;
 	Histogram histogram(stats->hist[0].g_hist, NUM_HISTOGRAM_BINS);
 	// We look at the histogram and adjust the gamma curve in the following
 	// ways: 1. Adjust the gamma curve so as to pull the start of the
@@ -155,13 +164,13 @@ void Contrast::Process(StatisticsPtr &stats, Metadata *image_metadata)
 	}
 	// 2. Finally apply any manually selected brightness/contrast
 	// adjustment.
-	if (brightness != 0 || contrast != 1.0)
-		gamma_curve = apply_manual_contrast(gamma_curve, brightness,
-						    contrast);
+	if (brightness_ != 0 || contrast_ != 1.0)
+		gamma_curve = apply_manual_contrast(gamma_curve, brightness_,
+						    contrast_);
 	// And fill in the status for output. Use more points towards the bottom
 	// of the curve.
 	ContrastStatus status;
-	fill_in_status(status, brightness, contrast, gamma_curve);
+	fill_in_status(status, brightness_, contrast_, gamma_curve);
 	{
 		std::unique_lock<std::mutex> lock(mutex_);
 		status_ = status;

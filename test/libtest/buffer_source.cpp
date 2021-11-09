@@ -14,6 +14,8 @@
 
 #include "test.h"
 
+using namespace libcamera;
+
 BufferSource::BufferSource()
 {
 }
@@ -50,7 +52,7 @@ int BufferSource::allocate(const StreamConfiguration &config)
 		return TestSkip;
 	}
 
-	std::unique_ptr<V4L2VideoDevice> video{ V4L2VideoDevice::fromEntityName(media_.get(), videoDeviceName) };
+	std::unique_ptr<V4L2VideoDevice> video = V4L2VideoDevice::fromEntityName(media_.get(), videoDeviceName);
 	if (!video) {
 		std::cout << "Failed to get video device from entity "
 			  << videoDeviceName << std::endl;
@@ -70,8 +72,7 @@ int BufferSource::allocate(const StreamConfiguration &config)
 	}
 
 	format.size = config.size;
-	format.fourcc = V4L2PixelFormat::fromPixelFormat(config.pixelFormat,
-							 false);
+	format.fourcc = V4L2PixelFormat::fromPixelFormat(config.pixelFormat);
 	if (video->setFormat(&format)) {
 		std::cout << "Failed to set format on output device" << std::endl;
 		return TestFail;

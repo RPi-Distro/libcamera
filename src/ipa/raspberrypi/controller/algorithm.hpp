@@ -12,14 +12,12 @@
 #include <string>
 #include <memory>
 #include <map>
-#include <atomic>
 
-#include "logging.hpp"
 #include "controller.hpp"
 
 #include <boost/property_tree/ptree.hpp>
 
-namespace RPi {
+namespace RPiController {
 
 // This defines the basic interface for all control algorithms.
 
@@ -30,7 +28,7 @@ public:
 		: controller_(controller), paused_(false)
 	{
 	}
-	virtual ~Algorithm() {}
+	virtual ~Algorithm() = default;
 	virtual char const *Name() const = 0;
 	virtual bool IsPaused() const { return paused_; }
 	virtual void Pause() { paused_ = true; }
@@ -47,7 +45,7 @@ public:
 
 private:
 	Controller *controller_;
-	std::atomic<bool> paused_;
+	bool paused_;
 };
 
 // This code is for automatic registration of Front End algorithms with the
@@ -59,4 +57,4 @@ struct RegisterAlgorithm {
 };
 std::map<std::string, AlgoCreateFunc> const &GetAlgorithms();
 
-} // namespace RPi
+} // namespace RPiController

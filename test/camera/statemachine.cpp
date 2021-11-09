@@ -7,9 +7,12 @@
 
 #include <iostream>
 
+#include <libcamera/framebuffer_allocator.h>
+
 #include "camera_test.h"
 #include "test.h"
 
+using namespace libcamera;
 using namespace std;
 
 namespace {
@@ -18,7 +21,7 @@ class Statemachine : public CameraTest, public Test
 {
 public:
 	Statemachine()
-		: CameraTest("VIMC Sensor B")
+		: CameraTest("platform/vimc.0 Sensor B")
 	{
 	}
 
@@ -39,11 +42,11 @@ protected:
 		if (camera_->queueRequest(&request) != -EACCES)
 			return TestFail;
 
-		if (camera_->stop() != -EACCES)
-			return TestFail;
-
 		/* Test operations which should pass. */
 		if (camera_->release())
+			return TestFail;
+
+		if (camera_->stop())
 			return TestFail;
 
 		/* Test valid state transitions, end in Acquired state. */
@@ -69,7 +72,8 @@ protected:
 		if (camera_->queueRequest(&request) != -EACCES)
 			return TestFail;
 
-		if (camera_->stop() != -EACCES)
+		/* Test operations which should pass. */
+		if (camera_->stop())
 			return TestFail;
 
 		/* Test valid state transitions, end in Configured state. */
@@ -95,16 +99,13 @@ protected:
 		if (camera_->queueRequest(&request1) != -EACCES)
 			return TestFail;
 
-		if (camera_->stop() != -EACCES)
-			return TestFail;
-
 		/* Test operations which should pass. */
-		Request *request2 = camera_->createRequest();
+		std::unique_ptr<Request> request2 = camera_->createRequest();
 		if (!request2)
 			return TestFail;
 
-		/* Never handed to hardware so need to manually delete it. */
-		delete request2;
+		if (camera_->stop())
+			return TestFail;
 
 		/* Test valid state transitions, end in Running state. */
 		if (camera_->release())
@@ -144,7 +145,7 @@ protected:
 			return TestFail;
 
 		/* Test operations which should pass. */
-		Request *request = camera_->createRequest();
+		std::unique_ptr<Request> request = camera_->createRequest();
 		if (!request)
 			return TestFail;
 
@@ -152,7 +153,7 @@ protected:
 		if (request->addBuffer(stream, allocator_->buffers(stream)[0].get()))
 			return TestFail;
 
-		if (camera_->queueRequest(request))
+		if (camera_->queueRequest(request.get()))
 			return TestFail;
 
 		/* Test valid state transitions, end in Available state. */
@@ -212,4 +213,4 @@ protected:
 
 } /* namespace */
 
-TEST_REGISTER(Statemachine);
+TEST_REGISTER(Statemachine)

@@ -11,13 +11,16 @@
 #include <memory>
 #include <vector>
 
+#include <libcamera/base/log.h>
+#include <libcamera/base/span.h>
+
 #include <libcamera/control_ids.h>
 #include <libcamera/controls.h>
+#include <libcamera/property_ids.h>
+
 #include <libcamera/ipa/ipa_controls.h>
-#include <libcamera/span.h>
 
 #include "libcamera/internal/byte_stream_buffer.h"
-#include "libcamera/internal/log.h"
 
 /**
  * \file control_serializer.h
@@ -59,6 +62,14 @@ LOG_DEFINE_CATEGORY(Serializer)
  * corresponding ControlInfoMap handle in the binary data, and when
  * deserializing to retrieve the corresponding ControlInfoMap.
  *
+ * As independent ControlSerializer instances are used on both sides of the IPC
+ * boundary, and the two instances operate without a shared point of control,
+ * there is a potential risk of collision of the numerical handles assigned to
+ * each serialized ControlInfoMap. For this reason the control serializer is
+ * initialized with a seed and the handle is incremented by 2, so that instances
+ * initialized with a different seed operate on a separate numerical space,
+ * avoiding any collision risk.
+ *
  * In order to perform those tasks, the serializer keeps an internal state that
  * needs to be properly populated. This mechanism requires the ControlInfoMap
  * corresponding to a ControlList to have been serialized or deserialized
@@ -74,9 +85,45 @@ LOG_DEFINE_CATEGORY(Serializer)
  * proceed with care to avoid stale references.
  */
 
-ControlSerializer::ControlSerializer()
-	: serial_(0)
+/**
+ * \enum ControlSerializer::Role
+ * \brief Define the role of the IPC component using the control serializer
+ *
+ * The role of the component that creates the serializer is used to initialize
+ * the handles numerical space.
+ *
+ * \var ControlSerializer::Role::Proxy
+ * \brief The control serializer is used by the IPC Proxy classes
+ *
+ * \var ControlSerializer::Role::Worker
+ * \brief The control serializer is used by the IPC ProxyWorker classes
+ */
+
+/**
+ * \brief Construct a new ControlSerializer
+ * \param[in] role The role of the IPC component using the serializer
+ */
+ControlSerializer::ControlSerializer(Role role)
 {
+	/*
+	 * Initialize the handle numerical space using the role of the
+	 * component that created the instance.
+	 *
+	 * Instances initialized for a different role will use a different
+	 * numerical handle space, avoiding any collision risk when, in example,
+	 * two instances of the ControlSerializer class are used at the IPC
+	 * boundaries.
+	 *
+	 * Start counting handles from '1' as '0' is a special value used as
+	 * place holder when serializing lists that do not have a ControlInfoMap
+	 * associated (in example list of libcamera controls::controls).
+	 *
+	 * \todo This is a temporary hack and should probably be better
+	 * engineered, but for the time being it avoids collisions on the handle
+	 * value when using IPC.
+	 */
+	serialSeed_ = role == Role::Proxy ? 1 : 2;
+	serial_ = serialSeed_;
 }
 
 /**
@@ -87,11 +134,12 @@ ControlSerializer::ControlSerializer()
  */
 void ControlSerializer::reset()
 {
-	serial_ = 0;
+	serial_ = serialSeed_;
 
 	infoMapHandles_.clear();
 	infoMaps_.clear();
 	controlIds_.clear();
+	controlIdMaps_.clear();
 }
 
 size_t ControlSerializer::binarySize(const ControlValue &value)
@@ -101,7 +149,7 @@ size_t ControlSerializer::binarySize(const ControlValue &value)
 
 size_t ControlSerializer::binarySize(const ControlInfo &info)
 {
-	return binarySize(info.min()) + binarySize(info.max());
+	return binarySize(info.min()) + binarySize(info.max()) + binarySize(info.def());
 }
 
 /**
@@ -154,6 +202,7 @@ void ControlSerializer::store(const ControlInfo &info, ByteStreamBuffer &buffer)
 {
 	store(info.min(), buffer);
 	store(info.max(), buffer);
+	store(info.def(), buffer);
 }
 
 /**
@@ -173,6 +222,12 @@ void ControlSerializer::store(const ControlInfo &info, ByteStreamBuffer &buffer)
 int ControlSerializer::serialize(const ControlInfoMap &infoMap,
 				 ByteStreamBuffer &buffer)
 {
+	if (isCached(infoMap)) {
+		LOG(Serializer, Debug)
+			<< "Skipping already serialized ControlInfoMap";
+		return 0;
+	}
+
 	/* Compute entries and data required sizes. */
 	size_t entriesSize = infoMap.size()
 			   * sizeof(struct ipa_control_info_entry);
@@ -180,15 +235,34 @@ int ControlSerializer::serialize(const ControlInfoMap &infoMap,
 	for (const auto &ctrl : infoMap)
 		valuesSize += binarySize(ctrl.second);
 
-	/* Prepare the packet header, assign a handle to the ControlInfoMap. */
+	const ControlIdMap *idmap = &infoMap.idmap();
+	enum ipa_controls_id_map_type idMapType;
+	if (idmap == &controls::controls)
+		idMapType = IPA_CONTROL_ID_MAP_CONTROLS;
+	else if (idmap == &properties::properties)
+		idMapType = IPA_CONTROL_ID_MAP_PROPERTIES;
+	else
+		idMapType = IPA_CONTROL_ID_MAP_V4L2;
+
+	/* Prepare the packet header. */
 	struct ipa_controls_header hdr;
 	hdr.version = IPA_CONTROLS_FORMAT_VERSION;
-	hdr.handle = ++serial_;
+	hdr.handle = serial_;
 	hdr.entries = infoMap.size();
 	hdr.size = sizeof(hdr) + entriesSize + valuesSize;
 	hdr.data_offset = sizeof(hdr) + entriesSize;
+	hdr.id_map_type = idMapType;
 
 	buffer.write(&hdr);
+
+	/*
+	 * Increment the handle for the ControlInfoMap by 2 to keep the handles
+	 * numerical space partitioned between instances initialized for a
+	 * different role.
+	 *
+	 * \sa ControlSerializer::Role
+	 */
+	serial_ += 2;
 
 	/*
 	 * Serialize all entries.
@@ -255,6 +329,15 @@ int ControlSerializer::serialize(const ControlList &list,
 		infoMapHandle = 0;
 	}
 
+	const ControlIdMap *idmap = list.idMap();
+	enum ipa_controls_id_map_type idMapType;
+	if (idmap == &controls::controls)
+		idMapType = IPA_CONTROL_ID_MAP_CONTROLS;
+	else if (idmap == &properties::properties)
+		idMapType = IPA_CONTROL_ID_MAP_PROPERTIES;
+	else
+		idMapType = IPA_CONTROL_ID_MAP_V4L2;
+
 	size_t entriesSize = list.size() * sizeof(struct ipa_control_value_entry);
 	size_t valuesSize = 0;
 	for (const auto &ctrl : list)
@@ -267,6 +350,7 @@ int ControlSerializer::serialize(const ControlList &list,
 	hdr.entries = list.size();
 	hdr.size = sizeof(hdr) + entriesSize + valuesSize;
 	hdr.data_offset = sizeof(hdr) + entriesSize;
+	hdr.id_map_type = idMapType;
 
 	buffer.write(&hdr);
 
@@ -316,8 +400,9 @@ ControlInfo ControlSerializer::loadControlInfo(ControlType type,
 
 	ControlValue min = loadControlValue(type, b);
 	ControlValue max = loadControlValue(type, b);
+	ControlValue def = loadControlValue(type, b);
 
-	return ControlInfo(min, max);
+	return ControlInfo(min, max, def);
 }
 
 /**
@@ -325,7 +410,7 @@ ControlInfo ControlSerializer::loadControlInfo(ControlType type,
  * \brief Deserialize an object from a binary buffer
  * \param[in] buffer The memory buffer that contains the object
  *
- * This method is only valid when specialized for ControlInfoMap or
+ * This function is only valid when specialized for ControlInfoMap or
  * ControlList. Any other typename \a T is not supported.
  */
 
@@ -334,7 +419,7 @@ ControlInfo ControlSerializer::loadControlInfo(ControlType type,
  * \param[in] buffer The memory buffer that contains the serialized map
  *
  * Re-construct a ControlInfoMap from a binary \a buffer containing data
- * serialized using the serialize() method.
+ * serialized using the serialize() function.
  *
  * \return The deserialized ControlInfoMap
  */
@@ -347,10 +432,43 @@ ControlInfoMap ControlSerializer::deserialize<ControlInfoMap>(ByteStreamBuffer &
 		return {};
 	}
 
+	auto iter = infoMaps_.find(hdr->handle);
+	if (iter != infoMaps_.end()) {
+		LOG(Serializer, Debug) << "Use cached ControlInfoMap";
+		return iter->second;
+	}
+
 	if (hdr->version != IPA_CONTROLS_FORMAT_VERSION) {
 		LOG(Serializer, Error)
 			<< "Unsupported controls format version "
 			<< hdr->version;
+		return {};
+	}
+
+	/*
+	 * Use the ControlIdMap corresponding to the id map type. If the type
+	 * references a globally defined id map (such as controls::controls
+	 * or properties::properties), use it. Otherwise, create a local id map
+	 * that will be populated with dynamically created ControlId instances
+	 * when deserializing individual ControlInfoMap entries.
+	 */
+	const ControlIdMap *idMap = nullptr;
+	ControlIdMap *localIdMap = nullptr;
+	switch (hdr->id_map_type) {
+	case IPA_CONTROL_ID_MAP_CONTROLS:
+		idMap = &controls::controls;
+		break;
+	case IPA_CONTROL_ID_MAP_PROPERTIES:
+		idMap = &properties::properties;
+		break;
+	case IPA_CONTROL_ID_MAP_V4L2:
+		controlIdMaps_.emplace_back(std::make_unique<ControlIdMap>());
+		localIdMap = controlIdMaps_.back().get();
+		idMap = localIdMap;
+		break;
+	default:
+		LOG(Serializer, Error)
+			<< "Unknown id map type: " << hdr->id_map_type;
 		return {};
 	}
 
@@ -363,7 +481,6 @@ ControlInfoMap ControlSerializer::deserialize<ControlInfoMap>(ByteStreamBuffer &
 	}
 
 	ControlInfoMap::Map ctrls;
-
 	for (unsigned int i = 0; i < hdr->entries; ++i) {
 		const struct ipa_control_info_entry *entry =
 			entries.read<decltype(*entry)>();
@@ -372,13 +489,21 @@ ControlInfoMap ControlSerializer::deserialize<ControlInfoMap>(ByteStreamBuffer &
 			return {};
 		}
 
-		/* Create and cache the individual ControlId. */
 		ControlType type = static_cast<ControlType>(entry->type);
-		/**
-		 * \todo Find a way to preserve the control name for debugging
-		 * purpose.
-		 */
-		controlIds_.emplace_back(std::make_unique<ControlId>(entry->id, "", type));
+
+		/* If we're using a local id map, populate it. */
+		if (localIdMap) {
+			/**
+			 * \todo Find a way to preserve the control name for
+			 * debugging purpose.
+			 */
+			controlIds_.emplace_back(std::make_unique<ControlId>(entry->id,
+									     "", type));
+			(*localIdMap)[entry->id] = controlIds_.back().get();
+		}
+
+		const ControlId *controlId = idMap->at(entry->id);
+		ASSERT(controlId);
 
 		if (entry->offset != values.offset()) {
 			LOG(Serializer, Error)
@@ -388,15 +513,15 @@ ControlInfoMap ControlSerializer::deserialize<ControlInfoMap>(ByteStreamBuffer &
 		}
 
 		/* Create and store the ControlInfo. */
-		ctrls.emplace(controlIds_.back().get(),
-			      loadControlInfo(type, values));
+		ctrls.emplace(controlId, loadControlInfo(type, values));
 	}
 
 	/*
 	 * Create the ControlInfoMap in the cache, and store the map to handle
 	 * association.
 	 */
-	ControlInfoMap &map = infoMaps_[hdr->handle] = std::move(ctrls);
+	infoMaps_[hdr->handle] = ControlInfoMap(std::move(ctrls), *idMap);
+	ControlInfoMap &map = infoMaps_[hdr->handle];
 	infoMapHandles_[&map] = hdr->handle;
 
 	return map;
@@ -407,7 +532,7 @@ ControlInfoMap ControlSerializer::deserialize<ControlInfoMap>(ByteStreamBuffer &
  * \param[in] buffer The memory buffer that contains the serialized list
  *
  * Re-construct a ControlList from a binary \a buffer containing data
- * serialized using the serialize() method.
+ * serialized using the serialize() function.
  *
  * \return The deserialized ControlList
  */
@@ -436,13 +561,15 @@ ControlList ControlSerializer::deserialize<ControlList>(ByteStreamBuffer &buffer
 	}
 
 	/*
-	 * Retrieve the ControlInfoMap associated with the ControlList based on
-	 * its ID. The mapping between infoMap and ID is set up when serializing
-	 * or deserializing ControlInfoMap. If no mapping is found (which is
-	 * currently the case for ControlList related to libcamera controls),
-	 * use the global control::control idmap.
+	 * Retrieve the ControlIdMap associated with the ControlList.
+	 *
+	 * The idmap is either retrieved from the list's ControlInfoMap when
+	 * a valid handle has been initialized at serialization time, or by
+	 * using the header's id_map_type field for lists that refer to the
+	 * globally defined libcamera controls and properties, for which no
+	 * ControlInfoMap is available.
 	 */
-	const ControlInfoMap *infoMap;
+	const ControlIdMap *idMap;
 	if (hdr->handle) {
 		auto iter = std::find_if(infoMapHandles_.begin(), infoMapHandles_.end(),
 					 [&](decltype(infoMapHandles_)::value_type &entry) {
@@ -454,12 +581,33 @@ ControlList ControlSerializer::deserialize<ControlList>(ByteStreamBuffer &buffer
 			return {};
 		}
 
-		infoMap = iter->first;
+		const ControlInfoMap *infoMap = iter->first;
+		idMap = &infoMap->idmap();
 	} else {
-		infoMap = nullptr;
+		switch (hdr->id_map_type) {
+		case IPA_CONTROL_ID_MAP_CONTROLS:
+			idMap = &controls::controls;
+			break;
+
+		case IPA_CONTROL_ID_MAP_PROPERTIES:
+			idMap = &properties::properties;
+			break;
+
+		case IPA_CONTROL_ID_MAP_V4L2:
+		default:
+			LOG(Serializer, Fatal)
+				<< "A list of V4L2 controls requires an ControlInfoMap";
+			return {};
+		}
 	}
 
-	ControlList ctrls(infoMap ? infoMap->idmap() : controls::controls);
+	/*
+	 * \todo When available, initialize the list with the ControlInfoMap
+	 * so that controls can be validated against their limits.
+	 * Currently no validation is performed, so it's fine relying on the
+	 * idmap only.
+	 */
+	ControlList ctrls(*idMap);
 
 	for (unsigned int i = 0; i < hdr->entries; ++i) {
 		const struct ipa_control_value_entry *entry =
@@ -483,6 +631,20 @@ ControlList ControlSerializer::deserialize<ControlList>(ByteStreamBuffer &buffer
 	}
 
 	return ctrls;
+}
+
+/**
+ * \brief Check if a ControlInfoMap is cached
+ * \param[in] infoMap The ControlInfoMap to check
+ *
+ * The ControlSerializer caches all ControlInfoMaps that it has (de)serialized.
+ * This function checks if \a infoMap is in the cache.
+ *
+ * \return True if \a infoMap is in the cache or false otherwise
+ */
+bool ControlSerializer::isCached(const ControlInfoMap &infoMap)
+{
+	return infoMapHandles_.count(&infoMap);
 }
 
 } /* namespace libcamera */

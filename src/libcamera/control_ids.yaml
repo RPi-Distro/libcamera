@@ -48,9 +48,6 @@ controls:
         - name: MeteringCustom
           value: 3
           description: Custom metering mode.
-        - name: MeteringModeMax
-          value: 3
-          description: Maximum allowed value (place any new values above here).
 
   # AeConstraintMode needs further attention:
   # - Auto-generate max enum value.
@@ -85,9 +82,6 @@ controls:
         - name: ConstraintCustom
           value: 3
           description: Custom constraint mode.
-        - name: ConstraintModeMax
-          value: 3
-          description: Maximum allowed value (place any new values above here).
 
   # AeExposureMode needs further attention:
   # - Auto-generate max enum value.
@@ -112,9 +106,6 @@ controls:
         - name: ExposureCustom
           value: 3
           description: Custom exposure mode.
-        - name: ExposureModeMax
-          value: 3
-          description: Maximum allowed value (place any new values above here).
 
   - ExposureValue:
       type: float
@@ -134,7 +125,17 @@ controls:
         Exposure time (shutter speed) for the frame applied in the sensor
         device. This value is specified in micro-seconds.
 
+        Setting this value means that it is now fixed and the AE algorithm may
+        not change it. Setting it back to zero returns it to the control of the
+        AE algorithm.
+
         \sa AnalogueGain AeEnable
+
+        \todo Document the interactions between AeEnable and setting a fixed
+        value for this control. Consider interactions with other AE features,
+        such as aperture and aperture/shutter priority mode, and decide if
+        control of which features should be automatically adjusted shouldn't
+        better be handled through a separate AE mode control.
 
   - AnalogueGain:
       type: float
@@ -143,7 +144,17 @@ controls:
         The value of the control specifies the gain multiplier applied to all
         colour channels. This value cannot be lower than 1.0.
 
+        Setting this value means that it is now fixed and the AE algorithm may
+        not change it. Setting it back to zero returns it to the control of the
+        AE algorithm.
+
         \sa ExposureTime AeEnable
+
+        \todo Document the interactions between AeEnable and setting a fixed
+        value for this control. Consider interactions with other AE features,
+        such as aperture and aperture/shutter priority mode, and decide if
+        control of which features should be automatically adjusted shouldn't
+        better be handled through a separate AE mode control.
 
   - Brightness:
       type: float
@@ -204,9 +215,17 @@ controls:
         - name: AwbCustom
           value: 7
           description: Custom AWB mode.
-        - name: AwbModeMax
-          value: 7
-          description: Maximum allowed value (place any new values above here).
+
+  - AwbLocked:
+      type: bool
+      description: |
+        Report the lock status of a running AWB algorithm.
+
+        If the AWB algorithm is locked the value shall be set to true, if it's
+        converging it shall be set to false. If the AWB algorithm is not
+        running the control shall not be present in the metadata control list.
+
+        \sa AwbEnable
 
   - ColourGains:
       type: float
@@ -251,4 +270,424 @@ controls:
         higher than anyone could reasonably want. Negative values are
         not allowed. Note also that sharpening is not applied to raw
         streams.
+
+  - FocusFoM:
+      type: int32_t
+      description: |
+        Reports a Figure of Merit (FoM) to indicate how in-focus the frame is.
+        A larger FocusFoM value indicates a more in-focus frame. This control
+        depends on the IPA to gather ISP statistics from the defined focus
+        region, and combine them in a suitable way to generate a FocusFoM value.
+        In this respect, it is not necessarily aimed at providing a way to
+        implement a focus algorithm by the application, rather an indication of
+        how in-focus a frame is.
+
+  - ColourCorrectionMatrix:
+      type: float
+      description: |
+        The 3x3 matrix that converts camera RGB to sRGB within the
+        imaging pipeline. This should describe the matrix that is used
+        after pixels have been white-balanced, but before any gamma
+        transformation. The 3x3 matrix is stored in conventional reading
+        order in an array of 9 floating point values.
+
+      size: [3x3]
+
+  - ScalerCrop:
+      type: Rectangle
+      description: |
+        Sets the image portion that will be scaled to form the whole of
+        the final output image. The (x,y) location of this rectangle is
+        relative to the PixelArrayActiveAreas that is being used. The units
+        remain native sensor pixels, even if the sensor is being used in
+        a binning or skipping mode.
+
+        This control is only present when the pipeline supports scaling. Its
+        maximum valid value is given by the properties::ScalerCropMaximum
+        property, and the two can be used to implement digital zoom.
+
+  - DigitalGain:
+      type: float
+      description: |
+        Digital gain value applied during the processing steps applied
+        to the image as captured from the sensor.
+
+        The global digital gain factor is applied to all the colour channels
+        of the RAW image. Different pipeline models are free to
+        specify how the global gain factor applies to each separate
+        channel.
+
+        If an imaging pipeline applies digital gain in distinct
+        processing steps, this value indicates their total sum.
+        Pipelines are free to decide how to adjust each processing
+        step to respect the received gain factor and shall report
+        their total value in the request metadata.
+
+  - FrameDuration:
+      type: int64_t
+      description: |
+        The instantaneous frame duration from start of frame exposure to start
+        of next exposure, expressed in microseconds. This control is meant to
+        be returned in metadata.
+
+  - FrameDurationLimits:
+      type: int64_t
+      description: |
+        The minimum and maximum (in that order) frame duration,
+        expressed in microseconds.
+
+        When provided by applications, the control specifies the sensor frame
+        duration interval the pipeline has to use. This limits the largest
+        exposure time the sensor can use. For example, if a maximum frame
+        duration of 33ms is requested (corresponding to 30 frames per second),
+        the sensor will not be able to raise the exposure time above 33ms.
+        A fixed frame duration is achieved by setting the minimum and maximum
+        values to be the same. Setting both values to 0 reverts to using the
+        IPA provided defaults.
+
+        The maximum frame duration provides the absolute limit to the shutter
+        speed computed by the AE algorithm and it overrides any exposure mode
+        setting specified with controls::AeExposureMode. Similarly, when a
+        manual exposure time is set through controls::ExposureTime, it also
+        gets clipped to the limits set by this control. When reported in
+        metadata, the control expresses the minimum and maximum frame
+        durations used after being clipped to the sensor provided frame
+        duration limits.
+
+        \sa AeExposureMode
+        \sa ExposureTime
+
+        \todo Define how to calculate the capture frame rate by
+        defining controls to report additional delays introduced by
+        the capture pipeline or post-processing stages (ie JPEG
+        conversion, frame scaling).
+
+        \todo Provide an explicit definition of default control values, for
+        this and all other controls.
+
+      size: [2]
+
+  - SensorTimestamp:
+      type: int64_t
+      description: |
+        The time when the first row of the image sensor active array is exposed.
+
+        The timestamp, expressed in nanoseconds, represents a monotonically
+        increasing counter since the system boot time, as defined by the
+        Linux-specific CLOCK_BOOTTIME clock id.
+
+        The SensorTimestamp control can only be returned in metadata.
+
+        \todo Define how the sensor timestamp has to be used in the reprocessing
+        use case.
+
+  # ----------------------------------------------------------------------------
+  # Draft controls section
+
+  - AePrecaptureTrigger:
+      type: int32_t
+      draft: true
+      description: |
+        Control for AE metering trigger. Currently identical to
+        ANDROID_CONTROL_AE_PRECAPTURE_TRIGGER.
+
+        Whether the camera device will trigger a precapture metering sequence
+        when it processes this request.
+      enum:
+        - name: AePrecaptureTriggerIdle
+          value: 0
+          description: The trigger is idle.
+        - name: AePrecaptureTriggerStart
+          value: 1
+          description: The pre-capture AE metering is started by the camera.
+        - name: AePrecaptureTriggerCancel
+          value: 2
+          description: |
+            The camera will cancel any active or completed metering sequence.
+            The AE algorithm is reset to its initial state.
+
+  - AfTrigger:
+      type: int32_t
+      draft: true
+      description: |
+       Control for AF trigger. Currently identical to
+       ANDROID_CONTROL_AF_TRIGGER.
+
+        Whether the camera device will trigger autofocus for this request.
+      enum:
+        - name: AfTriggerIdle
+          value: 0
+          description: The trigger is idle.
+        - name: AfTriggerStart
+          value: 1
+          description: The AF routine is started by the camera.
+        - name: AfTriggerCancel
+          value: 2
+          description: |
+            The camera will cancel any active trigger and the AF routine is
+            reset to its initial state.
+
+  - NoiseReductionMode:
+      type: int32_t
+      draft: true
+      description: |
+       Control to select the noise reduction algorithm mode. Currently
+       identical to ANDROID_NOISE_REDUCTION_MODE.
+
+        Mode of operation for the noise reduction algorithm.
+      enum:
+        - name: NoiseReductionModeOff
+          value: 0
+          description: No noise reduction is applied
+        - name: NoiseReductionModeFast
+          value: 1
+          description: |
+            Noise reduction is applied without reducing the frame rate.
+        - name: NoiseReductionModeHighQuality
+          value: 2
+          description: |
+            High quality noise reduction at the expense of frame rate.
+        - name: NoiseReductionModeMinimal
+          value: 3
+          description: |
+            Minimal noise reduction is applied without reducing the frame rate.
+        - name: NoiseReductionModeZSL
+          value: 4
+          description: |
+            Noise reduction is applied at different levels to different streams.
+
+  - ColorCorrectionAberrationMode:
+      type: int32_t
+      draft: true
+      description: |
+       Control to select the color correction aberration mode. Currently
+       identical to ANDROID_COLOR_CORRECTION_ABERRATION_MODE.
+
+        Mode of operation for the chromatic aberration correction algorithm.
+      enum:
+        - name: ColorCorrectionAberrationOff
+          value: 0
+          description: No aberration correction is applied.
+        - name: ColorCorrectionAberrationFast
+          value: 1
+          description: Aberration correction will not slow down the frame rate.
+        - name: ColorCorrectionAberrationHighQuality
+          value: 2
+          description: |
+            High quality aberration correction which might reduce the frame
+            rate.
+
+  - AeState:
+      type: int32_t
+      draft: true
+      description: |
+       Control to report the current AE algorithm state. Currently identical to
+       ANDROID_CONTROL_AE_STATE.
+
+        Current state of the AE algorithm.
+      enum:
+        - name: AeStateInactive
+          value: 0
+          description: The AE algorithm is inactive.
+        - name: AeStateSearching
+          value: 1
+          description: The AE algorithm has not converged yet.
+        - name: AeStateConverged
+          value: 2
+          description: The AE algorithm has converged.
+        - name: AeStateLocked
+          value: 3
+          description: The AE algorithm is locked.
+        - name: AeStateFlashRequired
+          value: 4
+          description: The AE algorithm would need a flash for good results
+        - name: AeStatePrecapture
+          value: 5
+          description: |
+            The AE algorithm has started a pre-capture metering session.
+            \sa AePrecaptureTrigger
+
+  - AfState:
+      type: int32_t
+      draft: true
+      description: |
+       Control to report the current AF algorithm state. Currently identical to
+       ANDROID_CONTROL_AF_STATE.
+
+        Current state of the AF algorithm.
+      enum:
+        - name: AfStateInactive
+          value: 0
+          description: The AF algorithm is inactive.
+        - name: AfStatePassiveScan
+          value: 1
+          description: |
+            AF is performing a passive scan of the scene in continuous
+            auto-focus mode.
+        - name: AfStatePassiveFocused
+          value: 2
+          description: |
+            AF believes the scene is in focus, but might restart scanning.
+        - name: AfStateActiveScan
+          value: 3
+          description: |
+            AF is performing a scan triggered by an AF trigger request.
+            \sa AfTrigger
+        - name: AfStateFocusedLock
+          value: 4
+          description: |
+            AF believes has focused correctly and has locked focus.
+        - name: AfStateNotFocusedLock
+          value: 5
+          description: |
+            AF has not been able to focus and has locked.
+        - name: AfStatePassiveUnfocused
+          value: 6
+          description: |
+            AF has completed a passive scan without finding focus.
+
+  - AwbState:
+      type: int32_t
+      draft: true
+      description: |
+       Control to report the current AWB algorithm state. Currently identical
+       to ANDROID_CONTROL_AWB_STATE.
+
+        Current state of the AWB algorithm.
+      enum:
+        - name: AwbStateInactive
+          value: 0
+          description: The AWB algorithm is inactive.
+        - name: AwbStateSearching
+          value: 1
+          description: The AWB algorithm has not converged yet.
+        - name: AwbConverged
+          value: 2
+          description: The AWB algorithm has converged.
+        - name: AwbLocked
+          value: 3
+          description: The AWB algorithm is locked.
+
+  - SensorRollingShutterSkew:
+      type: int64_t
+      draft: true
+      description: |
+       Control to report the time between the start of exposure of the first
+       row and the start of exposure of the last row. Currently identical to
+       ANDROID_SENSOR_ROLLING_SHUTTER_SKEW
+
+  - LensShadingMapMode:
+      type: int32_t
+      draft: true
+      description: |
+       Control to report if the lens shading map is available. Currently
+       identical to ANDROID_STATISTICS_LENS_SHADING_MAP_MODE.
+      enum:
+        - name: LensShadingMapModeOff
+          value: 0
+          description: No lens shading map mode is available.
+        - name: LensShadingMapModeOn
+          value: 1
+          description: The lens shading map mode is available.
+
+  - SceneFlicker:
+      type: int32_t
+      draft: true
+      description: |
+       Control to report the detected scene light frequency. Currently
+       identical to ANDROID_STATISTICS_SCENE_FLICKER.
+      enum:
+        - name: SceneFickerOff
+          value: 0
+          description: No flickering detected.
+        - name: SceneFicker50Hz
+          value: 1
+          description: 50Hz flickering detected.
+        - name: SceneFicker60Hz
+          value: 2
+          description: 60Hz flickering detected.
+
+  - PipelineDepth:
+      type: int32_t
+      draft: true
+      description: |
+        Specifies the number of pipeline stages the frame went through from when
+        it was exposed to when the final completed result was available to the
+        framework. Always less than or equal to PipelineMaxDepth. Currently
+        identical to ANDROID_REQUEST_PIPELINE_DEPTH.
+
+        The typical value for this control is 3 as a frame is first exposed,
+        captured and then processed in a single pass through the ISP. Any
+        additional processing step performed after the ISP pass (in example face
+        detection, additional format conversions etc) count as an additional
+        pipeline stage.
+
+  - MaxLatency:
+      type: int32_t
+      draft: true
+      description: |
+        The maximum number of frames that can occur after a request (different
+        than the previous) has been submitted, and before the result's state
+        becomes synchronized. A value of -1 indicates unknown latency, and 0
+        indicates per-frame control. Currently identical to
+        ANDROID_SYNC_MAX_LATENCY.
+
+  - TestPatternMode:
+      type: int32_t
+      draft: true
+      description: |
+        Control to select the test pattern mode. Currently identical to
+        ANDROID_SENSOR_TEST_PATTERN_MODE.
+      enum:
+        - name: TestPatternModeOff
+          value: 0
+          description: |
+            No test pattern mode is used. The camera device returns frames from
+            the image sensor.
+        - name: TestPatternModeSolidColor
+          value: 1
+          description: |
+            Each pixel in [R, G_even, G_odd, B] is replaced by its respective
+            color channel provided in test pattern data.
+            \todo Add control for test pattern data.
+        - name: TestPatternModeColorBars
+          value: 2
+          description: |
+            All pixel data is replaced with an 8-bar color pattern. The vertical
+            bars (left-to-right) are as follows; white, yellow, cyan, green,
+            magenta, red, blue and black. Each bar should take up 1/8 of the
+            sensor pixel array width. When this is not possible, the bar size
+            should be rounded down to the nearest integer and the pattern can
+            repeat on the right side. Each bar's height must always take up the
+            full sensor pixel array height.
+        - name: TestPatternModeColorBarsFadeToGray
+          value: 3
+          description: |
+            The test pattern is similar to TestPatternModeColorBars,
+            except that each bar should start at its specified color at the top
+            and fade to gray at the bottom. Furthermore each bar is further
+            subdevided into a left and right half. The left half should have a
+            smooth gradient, and the right half should have a quantized
+            gradient. In particular, the right half's should consist of blocks
+            of the same color for 1/16th active sensor pixel array width. The
+            least significant bits in the quantized gradient should be copied
+            from the most significant bits of the smooth gradient. The height of
+            each bar should always be a multiple of 128. When this is not the
+            case, the pattern should repeat at the bottom of the image.
+        - name: TestPatternModePn9
+          value: 4
+          description: |
+            All pixel data is replaced by a pseudo-random sequence generated
+            from a PN9 512-bit sequence (typically implemented in hardware with
+            a linear feedback shift register). The generator should be reset at
+            the beginning of each frame, and thus each subsequent raw frame with
+            this test pattern should be exactly the same as the last.
+        - name: TestPatternModeCustom1
+          value: 256
+          description: |
+            The first custom test pattern. All custom patterns that are
+            available only on this camera device are at least this numeric
+            value. All of the custom test patterns will be static (that is the
+            raw image must not vary from frame to frame).
+
 ...

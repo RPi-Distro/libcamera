@@ -9,12 +9,16 @@
 #define __LIBCAMERA_CONTROLS_H__
 
 #include <assert.h>
+#include <set>
 #include <stdint.h>
 #include <string>
 #include <unordered_map>
+#include <vector>
+
+#include <libcamera/base/class.h>
+#include <libcamera/base/span.h>
 
 #include <libcamera/geometry.h>
-#include <libcamera/span.h>
 
 namespace libcamera {
 
@@ -96,6 +100,7 @@ public:
 
 #ifndef __DOXYGEN__
 	template<typename T, typename std::enable_if_t<!details::is_span<T>::value &&
+						       details::control_type<T>::value &&
 						       !std::is_same<std::string, std::remove_cv_t<T>>::value,
 						       std::nullptr_t> = nullptr>
 	ControlValue(const T &value)
@@ -218,8 +223,7 @@ public:
 	ControlType type() const { return type_; }
 
 private:
-	ControlId &operator=(const ControlId &) = delete;
-	ControlId(const ControlId &) = delete;
+	LIBCAMERA_DISABLE_COPY_AND_MOVE(ControlId)
 
 	unsigned int id_;
 	std::string name_;
@@ -258,8 +262,7 @@ public:
 	}
 
 private:
-	Control(const Control &) = delete;
-	Control &operator=(const Control &) = delete;
+	LIBCAMERA_DISABLE_COPY_AND_MOVE(Control)
 };
 
 class ControlInfo
@@ -268,10 +271,15 @@ public:
 	explicit ControlInfo(const ControlValue &min = 0,
 			     const ControlValue &max = 0,
 			     const ControlValue &def = 0);
+	explicit ControlInfo(Span<const ControlValue> values,
+			     const ControlValue &def = {});
+	explicit ControlInfo(std::set<bool> values, bool def);
+	explicit ControlInfo(bool value);
 
 	const ControlValue &min() const { return min_; }
 	const ControlValue &max() const { return max_; }
 	const ControlValue &def() const { return def_; }
+	const std::vector<ControlValue> &values() const { return values_; }
 
 	std::string toString() const;
 
@@ -289,6 +297,7 @@ private:
 	ControlValue min_;
 	ControlValue max_;
 	ControlValue def_;
+	std::vector<ControlValue> values_;
 };
 
 using ControlIdMap = std::unordered_map<unsigned int, const ControlId *>;
@@ -300,12 +309,11 @@ public:
 
 	ControlInfoMap() = default;
 	ControlInfoMap(const ControlInfoMap &other) = default;
-	ControlInfoMap(std::initializer_list<Map::value_type> init);
-	ControlInfoMap(Map &&info);
+	ControlInfoMap(std::initializer_list<Map::value_type> init,
+		       const ControlIdMap &idmap);
+	ControlInfoMap(Map &&info, const ControlIdMap &idmap);
 
 	ControlInfoMap &operator=(const ControlInfoMap &other) = default;
-	ControlInfoMap &operator=(std::initializer_list<Map::value_type> init);
-	ControlInfoMap &operator=(Map &&info);
 
 	using Map::key_type;
 	using Map::mapped_type;
@@ -330,12 +338,12 @@ public:
 	iterator find(unsigned int key);
 	const_iterator find(unsigned int key) const;
 
-	const ControlIdMap &idmap() const { return idmap_; }
+	const ControlIdMap &idmap() const { return *idmap_; }
 
 private:
-	void generateIdmap();
+	bool validate();
 
-	ControlIdMap idmap_;
+	const ControlIdMap *idmap_ = nullptr;
 };
 
 class ControlList
@@ -345,8 +353,8 @@ private:
 
 public:
 	ControlList();
-	ControlList(const ControlIdMap &idmap, ControlValidator *validator = nullptr);
-	ControlList(const ControlInfoMap &infoMap, ControlValidator *validator = nullptr);
+	ControlList(const ControlIdMap &idmap, const ControlValidator *validator = nullptr);
+	ControlList(const ControlInfoMap &infoMap, const ControlValidator *validator = nullptr);
 
 	using iterator = ControlListMap::iterator;
 	using const_iterator = ControlListMap::const_iterator;
@@ -358,7 +366,9 @@ public:
 
 	bool empty() const { return controls_.empty(); }
 	std::size_t size() const { return controls_.size(); }
+
 	void clear() { controls_.clear(); }
+	void merge(const ControlList &source);
 
 	bool contains(const ControlId &id) const;
 	bool contains(unsigned int id) const;
@@ -397,12 +407,13 @@ public:
 	void set(unsigned int id, const ControlValue &value);
 
 	const ControlInfoMap *infoMap() const { return infoMap_; }
+	const ControlIdMap *idMap() const { return idmap_; }
 
 private:
 	const ControlValue *find(unsigned int id) const;
 	ControlValue *find(unsigned int id);
 
-	ControlValidator *validator_;
+	const ControlValidator *validator_;
 	const ControlIdMap *idmap_;
 	const ControlInfoMap *infoMap_;
 

@@ -25,10 +25,6 @@ using namespace std;
  */
 class MediaDevicePrintTest : public Test
 {
-public:
-	MediaDevicePrintTest() {}
-	~MediaDevicePrintTest() {}
-
 protected:
 	int init() { return 0; }
 	int run();
@@ -151,4 +147,4 @@ int MediaDevicePrintTest::run()
 	return ret;
 }
 
-TEST_REGISTER(MediaDevicePrintTest);
+TEST_REGISTER(MediaDevicePrintTest)

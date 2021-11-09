@@ -7,19 +7,20 @@
 #ifndef __LIBCAMERA_CAMERA_TEST_H__
 #define __LIBCAMERA_CAMERA_TEST_H__
 
-#include <libcamera/libcamera.h>
+#include <memory>
 
-using namespace libcamera;
+#include <libcamera/camera.h>
+#include <libcamera/camera_manager.h>
 
 class CameraTest
 {
 public:
-	CameraTest(const char *name);
+	CameraTest(const char *name, bool isolate = false);
 	~CameraTest();
 
 protected:
-	CameraManager *cm_;
-	std::shared_ptr<Camera> camera_;
+	libcamera::CameraManager *cm_;
+	std::shared_ptr<libcamera::Camera> camera_;
 	int status_;
 };
 

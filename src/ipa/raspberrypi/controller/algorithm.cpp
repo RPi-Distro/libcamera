@@ -7,36 +7,32 @@
 
 #include "algorithm.hpp"
 
-using namespace RPi;
+using namespace RPiController;
 
-void Algorithm::Read(boost::property_tree::ptree const &params)
+void Algorithm::Read([[maybe_unused]] boost::property_tree::ptree const &params)
 {
-	(void)params;
 }
 
 void Algorithm::Initialise() {}
 
-void Algorithm::SwitchMode(CameraMode const &camera_mode, Metadata *metadata)
+void Algorithm::SwitchMode([[maybe_unused]] CameraMode const &camera_mode,
+			   [[maybe_unused]] Metadata *metadata)
 {
-	(void)camera_mode;
-	(void)metadata;
 }
 
-void Algorithm::Prepare(Metadata *image_metadata)
+void Algorithm::Prepare([[maybe_unused]] Metadata *image_metadata)
 {
-	(void)image_metadata;
 }
 
-void Algorithm::Process(StatisticsPtr &stats, Metadata *image_metadata)
+void Algorithm::Process([[maybe_unused]] StatisticsPtr &stats,
+			[[maybe_unused]] Metadata *image_metadata)
 {
-	(void)stats;
-	(void)image_metadata;
 }
 
 // For registering algorithms with the system:
 
 static std::map<std::string, AlgoCreateFunc> algorithms;
-std::map<std::string, AlgoCreateFunc> const &RPi::GetAlgorithms()
+std::map<std::string, AlgoCreateFunc> const &RPiController::GetAlgorithms()
 {
 	return algorithms;
 }

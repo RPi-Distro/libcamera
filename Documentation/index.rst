@@ -12,3 +12,12 @@
    Home <self>
    Docs <docs>
    Contribute <contributing>
+   Getting Started <getting-started>
+
+   Developer Guide <guides/introduction>
+   Application Writer's Guide <guides/application-developer>
+   Pipeline Handler Writer's Guide <guides/pipeline-handler>
+   IPA Writer's guide <guides/ipa>
+   Tracing guide <guides/tracing>
+   Environment variables <environment_variables>
+   Sensor driver requirements <sensor_driver_requirements>

@@ -30,8 +30,8 @@ protected:
 
 	int run() override
 	{
-		ControlSerializer serializer;
-		ControlSerializer deserializer;
+		ControlSerializer serializer(ControlSerializer::Role::Proxy);
+		ControlSerializer deserializer(ControlSerializer::Role::Worker);
 
 		std::vector<uint8_t> infoData;
 		std::vector<uint8_t> listData;
@@ -137,6 +137,15 @@ protected:
 
 		if (!equals(infoMap, newInfoMap)) {
 			cerr << "Deserialized map doesn't match original" << endl;
+			return TestFail;
+		}
+
+		/* Make sure control limits looked up by id are not changed. */
+		const ControlInfo &newLimits = newInfoMap.at(&controls::Brightness);
+		const ControlInfo &initialLimits = infoMap.at(&controls::Brightness);
+		if (newLimits.min() != initialLimits.min() ||
+		    newLimits.max() != initialLimits.max()) {
+			cerr << "The brightness control limits have changed" << endl;
 			return TestFail;
 		}
 

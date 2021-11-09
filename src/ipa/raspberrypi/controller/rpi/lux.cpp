@@ -6,14 +6,19 @@
  */
 #include <math.h>
 
-#include "linux/bcm2835-isp.h"
+#include <linux/bcm2835-isp.h>
+
+#include <libcamera/base/log.h>
 
 #include "../device_status.h"
-#include "../logging.hpp"
 
 #include "lux.hpp"
 
-using namespace RPi;
+using namespace RPiController;
+using namespace libcamera;
+using namespace std::literals::chrono_literals;
+
+LOG_DEFINE_CATEGORY(RPiLux)
 
 #define NAME "rpi.lux"
 
@@ -33,14 +38,18 @@ char const *Lux::Name() const
 
 void Lux::Read(boost::property_tree::ptree const &params)
 {
-	RPI_LOG(Name());
 	reference_shutter_speed_ =
-		params.get<double>("reference_shutter_speed");
+		params.get<double>("reference_shutter_speed") * 1.0us;
 	reference_gain_ = params.get<double>("reference_gain");
 	reference_aperture_ = params.get<double>("reference_aperture", 1.0);
 	reference_Y_ = params.get<double>("reference_Y");
 	reference_lux_ = params.get<double>("reference_lux");
 	current_aperture_ = reference_aperture_;
+}
+
+void Lux::SetCurrentAperture(double aperture)
+{
+	current_aperture_ = aperture;
 }
 
 void Lux::Prepare(Metadata *image_metadata)
@@ -51,16 +60,9 @@ void Lux::Prepare(Metadata *image_metadata)
 
 void Lux::Process(StatisticsPtr &stats, Metadata *image_metadata)
 {
-	// set some initial values to shut the compiler up
-	DeviceStatus device_status =
-		{ .shutter_speed = 1.0,
-		  .analogue_gain = 1.0,
-		  .lens_position = 0.0,
-		  .aperture = 0.0,
-		  .flash_intensity = 0.0 };
+	DeviceStatus device_status;
 	if (image_metadata->Get("device.status", device_status) == 0) {
 		double current_gain = device_status.analogue_gain;
-		double current_shutter_speed = device_status.shutter_speed;
 		double current_aperture = device_status.aperture;
 		if (current_aperture == 0)
 			current_aperture = current_aperture_;
@@ -75,7 +77,7 @@ void Lux::Process(StatisticsPtr &stats, Metadata *image_metadata)
 		double current_Y = sum / (double)num + .5;
 		double gain_ratio = reference_gain_ / current_gain;
 		double shutter_speed_ratio =
-			reference_shutter_speed_ / current_shutter_speed;
+			reference_shutter_speed_ / device_status.shutter_speed;
 		double aperture_ratio = reference_aperture_ / current_aperture;
 		double Y_ratio = current_Y * (65536 / num_bins) / reference_Y_;
 		double estimated_lux = shutter_speed_ratio * gain_ratio *
@@ -84,7 +86,7 @@ void Lux::Process(StatisticsPtr &stats, Metadata *image_metadata)
 		LuxStatus status;
 		status.lux = estimated_lux;
 		status.aperture = current_aperture;
-		RPI_LOG(Name() << ": estimated lux " << estimated_lux);
+		LOG(RPiLux, Debug) << ": estimated lux " << estimated_lux;
 		{
 			std::unique_lock<std::mutex> lock(mutex_);
 			status_ = status;
@@ -93,7 +95,7 @@ void Lux::Process(StatisticsPtr &stats, Metadata *image_metadata)
 		// algorithms get the latest value.
 		image_metadata->Set("lux.status", status);
 	} else
-		RPI_WARN(Name() << ": no device metadata");
+		LOG(RPiLux, Warning) << ": no device metadata";
 }
 
 // Register algorithm with the system.

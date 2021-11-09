@@ -7,12 +7,16 @@
 
 #include <math.h>
 
-#include "../logging.hpp"
+#include <libcamera/base/log.h>
+
 #include "../sharpen_status.h"
 
 #include "sharpen.hpp"
 
-using namespace RPi;
+using namespace RPiController;
+using namespace libcamera;
+
+LOG_DEFINE_CATEGORY(RPiSharpen)
 
 #define NAME "rpi.sharpen"
 
@@ -26,25 +30,27 @@ char const *Sharpen::Name() const
 	return NAME;
 }
 
-void Sharpen::SwitchMode(CameraMode const &camera_mode, Metadata *metadata)
+void Sharpen::SwitchMode(CameraMode const &camera_mode,
+			 [[maybe_unused]] Metadata *metadata)
 {
-	(void)metadata;
-
 	// can't be less than one, right?
 	mode_factor_ = std::max(1.0, camera_mode.noise_factor);
 }
 
 void Sharpen::Read(boost::property_tree::ptree const &params)
 {
-	RPI_LOG(Name());
 	threshold_ = params.get<double>("threshold", 1.0);
 	strength_ = params.get<double>("strength", 1.0);
 	limit_ = params.get<double>("limit", 1.0);
+	LOG(RPiSharpen, Debug)
+		<< "Read threshold " << threshold_
+		<< " strength " << strength_
+		<< " limit " << limit_;
 }
 
 void Sharpen::SetStrength(double strength)
 {
-	// Note that this method is how an application sets the overall
+	// Note that this function is how an application sets the overall
 	// sharpening "strength". We call this the "user strength" field
 	// as there already is a strength_ field - being an internal gain
 	// parameter that gets passed to the ISP control code. Negative

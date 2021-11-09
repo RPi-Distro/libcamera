@@ -14,9 +14,9 @@
 
 #include <linux/media.h>
 
-#include <libcamera/signal.h>
+#include <libcamera/base/log.h>
+#include <libcamera/base/signal.h>
 
-#include "libcamera/internal/log.h"
 #include "libcamera/internal/media_object.h"
 
 namespace libcamera {
@@ -35,12 +35,13 @@ public:
 	void unlock();
 
 	int populate();
-	bool valid() const { return valid_; }
+	bool isValid() const { return valid_; }
 
 	const std::string driver() const { return driver_; }
 	const std::string deviceNode() const { return deviceNode_; }
 	const std::string model() const { return model_; }
 	unsigned int version() const { return version_; }
+	unsigned int hwRevision() const { return hwRevision_; }
 
 	const std::vector<MediaEntity *> &entities() const { return entities_; }
 	MediaEntity *getEntityByName(const std::string &name) const;
@@ -52,7 +53,7 @@ public:
 	MediaLink *link(const MediaPad *source, const MediaPad *sink);
 	int disableLinks();
 
-	Signal<MediaDevice *> disconnected;
+	Signal<> disconnected;
 
 protected:
 	std::string logPrefix() const override;
@@ -79,6 +80,7 @@ private:
 	std::string deviceNode_;
 	std::string model_;
 	unsigned int version_;
+	unsigned int hwRevision_;
 
 	int fd_;
 	bool valid_;

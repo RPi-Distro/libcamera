@@ -7,6 +7,16 @@
 formats:
   - R8:
       fourcc: DRM_FORMAT_R8
+  - R10:
+      fourcc: DRM_FORMAT_R10
+  - R12:
+      fourcc: DRM_FORMAT_R12
+
+  - RGB565:
+      fourcc: DRM_FORMAT_RGB565
+  - RGB565_BE:
+      fourcc: DRM_FORMAT_RGB565
+      big_endian: true
 
   - RGB888:
       fourcc: DRM_FORMAT_RGB888
@@ -55,6 +65,8 @@ formats:
 
   - YUV420:
       fourcc: DRM_FORMAT_YUV420
+  - YVU420:
+      fourcc: DRM_FORMAT_YVU420
   - YUV422:
       fourcc: DRM_FORMAT_YUV422
 
@@ -87,6 +99,19 @@ formats:
       fourcc: DRM_FORMAT_SGBRG12
   - SBGGR12:
       fourcc: DRM_FORMAT_SBGGR12
+
+  - SRGGB16:
+      fourcc: DRM_FORMAT_SRGGB16
+  - SGRBG16:
+      fourcc: DRM_FORMAT_SGRBG16
+  - SGBRG16:
+      fourcc: DRM_FORMAT_SGBRG16
+  - SBGGR16:
+      fourcc: DRM_FORMAT_SBGGR16
+
+  - R10_CSI2P:
+      fourcc: DRM_FORMAT_R10
+      mod: MIPI_FORMAT_MOD_CSI2_PACKED
 
   - SRGGB10_CSI2P:
       fourcc: DRM_FORMAT_SRGGB10

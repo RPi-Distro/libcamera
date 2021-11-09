@@ -1,12 +1,13 @@
 # SPDX-License-Identifier: CC0-1.0
 
 ipc_tests = [
-    [ 'unixsocket',  'unixsocket.cpp' ],
+    ['unixsocket_ipc', 'unixsocket_ipc.cpp'],
+    ['unixsocket',     'unixsocket.cpp'],
 ]
 
 foreach t : ipc_tests
     exe = executable(t[0], t[1],
-                     dependencies : libcamera_dep,
+                     dependencies : libcamera_private,
                      link_with : test_libraries,
                      include_directories : test_includes_internal)
 

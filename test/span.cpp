@@ -9,7 +9,7 @@
  * Include first to ensure the header is self-contained, as there's no span.cpp
  * in libcamera.
  */
-#include <libcamera/span.h>
+#include <libcamera/base/span.h>
 
 #include <array>
 #include <iostream>
@@ -72,12 +72,24 @@ protected:
 
 		staticSpan = Span<int, 4>{ v };
 
-		staticSpan.begin();
-		staticSpan.cbegin();
+		if (*staticSpan.begin() != 1) {
+			std::cout << "Span<static_extent>::begin() failed" << std::endl;
+			return TestFail;
+		}
+		if (*staticSpan.cbegin() != 1) {
+			std::cout << "Span<static_extent>::cbegin() failed" << std::endl;
+			return TestFail;
+		}
 		staticSpan.end();
 		staticSpan.cend();
-		staticSpan.rbegin();
-		staticSpan.crbegin();
+		if (*staticSpan.rbegin() != 4) {
+			std::cout << "Span<static_extent>::rbegin() failed" << std::endl;
+			return TestFail;
+		}
+		if (*staticSpan.crbegin() != 4) {
+			std::cout << "Span<static_extent>::crbegin() failed" << std::endl;
+			return TestFail;
+		}
 		staticSpan.rend();
 		staticSpan.crend();
 
@@ -106,7 +118,7 @@ protected:
 		/* staticSpan.subspan(2, 4); */
 
 		/*
-		 * Compile-test construction and usage of spans with static
+		 * Compile-test construction and usage of spans with dynamic
 		 * extent. Commented-out tests are expected not to compile, or
 		 * to generate undefined behaviour.
 		 */
@@ -141,12 +153,24 @@ protected:
 
 		dynamicSpan = Span<int>{ a };
 
-		dynamicSpan.begin();
-		dynamicSpan.cbegin();
+		if (*dynamicSpan.begin() != 1) {
+			std::cout << "Span<dynamic_extent>::begin() failed" << std::endl;
+			return TestFail;
+		}
+		if (*dynamicSpan.cbegin() != 1) {
+			std::cout << "Span<dynamic_extent>::cbegin() failed" << std::endl;
+			return TestFail;
+		}
 		dynamicSpan.end();
 		dynamicSpan.cend();
-		dynamicSpan.rbegin();
-		dynamicSpan.crbegin();
+		if (*dynamicSpan.rbegin() != 4) {
+			std::cout << "Span<dynamic_extent>::rbegin() failed" << std::endl;
+			return TestFail;
+		}
+		if (*dynamicSpan.crbegin() != 4) {
+			std::cout << "Span<dynamic_extent>::crbegin() failed" << std::endl;
+			return TestFail;
+		}
 		dynamicSpan.rend();
 		dynamicSpan.crend();
 

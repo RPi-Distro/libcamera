@@ -20,10 +20,9 @@
 #include <unistd.h>
 #include <vector>
 
-#include <libcamera/event_notifier.h>
-
-#include "libcamera/internal/log.h"
-#include "libcamera/internal/utils.h"
+#include <libcamera/base/event_notifier.h>
+#include <libcamera/base/log.h>
+#include <libcamera/base/utils.h>
 
 /**
  * \file process.h
@@ -41,28 +40,6 @@ LOG_DEFINE_CATEGORY(Process)
  * The ProcessManager singleton keeps track of all created Process instances,
  * and manages the signal handling involved in terminating processes.
  */
-class ProcessManager
-{
-public:
-	void registerProcess(Process *proc);
-
-	static ProcessManager *instance();
-
-	int writePipe() const;
-
-	const struct sigaction &oldsa() const;
-
-private:
-	void sighandler(EventNotifier *notifier);
-	ProcessManager();
-	~ProcessManager();
-
-	std::list<Process *> processes_;
-
-	struct sigaction oldsa_;
-	EventNotifier *sigEvent_;
-	int pipe_[2];
-};
 
 namespace {
 
@@ -89,7 +66,7 @@ void sigact(int signal, siginfo_t *info, void *ucontext)
 
 } /* namespace */
 
-void ProcessManager::sighandler(EventNotifier *notifier)
+void ProcessManager::sighandler()
 {
 	char data;
 	ssize_t ret = read(pipe_[0], &data, sizeof(data));
@@ -118,7 +95,7 @@ void ProcessManager::sighandler(EventNotifier *notifier)
  * \brief Register process with process manager
  * \param[in] proc Process to register
  *
- * This method registers the \a proc with the process manager. It
+ * This function registers the \a proc with the process manager. It
  * shall be called by the parent process after successfully forking, in
  * order to let the parent signal process termination.
  */
@@ -127,8 +104,20 @@ void ProcessManager::registerProcess(Process *proc)
 	processes_.push_back(proc);
 }
 
+ProcessManager *ProcessManager::self_ = nullptr;
+
+/**
+ * \brief Construct a ProcessManager instance
+ *
+ * The ProcessManager class is meant to only be instantiated once, by the
+ * CameraManager.
+ */
 ProcessManager::ProcessManager()
 {
+	if (self_)
+		LOG(Process, Fatal)
+			<< "Multiple ProcessManager objects are not allowed";
+
 	sigaction(SIGCHLD, NULL, &oldsa_);
 
 	struct sigaction sa;
@@ -145,6 +134,8 @@ ProcessManager::ProcessManager()
 			<< "Failed to initialize pipe for signal handling";
 	sigEvent_ = new EventNotifier(pipe_[0], EventNotifier::Read);
 	sigEvent_->activated.connect(this, &ProcessManager::sighandler);
+
+	self_ = this;
 }
 
 ProcessManager::~ProcessManager()
@@ -153,27 +144,27 @@ ProcessManager::~ProcessManager()
 	delete sigEvent_;
 	close(pipe_[0]);
 	close(pipe_[1]);
+
+	self_ = nullptr;
 }
 
 /**
  * \brief Retrieve the Process manager instance
  *
- * The ProcessManager is a singleton and can't be constructed manually. This
- * method shall instead be used to retrieve the single global instance of the
- * manager.
+ * The ProcessManager is constructed by the CameraManager. This function shall
+ * be used to retrieve the single instance of the manager.
  *
  * \return The Process manager instance
  */
 ProcessManager *ProcessManager::instance()
 {
-	static ProcessManager processManager;
-	return &processManager;
+	return self_;
 }
 
 /**
  * \brief Retrieve the Process manager's write pipe
  *
- * This method is meant only to be used by the static signal handler.
+ * This function is meant only to be used by the static signal handler.
  *
  * \return Pipe for writing
  */
@@ -185,7 +176,7 @@ int ProcessManager::writePipe() const
 /**
  * \brief Retrive the old signal action data
  *
- * This method is meant only to be used by the static signal handler.
+ * This function is meant only to be used by the static signal handler.
  *
  * \return The old signal action data
  */
@@ -326,7 +317,7 @@ int Process::isolate()
  * \brief SIGCHLD handler
  * \param[in] wstatus The status as output by waitpid()
  *
- * This method is called when the process associated with Process terminates.
+ * This function is called when the process associated with Process terminates.
  * It emits the Process::finished signal.
  */
 void Process::died(int wstatus)
@@ -335,7 +326,7 @@ void Process::died(int wstatus)
 	exitStatus_ = WIFEXITED(wstatus) ? NormalExit : SignalExit;
 	exitCode_ = exitStatus_ == NormalExit ? WEXITSTATUS(wstatus) : -1;
 
-	finished.emit(this, exitStatus_, exitCode_);
+	finished.emit(exitStatus_, exitCode_);
 }
 
 /**
@@ -355,7 +346,7 @@ void Process::died(int wstatus)
  * \fn Process::exitCode()
  * \brief Retrieve the exit code of the process
  *
- * This method is only valid if exitStatus() returned NormalExit.
+ * This function is only valid if exitStatus() returned NormalExit.
  *
  * \return Exit code
  */
@@ -373,7 +364,8 @@ void Process::died(int wstatus)
  */
 void Process::kill()
 {
-	::kill(pid_, SIGKILL);
+	if (pid_ > 0)
+		::kill(pid_, SIGKILL);
 }
 
 } /* namespace libcamera */

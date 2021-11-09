@@ -4,7 +4,7 @@
 #
 # Author: Laurent Pinchart <laurent.pinchart@ideasonboard.com>
 #
-# checkstyle.py - A patch style checker script based on astyle or clang-format
+# checkstyle.py - A patch style checker script based on clang-format
 #
 # TODO:
 #
@@ -22,22 +22,8 @@ import shutil
 import subprocess
 import sys
 
-astyle_options = (
-    '-n',
-    '--style=linux',
-    '--indent=force-tab=8',
-    '--attach-namespaces',
-    '--attach-extern-c',
-    '--pad-oper',
-    '--align-pointer=name',
-    '--align-reference=name',
-    '--keep-one-line-blocks',
-    '--max-code-length=120'
-)
-
 dependencies = {
-    'astyle': False,
-    'clang-format': False,
+    'clang-format': True,
     'git': True,
 }
 
@@ -191,20 +177,186 @@ def parse_diff(diff):
 
 
 # ------------------------------------------------------------------------------
-# Style Checkers
+# Commit, Staged Changes & Amendments
 #
 
-_style_checkers = []
+class CommitFile:
+    def __init__(self, name):
+        info = name.split()
+        self.__status = info[0][0]
 
-class StyleCheckerRegistry(type):
+        # For renamed files, store the new name
+        if self.__status == 'R':
+            self.__filename = info[2]
+        else:
+            self.__filename = info[1]
+
+    @property
+    def filename(self):
+        return self.__filename
+
+    @property
+    def status(self):
+        return self.__status
+
+
+class Commit:
+    def __init__(self, commit):
+        self.commit = commit
+        self._parse()
+
+    def _parse(self):
+        # Get the commit title and list of files.
+        ret = subprocess.run(['git', 'show', '--pretty=oneline', '--name-status',
+                              self.commit],
+                             stdout=subprocess.PIPE).stdout.decode('utf-8')
+        files = ret.splitlines()
+        self._files = [CommitFile(f) for f in files[1:]]
+        self._title = files[0]
+
+    def files(self, filter='AMR'):
+        return [f.filename for f in self._files if f.status in filter]
+
+    @property
+    def title(self):
+        return self._title
+
+    def get_diff(self, top_level, filename):
+        diff = subprocess.run(['git', 'diff', '%s~..%s' % (self.commit, self.commit),
+                               '--', '%s/%s' % (top_level, filename)],
+                              stdout=subprocess.PIPE).stdout.decode('utf-8')
+        return parse_diff(diff.splitlines(True))
+
+    def get_file(self, filename):
+        return subprocess.run(['git', 'show', '%s:%s' % (self.commit, filename)],
+                              stdout=subprocess.PIPE).stdout.decode('utf-8')
+
+
+class StagedChanges(Commit):
+    def __init__(self):
+        Commit.__init__(self, '')
+
+    def _parse(self):
+        ret = subprocess.run(['git', 'diff', '--staged', '--name-status'],
+                             stdout=subprocess.PIPE).stdout.decode('utf-8')
+        self._title = 'Staged changes'
+        self._files = [CommitFile(f) for f in ret.splitlines()]
+
+    def get_diff(self, top_level, filename):
+        diff = subprocess.run(['git', 'diff', '--staged', '--',
+                               '%s/%s' % (top_level, filename)],
+                              stdout=subprocess.PIPE).stdout.decode('utf-8')
+        return parse_diff(diff.splitlines(True))
+
+
+class Amendment(StagedChanges):
+    def __init__(self):
+        StagedChanges.__init__(self)
+
+    def _parse(self):
+        # Create a title using HEAD commit
+        ret = subprocess.run(['git', 'show', '--pretty=oneline', '--no-patch'],
+                             stdout=subprocess.PIPE).stdout.decode('utf-8')
+        self._title = 'Amendment of ' + ret.strip()
+        # Extract the list of modified files
+        ret = subprocess.run(['git', 'diff', '--staged', '--name-status', 'HEAD~'],
+                             stdout=subprocess.PIPE).stdout.decode('utf-8')
+        self._files = [CommitFile(f) for f in ret.splitlines()]
+
+    def get_diff(self, top_level, filename):
+        diff = subprocess.run(['git', 'diff', '--staged', 'HEAD~', '--',
+                               '%s/%s' % (top_level, filename)],
+                              stdout=subprocess.PIPE).stdout.decode('utf-8')
+        return parse_diff(diff.splitlines(True))
+
+
+# ------------------------------------------------------------------------------
+# Helpers
+#
+
+class ClassRegistry(type):
     def __new__(cls, clsname, bases, attrs):
-        newclass = super(StyleCheckerRegistry, cls).__new__(cls, clsname, bases, attrs)
-        if clsname != 'StyleChecker':
-            _style_checkers.append(newclass)
+        newclass = super().__new__(cls, clsname, bases, attrs)
+        if bases:
+            bases[0].subclasses.append(newclass)
         return newclass
 
 
-class StyleChecker(metaclass=StyleCheckerRegistry):
+# ------------------------------------------------------------------------------
+# Commit Checkers
+#
+
+class CommitChecker(metaclass=ClassRegistry):
+    subclasses = []
+
+    def __init__(self):
+        pass
+
+    #
+    # Class methods
+    #
+    @classmethod
+    def checkers(cls):
+        for checker in cls.subclasses:
+            yield checker
+
+
+class CommitIssue(object):
+    def __init__(self, msg):
+        self.msg = msg
+
+
+class HeaderAddChecker(CommitChecker):
+    @classmethod
+    def check(cls, commit, top_level):
+        issues = []
+
+        meson_files = [f for f in commit.files('M')
+                       if os.path.basename(f) == 'meson.build']
+
+        for filename in commit.files('AR'):
+            if not filename.startswith('include/libcamera/') or \
+               not filename.endswith('.h'):
+                continue
+
+            meson = os.path.dirname(filename) + '/meson.build'
+            header = os.path.basename(filename)
+
+            issue = CommitIssue('Header %s added without corresponding update to %s' %
+                                (filename, meson))
+
+            if meson not in meson_files:
+                issues.append(issue)
+                continue
+
+            diff = commit.get_diff(top_level, meson)
+            found = False
+
+            for hunk in diff:
+                for line in hunk.lines:
+                    if line[0] != '+':
+                        continue
+
+                    if line.find("'%s'" % header) != -1:
+                        found = True
+                        break
+
+                if found:
+                    break
+
+            if not found:
+                issues.append(issue)
+
+        return issues
+
+
+# ------------------------------------------------------------------------------
+# Style Checkers
+#
+
+class StyleChecker(metaclass=ClassRegistry):
+    subclasses = []
+
     def __init__(self):
         pass
 
@@ -213,7 +365,7 @@ class StyleChecker(metaclass=StyleCheckerRegistry):
     #
     @classmethod
     def checkers(cls, filename):
-        for checker in _style_checkers:
+        for checker in cls.subclasses:
             if checker.supports(filename):
                 yield checker
 
@@ -227,7 +379,7 @@ class StyleChecker(metaclass=StyleCheckerRegistry):
     @classmethod
     def all_patterns(cls):
         patterns = set()
-        for checker in _style_checkers:
+        for checker in cls.subclasses:
             patterns.update(checker.patterns)
 
         return patterns
@@ -244,9 +396,9 @@ class IncludeChecker(StyleChecker):
     patterns = ('*.cpp', '*.h')
 
     headers = ('assert', 'ctype', 'errno', 'fenv', 'float', 'inttypes',
-               'limits', 'locale', 'math', 'setjmp', 'signal', 'stdarg',
-               'stddef', 'stdint', 'stdio', 'stdlib', 'string', 'time', 'uchar',
-               'wchar', 'wctype')
+               'limits', 'locale', 'setjmp', 'signal', 'stdarg', 'stddef',
+               'stdint', 'stdio', 'stdlib', 'string', 'time', 'uchar', 'wchar',
+               'wctype')
     include_regex = re.compile('^#include <c([a-z]*)>')
 
     def __init__(self, content):
@@ -324,7 +476,7 @@ class Pep8Checker(StyleChecker):
             ret = subprocess.run(['pycodestyle', '--ignore=E501', '-'],
                                  input=data, stdout=subprocess.PIPE)
         except FileNotFoundError:
-            issues.append(StyleIssue(0, None, "Please install pycodestyle to validate python additions"))
+            issues.append(StyleIssue(0, None, 'Please install pycodestyle to validate python additions'))
             return issues
 
         results = ret.stdout.decode('utf-8').splitlines()
@@ -357,7 +509,7 @@ class ShellChecker(StyleChecker):
             ret = subprocess.run(['shellcheck', '-Cnever', '-'],
                                  input=data, stdout=subprocess.PIPE)
         except FileNotFoundError:
-            issues.append(StyleIssue(0, None, "Please install shellcheck to validate shell script additions"))
+            issues.append(StyleIssue(0, None, 'Please install shellcheck to validate shell script additions'))
             return issues
 
         results = ret.stdout.decode('utf-8').splitlines()
@@ -383,18 +535,8 @@ class ShellChecker(StyleChecker):
 # Formatters
 #
 
-_formatters = []
-
-class FormatterRegistry(type):
-    def __new__(cls, clsname, bases, attrs):
-        newclass = super(FormatterRegistry, cls).__new__(cls, clsname, bases, attrs)
-        if clsname != 'Formatter':
-            _formatters.append(newclass)
-        return newclass
-
-
-class Formatter(metaclass=FormatterRegistry):
-    enabled = True
+class Formatter(metaclass=ClassRegistry):
+    subclasses = []
 
     def __init__(self):
         pass
@@ -404,16 +546,12 @@ class Formatter(metaclass=FormatterRegistry):
     #
     @classmethod
     def formatters(cls, filename):
-        for formatter in _formatters:
-            if not cls.enabled:
-                continue
+        for formatter in cls.subclasses:
             if formatter.supports(filename):
                 yield formatter
 
     @classmethod
     def supports(cls, filename):
-        if not cls.enabled:
-            return False
         for pattern in cls.patterns:
             if fnmatch.fnmatch(os.path.basename(filename), pattern):
                 return True
@@ -422,27 +560,13 @@ class Formatter(metaclass=FormatterRegistry):
     @classmethod
     def all_patterns(cls):
         patterns = set()
-        for formatter in _formatters:
-            if not cls.enabled:
-                continue
+        for formatter in cls.subclasses:
             patterns.update(formatter.patterns)
 
         return patterns
 
 
-class AStyleFormatter(Formatter):
-    enabled = False
-    patterns = ('*.c', '*.cpp', '*.h')
-
-    @classmethod
-    def format(cls, filename, data):
-        ret = subprocess.run(['astyle', *astyle_options],
-                             input=data.encode('utf-8'), stdout=subprocess.PIPE)
-        return ret.stdout.decode('utf-8')
-
-
 class CLangFormatter(Formatter):
-    enabled = False
     patterns = ('*.c', '*.cpp', '*.h')
 
     @classmethod
@@ -475,6 +599,38 @@ class DoxygenFormatter(Formatter):
 
             if line.find('*/') != -1:
                 in_doxygen = False
+
+            lines.append(line)
+
+        return '\n'.join(lines)
+
+
+class DPointerFormatter(Formatter):
+    # Ensure consistent naming of variables related to the d-pointer design
+    # pattern.
+    patterns = ('*.cpp', '*.h')
+
+    # The clang formatter runs first, we can thus rely on appropriate coding
+    # style.
+    declare_regex = re.compile(r'^(\t*)(const )?([a-zA-Z0-9_]+) \*( ?const )?([a-zA-Z0-9_]+) = (LIBCAMERA_[DO]_PTR)\(([a-zA-Z0-9_]+)\);$')
+
+    @classmethod
+    def format(cls, filename, data):
+        lines = []
+
+        for line in data.split('\n'):
+            match = cls.declare_regex.match(line)
+            if match:
+                indent = match.group(1) or ''
+                const = match.group(2) or ''
+                macro = match.group(6)
+                klass = match.group(7)
+                if macro == 'LIBCAMERA_D_PTR':
+                    var = 'Private *const d'
+                else:
+                    var = f'{klass} *const o'
+
+                line = f'{indent}{const}{var} = {macro}({klass});'
 
             lines.append(line)
 
@@ -537,69 +693,9 @@ class StripTrailingSpaceFormatter(Formatter):
 # Style checking
 #
 
-class Commit:
-    def __init__(self, commit):
-        self.commit = commit
-
-    def get_info(self):
-        # Get the commit title and list of files.
-        ret = subprocess.run(['git', 'show', '--pretty=oneline', '--name-only',
-                              self.commit],
-                             stdout=subprocess.PIPE).stdout.decode('utf-8')
-        files = ret.splitlines()
-        # Returning title and files list as a tuple
-        return files[0], files[1:]
-
-    def get_diff(self, top_level, filename):
-        return subprocess.run(['git', 'diff', '%s~..%s' % (self.commit, self.commit),
-                               '--', '%s/%s' % (top_level, filename)],
-                              stdout=subprocess.PIPE).stdout.decode('utf-8')
-
-    def get_file(self, filename):
-        return subprocess.run(['git', 'show', '%s:%s' % (self.commit, filename)],
-                              stdout=subprocess.PIPE).stdout.decode('utf-8')
-
-
-class StagedChanges(Commit):
-    def __init__(self):
-        Commit.__init__(self, '')
-
-    def get_info(self):
-        ret = subprocess.run(['git', 'diff', '--staged', '--name-only'],
-                             stdout=subprocess.PIPE).stdout.decode('utf-8')
-        return "Staged changes", ret.splitlines()
-
-    def get_diff(self, top_level, filename):
-        return subprocess.run(['git', 'diff', '--staged', '--',
-                               '%s/%s' % (top_level, filename)],
-                              stdout=subprocess.PIPE).stdout.decode('utf-8')
-
-
-class Amendment(StagedChanges):
-    def __init__(self):
-        StagedChanges.__init__(self)
-
-    def get_info(self):
-        # Create a title using HEAD commit
-        ret = subprocess.run(['git', 'show', '--pretty=oneline', '--no-patch'],
-                             stdout=subprocess.PIPE).stdout.decode('utf-8')
-        title = 'Amendment of ' + ret.strip()
-        # Extract the list of modified files
-        ret = subprocess.run(['git', 'diff', '--staged', '--name-only', 'HEAD~'],
-                             stdout=subprocess.PIPE).stdout.decode('utf-8')
-        return title, ret.splitlines()
-
-    def get_diff(self, top_level, filename):
-        return subprocess.run(['git', 'diff', '--staged', 'HEAD~', '--',
-                               '%s/%s' % (top_level, filename)],
-                              stdout=subprocess.PIPE).stdout.decode('utf-8')
-
-
 def check_file(top_level, commit, filename):
     # Extract the line numbers touched by the commit.
-    diff = commit.get_diff(top_level, filename)
-    diff = diff.splitlines(True)
-    commit_diff = parse_diff(diff)
+    commit_diff = commit.get_diff(top_level, filename)
 
     lines = []
     for hunk in commit_diff:
@@ -655,32 +751,34 @@ def check_file(top_level, commit, filename):
 
 
 def check_style(top_level, commit):
-    title, files = commit.get_info()
+    separator = '-' * len(commit.title)
+    print(separator)
+    print(commit.title)
+    print(separator)
 
-    separator = '-' * len(title)
-    print(separator)
-    print(title)
-    print(separator)
+    issues = 0
+
+    # Apply the commit checkers first.
+    for checker in CommitChecker.checkers():
+        for issue in checker.check(commit, top_level):
+            print('%s%s%s' % (Colours.fg(Colours.Yellow), issue.msg, Colours.reset()))
+            issues += 1
 
     # Filter out files we have no checker for.
     patterns = set()
     patterns.update(StyleChecker.all_patterns())
     patterns.update(Formatter.all_patterns())
-    files = [f for f in files if len([p for p in patterns if fnmatch.fnmatch(os.path.basename(f), p)])]
-    if len(files) == 0:
-        print("Commit doesn't touch source files, skipping")
-        return 0
+    files = [f for f in commit.files() if len([p for p in patterns if fnmatch.fnmatch(os.path.basename(f), p)])]
 
-    issues = 0
     for f in files:
         issues += check_file(top_level, commit, f)
 
     if issues == 0:
-        print("No style issue detected")
+        print('No issue detected')
     else:
         print('---')
-        print("%u potential style %s detected, please review" % \
-                (issues, 'issue' if issues == 1 else 'issues'))
+        print('%u potential %s detected, please review' %
+              (issues, 'issue' if issues == 1 else 'issues'))
 
     return issues
 
@@ -723,8 +821,6 @@ def main(argv):
 
     # Parse command line arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('--formatter', '-f', type=str, choices=['astyle', 'clang-format'],
-                        help='Code formatter. Default to clang-format if not specified.')
     parser.add_argument('--staged', '-s', action='store_true',
                         help='Include the changes in the index. Defaults to False')
     parser.add_argument('--amend', '-a', action='store_true',
@@ -737,25 +833,10 @@ def main(argv):
     for command, mandatory in dependencies.items():
         found = shutil.which(command)
         if mandatory and not found:
-            print("Executable %s not found" % command)
+            print('Executable %s not found' % command)
             return 1
 
         dependencies[command] = found
-
-    if args.formatter:
-        if not args.formatter in dependencies or \
-           not dependencies[args.formatter]:
-            print("Formatter %s not available" % args.formatter)
-            return 1
-        formatter = args.formatter
-    else:
-        if dependencies['clang-format']:
-            CLangFormatter.enabled = True
-        elif dependencies['astyle']:
-            AStyleFormatter.enabled = True
-        else:
-            print("No formatter found, please install clang-format or astyle")
-            return 1
 
     # Get the top level directory to pass absolute file names to git diff
     # commands, in order to support execution from subdirectories of the git

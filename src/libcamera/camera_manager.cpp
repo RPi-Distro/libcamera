@@ -11,29 +11,34 @@
 #include <map>
 
 #include <libcamera/camera.h>
-#include <libcamera/event_dispatcher.h>
+
+#include <libcamera/base/log.h>
+#include <libcamera/base/thread.h>
+#include <libcamera/base/utils.h>
 
 #include "libcamera/internal/device_enumerator.h"
-#include "libcamera/internal/event_dispatcher_poll.h"
 #include "libcamera/internal/ipa_manager.h"
-#include "libcamera/internal/log.h"
 #include "libcamera/internal/pipeline_handler.h"
-#include "libcamera/internal/thread.h"
-#include "libcamera/internal/utils.h"
+#include "libcamera/internal/process.h"
 
 /**
  * \file camera_manager.h
  * \brief The camera manager
  */
 
+/**
+ * \brief Top-level libcamera namespace
+ */
 namespace libcamera {
 
 LOG_DEFINE_CATEGORY(Camera)
 
-class CameraManager::Private : public Thread
+class CameraManager::Private : public Extensible::Private, public Thread
 {
+	LIBCAMERA_DECLARE_PUBLIC(CameraManager)
+
 public:
-	Private(CameraManager *cm);
+	Private();
 
 	int start();
 	void addCamera(std::shared_ptr<Camera> camera,
@@ -46,7 +51,7 @@ public:
 	 * - initialized_ and status_ during initialization
 	 * - cameras_ and camerasByDevnum_ after initialization
 	 */
-	Mutex mutex_;
+	mutable Mutex mutex_;
 	std::vector<std::shared_ptr<Camera>> cameras_;
 	std::map<dev_t, std::weak_ptr<Camera>> camerasByDevnum_;
 
@@ -58,8 +63,6 @@ private:
 	void createPipelineHandlers();
 	void cleanup();
 
-	CameraManager *cm_;
-
 	std::condition_variable cv_;
 	bool initialized_;
 	int status_;
@@ -67,10 +70,11 @@ private:
 	std::unique_ptr<DeviceEnumerator> enumerator_;
 
 	IPAManager ipaManager_;
+	ProcessManager processManager_;
 };
 
-CameraManager::Private::Private(CameraManager *cm)
-	: cm_(cm), initialized_(false)
+CameraManager::Private::Private()
+	: initialized_(false)
 {
 }
 
@@ -131,6 +135,8 @@ int CameraManager::Private::init()
 
 void CameraManager::Private::createPipelineHandlers()
 {
+	CameraManager *const o = LIBCAMERA_O_PTR();
+
 	/*
 	 * \todo Try to read handlers and order from configuration
 	 * file and only fallback on all handlers if there is no
@@ -140,12 +146,15 @@ void CameraManager::Private::createPipelineHandlers()
 		PipelineHandlerFactory::factories();
 
 	for (PipelineHandlerFactory *factory : factories) {
+		LOG(Camera, Debug)
+			<< "Found registered pipeline handler '"
+			<< factory->name() << "'";
 		/*
 		 * Try each pipeline handler until it exhaust
 		 * all pipelines it can provide.
 		 */
 		while (1) {
-			std::shared_ptr<PipelineHandler> pipe = factory->create(cm_);
+			std::shared_ptr<PipelineHandler> pipe = factory->create(o);
 			if (!pipe->match(enumerator_.get()))
 				break;
 
@@ -160,13 +169,17 @@ void CameraManager::Private::createPipelineHandlers()
 
 void CameraManager::Private::cleanup()
 {
-	enumerator_->devicesAdded.disconnect(this, &Private::createPipelineHandlers);
+	enumerator_->devicesAdded.disconnect(this);
 
 	/*
 	 * Release all references to cameras to ensure they all get destroyed
-	 * before the device enumerator deletes the media devices.
+	 * before the device enumerator deletes the media devices. Cameras are
+	 * destroyed via Object::deleteLater() API, hence we need to explicitly
+	 * process deletion requests from the thread's message queue as the event
+	 * loop is not in action here.
 	 */
 	cameras_.clear();
+	dispatchMessages(Message::Type::DeferredDelete);
 
 	enumerator_.reset(nullptr);
 }
@@ -177,11 +190,11 @@ void CameraManager::Private::addCamera(std::shared_ptr<Camera> camera,
 	MutexLocker locker(mutex_);
 
 	for (std::shared_ptr<Camera> c : cameras_) {
-		if (c->name() == camera->name()) {
-			LOG(Camera, Warning)
-				<< "Registering camera with duplicate name '"
-				<< camera->name() << "'";
-			break;
+		if (c->id() == camera->id()) {
+			LOG(Camera, Fatal)
+				<< "Trying to register a camera with a duplicated ID '"
+				<< camera->id() << "'";
+			return;
 		}
 	}
 
@@ -204,7 +217,7 @@ void CameraManager::Private::removeCamera(Camera *camera)
 		return;
 
 	LOG(Camera, Debug)
-		<< "Unregistering camera '" << camera->name() << "'";
+		<< "Unregistering camera '" << camera->id() << "'";
 
 	auto iter_d = std::find_if(camerasByDevnum_.begin(), camerasByDevnum_.end(),
 				   [camera](const std::pair<dev_t, std::weak_ptr<Camera>> &p) {
@@ -230,12 +243,8 @@ void CameraManager::Private::removeCamera(Camera *camera)
  * a time. Attempting to create a second instance without first deleting the
  * existing instance results in undefined behaviour.
  *
- * The manager is initially stopped, and shall be configured before being
- * started. In particular a custom event dispatcher shall be installed if
- * needed with CameraManager::setEventDispatcher().
- *
- * Once the camera manager is configured, it shall be started with start().
- * This will enumerate all the cameras present in the system, which can then be
+ * The manager is initially stopped, and shall be started with start(). This
+ * will enumerate all the cameras present in the system, which can then be
  * listed with list() and retrieved with get().
  *
  * Cameras are shared through std::shared_ptr<>, ensuring that a camera will
@@ -243,16 +252,12 @@ void CameraManager::Private::removeCamera(Camera *camera)
  * action from the application. Once the application has released all the
  * references it held to cameras, the camera manager can be stopped with
  * stop().
- *
- * \todo Add interface to register a notification callback to the user to be
- * able to inform it new cameras have been hot-plugged or cameras have been
- * removed due to hot-unplug.
  */
 
 CameraManager *CameraManager::self_ = nullptr;
 
 CameraManager::CameraManager()
-	: p_(new CameraManager::Private(this))
+	: Extensible(std::make_unique<CameraManager::Private>())
 {
 	if (self_)
 		LOG(Camera, Fatal)
@@ -261,6 +266,11 @@ CameraManager::CameraManager()
 	self_ = this;
 }
 
+/**
+ * \brief Destroy the camera manager
+ *
+ * Destroying the camera manager stops it if it is currently running.
+ */
 CameraManager::~CameraManager()
 {
 	stop();
@@ -282,7 +292,7 @@ int CameraManager::start()
 {
 	LOG(Camera, Info) << "libcamera " << version_;
 
-	int ret = p_->start();
+	int ret = _d()->start();
 	if (ret)
 		LOG(Camera, Error) << "Failed to start camera manager: "
 				   << strerror(-ret);
@@ -302,8 +312,9 @@ int CameraManager::start()
  */
 void CameraManager::stop()
 {
-	p_->exit();
-	p_->wait();
+	Private *const d = _d();
+	d->exit();
+	d->wait();
 }
 
 /**
@@ -319,14 +330,16 @@ void CameraManager::stop()
  */
 std::vector<std::shared_ptr<Camera>> CameraManager::cameras() const
 {
-	MutexLocker locker(p_->mutex_);
+	const Private *const d = _d();
 
-	return p_->cameras_;
+	MutexLocker locker(d->mutex_);
+
+	return d->cameras_;
 }
 
 /**
- * \brief Get a camera based on name
- * \param[in] name Name of camera to get
+ * \brief Get a camera based on ID
+ * \param[in] id ID of camera to get
  *
  * Before calling this function the caller is responsible for ensuring that
  * the camera manager is running.
@@ -335,12 +348,14 @@ std::vector<std::shared_ptr<Camera>> CameraManager::cameras() const
  *
  * \return Shared pointer to Camera object or nullptr if camera not found
  */
-std::shared_ptr<Camera> CameraManager::get(const std::string &name)
+std::shared_ptr<Camera> CameraManager::get(const std::string &id)
 {
-	MutexLocker locker(p_->mutex_);
+	Private *const d = _d();
 
-	for (std::shared_ptr<Camera> camera : p_->cameras_) {
-		if (camera->name() == name)
+	MutexLocker locker(d->mutex_);
+
+	for (std::shared_ptr<Camera> camera : d->cameras_) {
+		if (camera->id() == id)
 			return camera;
 	}
 
@@ -351,7 +366,7 @@ std::shared_ptr<Camera> CameraManager::get(const std::string &name)
  * \brief Retrieve a camera based on device number
  * \param[in] devnum Device number of camera to get
  *
- * This method is meant solely for the use of the V4L2 compatibility
+ * This function is meant solely for the use of the V4L2 compatibility
  * layer, to map device nodes to Camera instances. Applications shall
  * not use it and shall instead retrieve cameras by name.
  *
@@ -365,10 +380,12 @@ std::shared_ptr<Camera> CameraManager::get(const std::string &name)
  */
 std::shared_ptr<Camera> CameraManager::get(dev_t devnum)
 {
-	MutexLocker locker(p_->mutex_);
+	Private *const d = _d();
 
-	auto iter = p_->camerasByDevnum_.find(devnum);
-	if (iter == p_->camerasByDevnum_.end())
+	MutexLocker locker(d->mutex_);
+
+	auto iter = d->camerasByDevnum_.find(devnum);
+	if (iter == d->camerasByDevnum_.end())
 		return nullptr;
 
 	return iter->second.lock();
@@ -419,9 +436,11 @@ std::shared_ptr<Camera> CameraManager::get(dev_t devnum)
 void CameraManager::addCamera(std::shared_ptr<Camera> camera,
 			      const std::vector<dev_t> &devnums)
 {
-	ASSERT(Thread::current() == p_.get());
+	Private *const d = _d();
 
-	p_->addCamera(camera, devnums);
+	ASSERT(Thread::current() == d);
+
+	d->addCamera(camera, devnums);
 	cameraAdded.emit(camera);
 }
 
@@ -437,9 +456,11 @@ void CameraManager::addCamera(std::shared_ptr<Camera> camera,
  */
 void CameraManager::removeCamera(std::shared_ptr<Camera> camera)
 {
-	ASSERT(Thread::current() == p_.get());
+	Private *const d = _d();
 
-	p_->removeCamera(camera.get());
+	ASSERT(Thread::current() == d);
+
+	d->removeCamera(camera.get());
 	cameraRemoved.emit(camera);
 }
 
@@ -449,39 +470,5 @@ void CameraManager::removeCamera(std::shared_ptr<Camera> camera)
  * \context This function is \a threadsafe.
  * \return The libcamera version string
  */
-
-/**
- * \brief Set the event dispatcher
- * \param[in] dispatcher Pointer to the event dispatcher
- *
- * libcamera requires an event dispatcher to integrate event notification and
- * timers with the application event loop. Applications that want to provide
- * their own event dispatcher shall call this function once and only once before
- * the camera manager is started with start(). If no event dispatcher is
- * provided, a default poll-based implementation will be used.
- *
- * The CameraManager takes ownership of the event dispatcher and will delete it
- * when the application terminates.
- */
-void CameraManager::setEventDispatcher(std::unique_ptr<EventDispatcher> dispatcher)
-{
-	thread()->setEventDispatcher(std::move(dispatcher));
-}
-
-/**
- * \brief Retrieve the event dispatcher
- *
- * This function retrieves the event dispatcher set with setEventDispatcher().
- * If no dispatcher has been set, a default poll-based implementation is created
- * and returned, and no custom event dispatcher may be installed anymore.
- *
- * The returned event dispatcher is valid until the camera manager is destroyed.
- *
- * \return Pointer to the event dispatcher
- */
-EventDispatcher *CameraManager::eventDispatcher()
-{
-	return thread()->eventDispatcher();
-}
 
 } /* namespace libcamera */

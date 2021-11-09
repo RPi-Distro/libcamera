@@ -7,37 +7,101 @@
 
 #include <libcamera/camera.h>
 
+#include <array>
 #include <atomic>
 #include <iomanip>
+
+#include <libcamera/base/log.h>
+#include <libcamera/base/thread.h>
 
 #include <libcamera/framebuffer_allocator.h>
 #include <libcamera/request.h>
 #include <libcamera/stream.h>
 
-#include "libcamera/internal/log.h"
+#include "libcamera/internal/camera.h"
+#include "libcamera/internal/camera_controls.h"
 #include "libcamera/internal/pipeline_handler.h"
-#include "libcamera/internal/utils.h"
 
 /**
- * \file camera.h
+ * \file libcamera/camera.h
  * \brief Camera device handling
  *
- * At the core of libcamera is the camera device, combining one image source
- * with processing hardware able to provide one or multiple image streams. The
- * Camera class represents a camera device.
+ * \page camera-model Camera Model
  *
- * A camera device contains a single image source, and separate camera device
- * instances relate to different image sources. For instance, a phone containing
- * front and back image sensors will be modelled with two camera devices, one
- * for each sensor. When multiple streams can be produced from the same image
- * source, all those streams are guaranteed to be part of the same camera
- * device.
+ * libcamera acts as a middleware between applications and camera hardware. It
+ * provides a solution to an unsolvable problem: reconciling applications,
+ * which need to run on different systems without dealing with device-specific
+ * details, and camera hardware, which exhibits a wide variety of features,
+ * limitations and architecture variations. In order to do so, it creates an
+ * abstract camera model that hides the camera hardware from applications. The
+ * model is designed to strike the right balance between genericity, to please
+ * generic applications, and flexibility, to expose even the most specific
+ * hardware features to the most demanding applications.
  *
- * While not sharing image sources, separate camera devices can share other
- * system resources, such as an ISP. For this reason camera device instances may
- * not be fully independent, in which case usage restrictions may apply. For
- * instance, a phone with a front and a back camera device may not allow usage
- * of the two devices simultaneously.
+ * In libcamera, a Camera is defined as a device that can capture frames
+ * continuously from a camera sensor and store them in memory. If supported by
+ * the device and desired by the application, the camera may store each
+ * captured frame in multiple copies, possibly in different formats and sizes.
+ * Each of these memory outputs of the camera is called a Stream.
+ *
+ * A camera contains a single image source, and separate camera instances
+ * relate to different image sources. For instance, a phone containing front
+ * and back image sensors will be modelled with two cameras, one for each
+ * sensor. When multiple streams can be produced from the same image source,
+ * all those streams are guaranteed to be part of the same camera.
+ *
+ * While not sharing image sources, separate cameras can share other system
+ * resources, such as ISPs. For this reason camera instances may not be fully
+ * independent, in which case usage restrictions may apply. For instance, a
+ * phone with a front and a back camera may not allow usage of the two cameras
+ * simultaneously.
+ *
+ * The camera model defines an implicit pipeline, whose input is the camera
+ * sensor, and whose outputs are the streams. Along the pipeline, the frames
+ * produced by the camera sensor are transformed by the camera into a format
+ * suitable for applications, with image processing that improves the quality
+ * of the captured frames. The camera exposes a set of controls that
+ * applications may use to manually control the processing steps. This
+ * high-level camera model is the minimum baseline that all cameras must
+ * conform to.
+ *
+ * \section camera-pipeline-model Pipeline Model
+ *
+ * Camera hardware differs in the supported image processing operations and the
+ * order in which they are applied. The libcamera pipelines abstract the
+ * hardware differences and expose a logical view of the processing operations
+ * with a fixed order. This offers low-level control of those operations to
+ * applications, while keeping application code generic.
+ *
+ * Starting from the camera sensor, a pipeline applies the following
+ * operations, in that order.
+ *
+ * - Pixel exposure
+ * - Analog to digital conversion and readout
+ * - Black level subtraction
+ * - Defective pixel correction
+ * - Lens shading correction
+ * - Spatial noise filtering
+ * - Per-channel gains (white balance)
+ * - Demosaicing (color filter array interpolation)
+ * - Color correction matrix (typically RGB to RGB)
+ * - Gamma correction
+ * - Color space transformation (typically RGB to YUV)
+ * - Cropping
+ * - Scaling
+ *
+ * Not all cameras implement all operations, and they are not necessarily
+ * implemented in the above order at the hardware level. The libcamera pipeline
+ * handlers translate the pipeline model to the real hardware configuration.
+ *
+ * \subsection digital-zoom Digital Zoom
+ *
+ * Digital zoom is implemented as a combination of the cropping and scaling
+ * stages of the pipeline. Cropping is controlled explicitly through the
+ * controls::ScalerCrop control, while scaling is controlled implicitly based
+ * on the crop rectangle and the output stream size. The crop rectangle is
+ * expressed relatively to the full pixel array size and indicates how the field
+ * of view is affected by the pipeline.
  */
 
 namespace libcamera {
@@ -51,9 +115,9 @@ LOG_DECLARE_CATEGORY(Camera)
  * The CameraConfiguration holds an ordered list of stream configurations. It
  * supports iterators and operates as a vector of StreamConfiguration instances.
  * The stream configurations are inserted by addConfiguration(), and the
- * operator[](int) returns a reference to the StreamConfiguration based on its
- * insertion index. Accessing a stream configuration with an invalid index
- * results in undefined behaviour.
+ * at() function or operator[] return a reference to the StreamConfiguration
+ * based on its insertion index. Accessing a stream configuration with an
+ * invalid index results in undefined behaviour.
  *
  * CameraConfiguration instances are retrieved from the camera with
  * Camera::generateConfiguration(). Applications may then inspect the
@@ -93,7 +157,7 @@ LOG_DECLARE_CATEGORY(Camera)
  * \brief Create an empty camera configuration
  */
 CameraConfiguration::CameraConfiguration()
-	: config_({})
+	: transform(Transform::Identity), config_({})
 {
 }
 
@@ -114,7 +178,7 @@ void CameraConfiguration::addConfiguration(const StreamConfiguration &cfg)
  * \fn CameraConfiguration::validate()
  * \brief Validate and possibly adjust the camera configuration
  *
- * This method adjusts the camera configuration to the closest valid
+ * This function adjusts the camera configuration to the closest valid
  * configuration and returns the validation status.
  *
  * \todo: Define exactly when to return each status code. Should stream
@@ -143,7 +207,7 @@ void CameraConfiguration::addConfiguration(const StreamConfiguration &cfg)
  *
  * The \a index represents the zero based insertion order of stream
  * configuration into the camera configuration with addConfiguration(). Calling
- * this method with an invalid index results in undefined behaviour.
+ * this function with an invalid index results in undefined behaviour.
  *
  * \return The stream configuration
  */
@@ -158,7 +222,7 @@ StreamConfiguration &CameraConfiguration::at(unsigned int index)
  *
  * The \a index represents the zero based insertion order of stream
  * configuration into the camera configuration with addConfiguration(). Calling
- * this method with an invalid index results in undefined behaviour.
+ * this function with an invalid index results in undefined behaviour.
  *
  * \return The stream configuration
  */
@@ -174,7 +238,7 @@ const StreamConfiguration &CameraConfiguration::at(unsigned int index) const
  *
  * The \a index represents the zero based insertion order of stream
  * configuration into the camera configuration with addConfiguration(). Calling
- * this method with an invalid index results in undefined behaviour.
+ * this function with an invalid index results in undefined behaviour.
  *
  * \return The stream configuration
  */
@@ -186,7 +250,7 @@ const StreamConfiguration &CameraConfiguration::at(unsigned int index) const
  *
  * The \a index represents the zero based insertion order of stream
  * configuration into the camera configuration with addConfiguration(). Calling
- * this method with an invalid index results in undefined behaviour.
+ * this function with an invalid index results in undefined behaviour.
  *
  * \return The stream configuration
  */
@@ -251,44 +315,42 @@ std::size_t CameraConfiguration::size() const
 }
 
 /**
+ * \var CameraConfiguration::transform
+ * \brief User-specified transform to be applied to the image
+ *
+ * The transform is a user-specified 2D plane transform that will be applied
+ * to the camera images by the processing pipeline before being handed to
+ * the application. This is subsequent to any transform that is already
+ * required to fix up any platform-defined rotation.
+ *
+ * The usual 2D plane transforms are allowed here (horizontal/vertical
+ * flips, multiple of 90-degree rotations etc.), but the validate() function
+ * may adjust this field at its discretion if the selection is not supported.
+ */
+
+/**
  * \var CameraConfiguration::config_
  * \brief The vector of stream configurations
  */
 
-class Camera::Private
-{
-public:
-	enum State {
-		CameraAvailable,
-		CameraAcquired,
-		CameraConfigured,
-		CameraRunning,
-	};
+/**
+ * \class Camera::Private
+ * \brief Base class for camera private data
+ *
+ * The Camera::Private class stores all private data associated with a camera.
+ * In addition to hiding core Camera data from the public API, it is expected to
+ * be subclassed by pipeline handlers to store pipeline-specific data.
+ *
+ * Pipeline handlers can obtain the Camera::Private instance associated with a
+ * camera by calling Camera::_d().
+ */
 
-	Private(PipelineHandler *pipe, const std::string &name,
-		const std::set<Stream *> &streams);
-	~Private();
-
-	int isAccessAllowed(State state, bool allowDisconnected = false) const;
-	int isAccessAllowed(State low, State high,
-			    bool allowDisconnected = false) const;
-
-	void disconnect();
-	void setState(State state);
-
-	std::shared_ptr<PipelineHandler> pipe_;
-	std::string name_;
-	std::set<Stream *> streams_;
-	std::set<Stream *> activeStreams_;
-
-private:
-	bool disconnected_;
-	std::atomic<State> state_;
-};
-
-Camera::Private::Private(PipelineHandler *pipe, const std::string &name,
-			 const std::set<Stream *> &streams)
-	: pipe_(pipe->shared_from_this()), name_(name), streams_(streams),
+/**
+ * \brief Construct a Camera::Private instance
+ * \param[in] pipe The pipeline handler responsible for the camera device
+ */
+Camera::Private::Private(PipelineHandler *pipe)
+	: requestSequence_(0), pipe_(pipe->shared_from_this()),
 	  disconnected_(false), state_(CameraAvailable)
 {
 }
@@ -299,14 +361,76 @@ Camera::Private::~Private()
 		LOG(Camera, Error) << "Removing camera while still in use";
 }
 
+/**
+ * \fn Camera::Private::pipe()
+ * \brief Retrieve the pipeline handler related to this camera
+ * \return The pipeline handler that created this camera
+ */
+
+/**
+ * \fn Camera::Private::validator()
+ * \brief Retrieve the control validator related to this camera
+ * \return The control validator associated with this camera
+ */
+
+/**
+ * \var Camera::Private::queuedRequests_
+ * \brief The list of queued and not yet completed requests
+ *
+ * This list tracks requests queued in order to ensure completion of all
+ * requests when the pipeline handler is stopped.
+ *
+ * \sa PipelineHandler::queueRequest(), PipelineHandler::stop(),
+ * PipelineHandler::completeRequest()
+ */
+
+/**
+ * \var Camera::Private::controlInfo_
+ * \brief The set of controls supported by the camera
+ *
+ * The control information shall be initialised by the pipeline handler when
+ * creating the camera.
+ *
+ * \todo This member was initially meant to stay constant after the camera is
+ * created. Several pipeline handlers are already updating it when the camera
+ * is configured. Update the documentation accordingly, and possibly the API as
+ * well, when implementing official support for control info updates.
+ */
+
+/**
+ * \var Camera::Private::properties_
+ * \brief The list of properties supported by the camera
+ *
+ * The list of camera properties shall be initialised by the pipeline handler
+ * when creating the camera, and shall not be modified afterwards.
+ */
+
+/**
+ * \var Camera::Private::requestSequence_
+ * \brief The queuing sequence number of the request
+ *
+ * When requests are queued, they are given a per-camera sequence number to
+ * facilitate debugging of internal request usage.
+ *
+ * The requestSequence_ tracks the number of requests queued to a camera
+ * over its lifetime.
+ */
+
 static const char *const camera_state_names[] = {
 	"Available",
 	"Acquired",
 	"Configured",
+	"Stopping",
 	"Running",
 };
 
-int Camera::Private::isAccessAllowed(State state, bool allowDisconnected) const
+bool Camera::Private::isRunning() const
+{
+	return state_.load(std::memory_order_acquire) == CameraRunning;
+}
+
+int Camera::Private::isAccessAllowed(State state, bool allowDisconnected,
+				     const char *from) const
 {
 	if (!allowDisconnected && disconnected_)
 		return -ENODEV;
@@ -315,17 +439,18 @@ int Camera::Private::isAccessAllowed(State state, bool allowDisconnected) const
 	if (currentState == state)
 		return 0;
 
-	ASSERT(static_cast<unsigned int>(state) < ARRAY_SIZE(camera_state_names));
+	ASSERT(static_cast<unsigned int>(state) < std::size(camera_state_names));
 
-	LOG(Camera, Debug) << "Camera in " << camera_state_names[currentState]
-			   << " state trying operation requiring state "
+	LOG(Camera, Error) << "Camera in " << camera_state_names[currentState]
+			   << " state trying " << from << "() requiring state "
 			   << camera_state_names[state];
 
 	return -EACCES;
 }
 
 int Camera::Private::isAccessAllowed(State low, State high,
-				     bool allowDisconnected) const
+				     bool allowDisconnected,
+				     const char *from) const
 {
 	if (!allowDisconnected && disconnected_)
 		return -ENODEV;
@@ -334,11 +459,12 @@ int Camera::Private::isAccessAllowed(State low, State high,
 	if (currentState >= low && currentState <= high)
 		return 0;
 
-	ASSERT(static_cast<unsigned int>(low) < ARRAY_SIZE(camera_state_names) &&
-	       static_cast<unsigned int>(high) < ARRAY_SIZE(camera_state_names));
+	ASSERT(static_cast<unsigned int>(low) < std::size(camera_state_names) &&
+	       static_cast<unsigned int>(high) < std::size(camera_state_names));
 
-	LOG(Camera, Debug) << "Camera in " << camera_state_names[currentState]
-			   << " state trying operation requiring state between "
+	LOG(Camera, Error) << "Camera in " << camera_state_names[currentState]
+			   << " state trying " << from
+			   << "() requiring state between "
 			   << camera_state_names[low] << " and "
 			   << camera_state_names[high];
 
@@ -409,6 +535,7 @@ void Camera::Private::setState(State state)
  *   node [shape = doublecircle ]; Available;
  *   node [shape = circle ]; Acquired;
  *   node [shape = circle ]; Configured;
+ *   node [shape = circle ]; Stopping;
  *   node [shape = circle ]; Running;
  *
  *   Available -> Available [label = "release()"];
@@ -421,7 +548,8 @@ void Camera::Private::setState(State state)
  *   Configured -> Configured [label = "configure(), createRequest()"];
  *   Configured -> Running [label = "start()"];
  *
- *   Running -> Configured [label = "stop()"];
+ *   Running -> Stopping [label = "stop()"];
+ *   Stopping -> Configured;
  *   Running -> Running [label = "createRequest(), queueRequest()"];
  * }
  * \enddot
@@ -441,6 +569,12 @@ void Camera::Private::setState(State state)
  * release() the camera and to get back to the Available state or start()
  * it to progress to the Running state.
  *
+ * \subsubsection Stopping
+ * The camera has been asked to stop. Pending requests are being completed or
+ * cancelled, and no new requests are permitted to be queued. The camera will
+ * transition to the Configured state when all queued requests have been
+ * returned to the application.
+ *
  * \subsubsection Running
  * The camera is running and ready to process requests queued by the
  * application. The camera remains in this state until it is stopped and moved
@@ -449,38 +583,64 @@ void Camera::Private::setState(State state)
 
 /**
  * \brief Create a camera instance
- * \param[in] pipe The pipeline handler responsible for the camera device
- * \param[in] name The name of the camera device
+ * \param[in] d Camera private data
+ * \param[in] id The ID of the camera device
  * \param[in] streams Array of streams the camera provides
  *
- * The caller is responsible for guaranteeing unicity of the camera name.
+ * The caller is responsible for guaranteeing a stable and unique camera ID
+ * matching the constraints described by Camera::id(). Parameters that are
+ * allocated dynamically at system startup, such as bus numbers that may be
+ * enumerated differently, are therefore not suitable to use in the ID.
+ *
+ * Pipeline handlers that use a CameraSensor may use the CameraSensor::id() to
+ * generate an ID that satisfies the criteria of a stable and unique camera ID.
  *
  * \return A shared pointer to the newly created camera object
  */
-std::shared_ptr<Camera> Camera::create(PipelineHandler *pipe,
-				       const std::string &name,
+std::shared_ptr<Camera> Camera::create(std::unique_ptr<Private> d,
+				       const std::string &id,
 				       const std::set<Stream *> &streams)
 {
+	ASSERT(d);
+
 	struct Deleter : std::default_delete<Camera> {
 		void operator()(Camera *camera)
 		{
-			delete camera;
+			if (Thread::current() == camera->thread())
+				delete camera;
+			else
+				camera->deleteLater();
 		}
 	};
 
-	Camera *camera = new Camera(pipe, name, streams);
+	Camera *camera = new Camera(std::move(d), id, streams);
 
 	return std::shared_ptr<Camera>(camera, Deleter());
 }
 
 /**
- * \brief Retrieve the name of the camera
+ * \brief Retrieve the ID of the camera
+ *
+ * The camera ID is a free-form string that identifies a camera in the system.
+ * IDs are guaranteed to be unique and stable: the same camera, when connected
+ * to the system in the same way (e.g. in the same USB port), will have the same
+ * ID across both unplug/replug and system reboots.
+ *
+ * Applications may store the camera ID and use it later to acquire the same
+ * camera. They shall treat the ID as an opaque identifier, without interpreting
+ * its value.
+ *
+ * Camera IDs may change when the system hardware or firmware is modified, for
+ * instance when replacing a PCI USB controller or moving it to another PCI
+ * slot, or updating the ACPI tables or Device Tree.
+ *
  * \context This function is \threadsafe.
- * \return Name of the camera device
+ *
+ * \return ID of the camera device
  */
-const std::string &Camera::name() const
+const std::string &Camera::id() const
 {
-	return p_->name_;
+	return _d()->id_;
 }
 
 /**
@@ -506,10 +666,13 @@ const std::string &Camera::name() const
  * application API calls by returning errors immediately.
  */
 
-Camera::Camera(PipelineHandler *pipe, const std::string &name,
+Camera::Camera(std::unique_ptr<Private> d, const std::string &id,
 	       const std::set<Stream *> &streams)
-	: p_(new Private(pipe, name, streams))
+	: Extensible(std::move(d))
 {
+	_d()->id_ = id;
+	_d()->streams_ = streams;
+	_d()->validator_ = std::make_unique<CameraControlValidator>(this);
 }
 
 Camera::~Camera()
@@ -519,7 +682,7 @@ Camera::~Camera()
 /**
  * \brief Notify camera disconnection
  *
- * This method is used to notify the camera instance that the underlying
+ * This function is used to notify the camera instance that the underlying
  * hardware has been unplugged. In response to the disconnection the camera
  * instance notifies the application by emitting the #disconnected signal, and
  * ensures that all new calls to the application-facing Camera API return an
@@ -530,28 +693,30 @@ Camera::~Camera()
  */
 void Camera::disconnect()
 {
-	LOG(Camera, Debug) << "Disconnecting camera " << name();
+	LOG(Camera, Debug) << "Disconnecting camera " << id();
 
-	p_->disconnect();
-	disconnected.emit(this);
+	_d()->disconnect();
+	disconnected.emit();
 }
 
 int Camera::exportFrameBuffers(Stream *stream,
 			       std::vector<std::unique_ptr<FrameBuffer>> *buffers)
 {
-	int ret = p_->isAccessAllowed(Private::CameraConfigured);
+	Private *const d = _d();
+
+	int ret = d->isAccessAllowed(Private::CameraConfigured);
 	if (ret < 0)
 		return ret;
 
 	if (streams().find(stream) == streams().end())
 		return -EINVAL;
 
-	if (p_->activeStreams_.find(stream) == p_->activeStreams_.end())
+	if (d->activeStreams_.find(stream) == d->activeStreams_.end())
 		return -EINVAL;
 
-	return p_->pipe_->invokeMethod(&PipelineHandler::exportFrameBuffers,
-				       ConnectionTypeBlocking, this, stream,
-				       buffers);
+	return d->pipe_->invokeMethod(&PipelineHandler::exportFrameBuffers,
+				      ConnectionTypeBlocking, this, stream,
+				      buffers);
 }
 
 /**
@@ -580,21 +745,23 @@ int Camera::exportFrameBuffers(Stream *stream,
  */
 int Camera::acquire()
 {
+	Private *const d = _d();
+
 	/*
 	 * No manual locking is required as PipelineHandler::lock() is
 	 * thread-safe.
 	 */
-	int ret = p_->isAccessAllowed(Private::CameraAvailable);
+	int ret = d->isAccessAllowed(Private::CameraAvailable);
 	if (ret < 0)
 		return ret == -EACCES ? -EBUSY : ret;
 
-	if (!p_->pipe_->lock()) {
+	if (!d->pipe_->lock()) {
 		LOG(Camera, Info)
 			<< "Pipeline handler in use by another process";
 		return -EBUSY;
 	}
 
-	p_->setState(Private::CameraAcquired);
+	d->setState(Private::CameraAcquired);
 
 	return 0;
 }
@@ -615,14 +782,16 @@ int Camera::acquire()
  */
 int Camera::release()
 {
-	int ret = p_->isAccessAllowed(Private::CameraAvailable,
-				      Private::CameraConfigured, true);
+	Private *const d = _d();
+
+	int ret = d->isAccessAllowed(Private::CameraAvailable,
+				     Private::CameraConfigured, true);
 	if (ret < 0)
 		return ret == -EACCES ? -EBUSY : ret;
 
-	p_->pipe_->unlock();
+	d->pipe_->unlock();
 
-	p_->setState(Private::CameraAvailable);
+	d->setState(Private::CameraAvailable);
 
 	return 0;
 }
@@ -637,9 +806,9 @@ int Camera::release()
  *
  * \return A ControlInfoMap listing the controls supported by the camera
  */
-const ControlInfoMap &Camera::controls()
+const ControlInfoMap &Camera::controls() const
 {
-	return p_->pipe_->controls(this);
+	return _d()->controlInfo_;
 }
 
 /**
@@ -650,9 +819,9 @@ const ControlInfoMap &Camera::controls()
  *
  * \return A ControlList of properties supported by the camera
  */
-const ControlList &Camera::properties()
+const ControlList &Camera::properties() const
 {
-	return p_->pipe_->properties(this);
+	return _d()->properties_;
 }
 
 /**
@@ -668,7 +837,7 @@ const ControlList &Camera::properties()
  */
 const std::set<Stream *> &Camera::streams() const
 {
-	return p_->streams_;
+	return _d()->streams_;
 }
 
 /**
@@ -689,15 +858,17 @@ const std::set<Stream *> &Camera::streams() const
  */
 std::unique_ptr<CameraConfiguration> Camera::generateConfiguration(const StreamRoles &roles)
 {
-	int ret = p_->isAccessAllowed(Private::CameraAvailable,
-				      Private::CameraRunning);
+	Private *const d = _d();
+
+	int ret = d->isAccessAllowed(Private::CameraAvailable,
+				     Private::CameraRunning);
 	if (ret < 0)
 		return nullptr;
 
 	if (roles.size() > streams().size())
 		return nullptr;
 
-	CameraConfiguration *config = p_->pipe_->generateConfiguration(this, roles);
+	CameraConfiguration *config = d->pipe_->generateConfiguration(this, roles);
 	if (!config) {
 		LOG(Camera, Debug)
 			<< "Pipeline handler failed to generate configuration";
@@ -727,7 +898,7 @@ std::unique_ptr<CameraConfiguration> Camera::generateConfiguration(const StreamR
  * by populating \a config.
  *
  * The configuration is created by generateConfiguration(), and adjusted by the
- * caller with CameraConfiguration::validate(). This method only accepts fully
+ * caller with CameraConfiguration::validate(). This function only accepts fully
  * valid configurations and returns an error if \a config is not valid.
  *
  * Exclusive access to the camera shall be ensured by a call to acquire() prior
@@ -748,10 +919,15 @@ std::unique_ptr<CameraConfiguration> Camera::generateConfiguration(const StreamR
  */
 int Camera::configure(CameraConfiguration *config)
 {
-	int ret = p_->isAccessAllowed(Private::CameraAcquired,
-				      Private::CameraConfigured);
+	Private *const d = _d();
+
+	int ret = d->isAccessAllowed(Private::CameraAcquired,
+				     Private::CameraConfigured);
 	if (ret < 0)
 		return ret;
+
+	for (auto it : *config)
+		it.setStream(nullptr);
 
 	if (config->validate() != CameraConfiguration::Valid) {
 		LOG(Camera, Error)
@@ -763,32 +939,31 @@ int Camera::configure(CameraConfiguration *config)
 
 	for (unsigned int index = 0; index < config->size(); ++index) {
 		StreamConfiguration &cfg = config->at(index);
-		cfg.setStream(nullptr);
 		msg << " (" << index << ") " << cfg.toString();
 	}
 
 	LOG(Camera, Info) << msg.str();
 
-	ret = p_->pipe_->invokeMethod(&PipelineHandler::configure,
-				      ConnectionTypeBlocking, this, config);
+	ret = d->pipe_->invokeMethod(&PipelineHandler::configure,
+				     ConnectionTypeBlocking, this, config);
 	if (ret)
 		return ret;
 
-	p_->activeStreams_.clear();
+	d->activeStreams_.clear();
 	for (const StreamConfiguration &cfg : *config) {
 		Stream *stream = cfg.stream();
 		if (!stream) {
 			LOG(Camera, Fatal)
 				<< "Pipeline handler failed to update stream configuration";
-			p_->activeStreams_.clear();
+			d->activeStreams_.clear();
 			return -EINVAL;
 		}
 
 		stream->configuration_ = cfg;
-		p_->activeStreams_.insert(stream);
+		d->activeStreams_.insert(stream);
 	}
 
-	p_->setState(Private::CameraConfigured);
+	d->setState(Private::CameraConfigured);
 
 	return 0;
 }
@@ -797,37 +972,38 @@ int Camera::configure(CameraConfiguration *config)
  * \brief Create a request object for the camera
  * \param[in] cookie Opaque cookie for application use
  *
- * This method creates an empty request for the application to fill with
+ * This function creates an empty request for the application to fill with
  * buffers and parameters, and queue for capture.
  *
  * The \a cookie is stored in the request and is accessible through the
- * Request::cookie() method at any time. It is typically used by applications
+ * Request::cookie() function at any time. It is typically used by applications
  * to map the request to an external resource in the request completion
  * handler, and is completely opaque to libcamera.
  *
  * The ownership of the returned request is passed to the caller, which is
- * responsible for either queueing the request or deleting it.
+ * responsible for deleting it. The request may be deleted in the completion
+ * handler, or reused after resetting its state with Request::reuse().
  *
  * \context This function is \threadsafe. It may only be called when the camera
  * is in the Configured or Running state as defined in \ref camera_operation.
  *
  * \return A pointer to the newly created request, or nullptr on error
  */
-Request *Camera::createRequest(uint64_t cookie)
+std::unique_ptr<Request> Camera::createRequest(uint64_t cookie)
 {
-	int ret = p_->isAccessAllowed(Private::CameraConfigured,
-				      Private::CameraRunning);
+	int ret = _d()->isAccessAllowed(Private::CameraConfigured,
+					Private::CameraRunning);
 	if (ret < 0)
 		return nullptr;
 
-	return new Request(this, cookie);
+	return std::make_unique<Request>(this, cookie);
 }
 
 /**
  * \brief Queue a request to the camera
  * \param[in] request The request to queue to the camera
  *
- * This method queues a \a request to the camera for capture.
+ * This function queues a \a request to the camera for capture.
  *
  * After allocating the request with createRequest(), the application shall
  * fill it with at least one capture buffer before queuing it. Requests that
@@ -835,9 +1011,6 @@ Request *Camera::createRequest(uint64_t cookie)
  *
  * Once the request has been queued, the camera will notify its completion
  * through the \ref requestCompleted signal.
- *
- * Ownership of the request is transferred to the camera. It will be deleted
- * automatically after it completes.
  *
  * \context This function is \threadsafe. It may only be called when the camera
  * is in the Running state as defined in \ref camera_operation.
@@ -850,12 +1023,14 @@ Request *Camera::createRequest(uint64_t cookie)
  */
 int Camera::queueRequest(Request *request)
 {
-	int ret = p_->isAccessAllowed(Private::CameraRunning);
+	Private *const d = _d();
+
+	int ret = d->isAccessAllowed(Private::CameraRunning);
 	if (ret < 0)
 		return ret;
 
 	/*
-	 * The camera state may chance until the end of the function. No locking
+	 * The camera state may change until the end of the function. No locking
 	 * is however needed as PipelineHandler::queueRequest() will handle
 	 * this.
 	 */
@@ -866,24 +1041,28 @@ int Camera::queueRequest(Request *request)
 	}
 
 	for (auto const &it : request->buffers()) {
-		Stream *stream = it.first;
+		const Stream *stream = it.first;
 
-		if (p_->activeStreams_.find(stream) == p_->activeStreams_.end()) {
+		if (d->activeStreams_.find(stream) == d->activeStreams_.end()) {
 			LOG(Camera, Error) << "Invalid request";
 			return -EINVAL;
 		}
 	}
 
-	return p_->pipe_->invokeMethod(&PipelineHandler::queueRequest,
-				       ConnectionTypeQueued, this, request);
+	d->pipe_->invokeMethod(&PipelineHandler::queueRequest,
+			       ConnectionTypeQueued, request);
+
+	return 0;
 }
 
 /**
  * \brief Start capture from camera
+ * \param[in] controls Controls to be applied before starting the Camera
  *
- * Start the camera capture session. Once the camera is started the application
- * can queue requests to the camera to process and return to the application
- * until the capture session is terminated with \a stop().
+ * Start the camera capture session, optionally providing a list of controls to
+ * apply before starting. Once the camera is started the application can queue
+ * requests to the camera to process and return to the application until the
+ * capture session is terminated with \a stop().
  *
  * \context This function may only be called when the camera is in the
  * Configured state as defined in \ref camera_operation, and shall be
@@ -894,20 +1073,22 @@ int Camera::queueRequest(Request *request)
  * \retval -ENODEV The camera has been disconnected from the system
  * \retval -EACCES The camera is not in a state where it can be started
  */
-int Camera::start()
+int Camera::start(const ControlList *controls)
 {
-	int ret = p_->isAccessAllowed(Private::CameraConfigured);
+	Private *const d = _d();
+
+	int ret = d->isAccessAllowed(Private::CameraConfigured);
 	if (ret < 0)
 		return ret;
 
 	LOG(Camera, Debug) << "Starting capture";
 
-	ret = p_->pipe_->invokeMethod(&PipelineHandler::start,
-				      ConnectionTypeBlocking, this);
+	ret = d->pipe_->invokeMethod(&PipelineHandler::start,
+				     ConnectionTypeBlocking, this, controls);
 	if (ret)
 		return ret;
 
-	p_->setState(Private::CameraRunning);
+	d->setState(Private::CameraRunning);
 
 	return 0;
 }
@@ -915,12 +1096,13 @@ int Camera::start()
 /**
  * \brief Stop capture from camera
  *
- * This method stops capturing and processing requests immediately. All pending
- * requests are cancelled and complete synchronously in an error state.
+ * This function stops capturing and processing requests immediately. All
+ * pending requests are cancelled and complete synchronously in an error state.
  *
- * \context This function may only be called when the camera is in the Running
- * state as defined in \ref camera_operation, and shall be synchronized by the
- * caller with other functions that affect the camera state.
+ * \context This function may be called in any camera state as defined in \ref
+ * camera_operation, and shall be synchronized by the caller with other
+ * functions that affect the camera state. If called when the camera isn't
+ * running, it is a no-op.
  *
  * \return 0 on success or a negative error code otherwise
  * \retval -ENODEV The camera has been disconnected from the system
@@ -928,16 +1110,29 @@ int Camera::start()
  */
 int Camera::stop()
 {
-	int ret = p_->isAccessAllowed(Private::CameraRunning);
+	Private *const d = _d();
+
+	/*
+	 * \todo Make calling stop() when not in 'Running' part of the state
+	 * machine rather than take this shortcut
+	 */
+	if (!d->isRunning())
+		return 0;
+
+	int ret = d->isAccessAllowed(Private::CameraRunning);
 	if (ret < 0)
 		return ret;
 
 	LOG(Camera, Debug) << "Stopping capture";
 
-	p_->setState(Private::CameraConfigured);
+	d->setState(Private::CameraStopping);
 
-	p_->pipe_->invokeMethod(&PipelineHandler::stop, ConnectionTypeBlocking,
-				this);
+	d->pipe_->invokeMethod(&PipelineHandler::stop, ConnectionTypeBlocking,
+			       this);
+
+	ASSERT(!d->pipe_->hasPendingRequests(this));
+
+	d->setState(Private::CameraConfigured);
 
 	return 0;
 }
@@ -947,13 +1142,16 @@ int Camera::stop()
  * \param[in] request The request that has completed
  *
  * This function is called by the pipeline handler to notify the camera that
- * the request has completed. It emits the requestCompleted signal and deletes
- * the request.
+ * the request has completed. It emits the requestCompleted signal.
  */
 void Camera::requestComplete(Request *request)
 {
+	/* Disconnected cameras are still able to complete requests. */
+	if (_d()->isAccessAllowed(Private::CameraStopping, Private::CameraRunning,
+				  true))
+		LOG(Camera, Fatal) << "Trying to complete a request when stopped";
+
 	requestCompleted.emit(request);
-	delete request;
 }
 
 } /* namespace libcamera */

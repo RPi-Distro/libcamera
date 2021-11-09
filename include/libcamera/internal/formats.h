@@ -8,6 +8,7 @@
 #ifndef __LIBCAMERA_INTERNAL_FORMATS_H__
 #define __LIBCAMERA_INTERNAL_FORMATS_H__
 
+#include <array>
 #include <map>
 #include <vector>
 
@@ -18,20 +19,6 @@
 
 namespace libcamera {
 
-class ImageFormats
-{
-public:
-	int addFormat(unsigned int format, const std::vector<SizeRange> &sizes);
-
-	bool isEmpty() const;
-	std::vector<unsigned int> formats() const;
-	const std::vector<SizeRange> &sizes(unsigned int format) const;
-	const std::map<unsigned int, std::vector<SizeRange>> &data() const;
-
-private:
-	std::map<unsigned int, std::vector<SizeRange>> data_;
-};
-
 class PixelFormatInfo
 {
 public:
@@ -41,17 +28,43 @@ public:
 		ColourEncodingRAW,
 	};
 
+	struct Plane {
+		unsigned int bytesPerGroup;
+		unsigned int verticalSubSampling;
+	};
+
 	bool isValid() const { return format.isValid(); }
 
 	static const PixelFormatInfo &info(const PixelFormat &format);
+	static const PixelFormatInfo &info(const V4L2PixelFormat &format);
+	static const PixelFormatInfo &info(const std::string &name);
+
+	unsigned int stride(unsigned int width, unsigned int plane,
+			    unsigned int align = 1) const;
+	unsigned int planeSize(const Size &size, unsigned int plane,
+			       unsigned int align = 1) const;
+	unsigned int planeSize(unsigned int height, unsigned int plane,
+			       unsigned int stride) const;
+	unsigned int frameSize(const Size &size, unsigned int align = 1) const;
+	unsigned int frameSize(const Size &size,
+			       const std::array<unsigned int, 3> &strides) const;
+
+	unsigned int numPlanes() const;
 
 	/* \todo Add support for non-contiguous memory planes */
 	const char *name;
 	PixelFormat format;
-	V4L2PixelFormat v4l2Format;
+	struct {
+		V4L2PixelFormat single;
+		V4L2PixelFormat multi;
+	} v4l2Formats;
 	unsigned int bitsPerPixel;
 	enum ColourEncoding colourEncoding;
 	bool packed;
+
+	unsigned int pixelsPerGroup;
+
+	std::array<Plane, 3> planes;
 };
 
 } /* namespace libcamera */

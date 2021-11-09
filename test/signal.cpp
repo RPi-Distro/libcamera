@@ -8,8 +8,8 @@
 #include <iostream>
 #include <string.h>
 
-#include <libcamera/object.h>
-#include <libcamera/signal.h>
+#include <libcamera/base/object.h>
+#include <libcamera/base/signal.h>
 
 #include "test.h"
 
@@ -41,8 +41,8 @@ class BaseClass
 {
 public:
 	/*
-	 * A virtual method is required in the base class, otherwise the compiler
-	 * will always store Object before BaseClass in memory.
+	 * A virtual function is required in the base class, otherwise the
+	 * compiler will always store Object before BaseClass in memory.
 	 */
 	virtual ~BaseClass()
 	{
@@ -191,6 +191,24 @@ protected:
 		signalVoid_.connect(slotStaticReturn);
 		signalVoid_.connect(this, &SignalTest::slotReturn);
 
+		/* Test signal connection to a lambda. */
+		int value = 0;
+		signalInt_.connect(this, [&](int v) { value = v; });
+		signalInt_.emit(42);
+
+		if (value != 42) {
+			cout << "Signal connection to lambda failed" << endl;
+			return TestFail;
+		}
+
+		signalInt_.disconnect(this);
+		signalInt_.emit(0);
+
+		if (value != 42) {
+			cout << "Signal disconnection from lambda failed" << endl;
+			return TestFail;
+		}
+
 		/* ----------------- Signal -> Object tests ----------------- */
 
 		/*
@@ -251,6 +269,27 @@ protected:
 		signalVoid_.emit();
 		if (valueStatic_ == 0) {
 			cout << "Signal delivery for Object test failed" << endl;
+			return TestFail;
+		}
+
+		delete slotObject;
+
+		/* Test signal connection to a lambda. */
+		slotObject = new SlotObject();
+		value = 0;
+		signalInt_.connect(slotObject, [&](int v) { value = v; });
+		signalInt_.emit(42);
+
+		if (value != 42) {
+			cout << "Signal connection to Object lambda failed" << endl;
+			return TestFail;
+		}
+
+		signalInt_.disconnect(slotObject);
+		signalInt_.emit(0);
+
+		if (value != 42) {
+			cout << "Signal disconnection from Object lambda failed" << endl;
 			return TestFail;
 		}
 

@@ -2,30 +2,36 @@
 # Copyright 2019 Google Inc.
 
 EAPI=6
-PYTHON_COMPAT=( python3_{5,6,7} )
+PYTHON_COMPAT=( python3_{7..10} )
 
 inherit git-r3 meson python-any-r1
 
 DESCRIPTION="Camera support library for Linux"
 HOMEPAGE="http://libcamera.org"
-EGIT_REPO_URI="git://linuxtv.org/libcamera.git"
+EGIT_REPO_URI="https://git.libcamera.org/libcamera/libcamera.git"
 EGIT_BRANCH="master"
 
 LICENSE="LGPL-2.1+"
 SLOT="0"
 KEYWORDS="*"
-IUSE="udev"
+IUSE="debug doc test udev"
 
-RDEPEND="udev? ( virtual/libudev )"
+RDEPEND="
+	>=net-libs/gnutls-3.3:=
+	udev? ( virtual/libudev )
+"
+
 DEPEND="
 	${RDEPEND}
+	dev-libs/openssl
 	$(python_gen_any_dep 'dev-python/pyyaml[${PYTHON_USEDEP}]')
 "
 
 src_configure() {
 	local emesonargs=(
-		-Ddocumentation=false
-		-Dtests=false
+		$(meson_feature doc documentation)
+		$(meson_use test)
+		--buildtype $(usex debug debug plain)
 	)
 	meson_src_configure
 }

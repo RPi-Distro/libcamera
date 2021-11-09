@@ -10,6 +10,7 @@
 #include "camera_test.h"
 #include "test.h"
 
+using namespace libcamera;
 using namespace std;
 
 namespace {
@@ -18,7 +19,7 @@ class ConfigurationSet : public CameraTest, public Test
 {
 public:
 	ConfigurationSet()
-		: CameraTest("VIMC Sensor B")
+		: CameraTest("platform/vimc.0 Sensor B")
 	{
 	}
 
@@ -102,4 +103,4 @@ protected:
 
 } /* namespace */
 
-TEST_REGISTER(ConfigurationSet);
+TEST_REGISTER(ConfigurationSet)

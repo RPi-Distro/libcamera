@@ -12,16 +12,18 @@
 #include <map>
 #include <string.h>
 
+#include <libcamera/base/log.h>
+
 #include <libcamera/formats.h>
 #include <libcamera/pixel_format.h>
 
 #include "libcamera/internal/formats.h"
-#include "libcamera/internal/log.h"
 
 /**
  * \file v4l2_pixelformat.h
  * \brief V4L2 Pixel Format
  */
+
 namespace libcamera {
 
 LOG_DECLARE_CATEGORY(V4L2)
@@ -43,59 +45,152 @@ LOG_DECLARE_CATEGORY(V4L2)
 
 namespace {
 
-const std::map<V4L2PixelFormat, PixelFormat> vpf2pf{
+const std::map<V4L2PixelFormat, V4L2PixelFormat::Info> vpf2pf{
 	/* RGB formats. */
-	{ V4L2PixelFormat(V4L2_PIX_FMT_RGB24), formats::BGR888 },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_BGR24), formats::RGB888 },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_RGBA32), formats::ABGR8888 },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_ABGR32), formats::ARGB8888 },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_ARGB32), formats::BGRA8888 },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_BGRA32), formats::RGBA8888 },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_RGB565),
+		{ formats::RGB565, "16-bit RGB 5-6-5" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_RGB565X),
+		{ formats::RGB565_BE, "16-bit RGB 5-6-5 BE" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_RGB24),
+		{ formats::BGR888, "24-bit RGB 8-8-8" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_BGR24),
+		{ formats::RGB888, "24-bit BGR 8-8-8" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_XBGR32),
+		{ formats::XRGB8888, "32-bit BGRX 8-8-8-8" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_XRGB32),
+		{ formats::BGRX8888, "32-bit XRGB 8-8-8-8" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_RGBX32),
+		{ formats::XBGR8888, "32-bit RGBX 8-8-8-8" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_RGBA32),
+		{ formats::ABGR8888, "32-bit RGBA 8-8-8-8" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_ABGR32),
+		{ formats::ARGB8888, "32-bit BGRA 8-8-8-8" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_ARGB32),
+		{ formats::BGRA8888, "32-bit ARGB 8-8-8-8" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_BGRA32),
+		{ formats::RGBA8888, "32-bit ABGR 8-8-8-8" } },
 
 	/* YUV packed formats. */
-	{ V4L2PixelFormat(V4L2_PIX_FMT_YUYV), formats::YUYV },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_YVYU), formats::YVYU },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_UYVY), formats::UYVY },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_VYUY), formats::VYUY },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_YUYV),
+		{ formats::YUYV, "YUYV 4:2:2" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_YVYU),
+		{ formats::YVYU, "YVYU 4:2:2" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_UYVY),
+		{ formats::UYVY, "UYVY 4:2:2" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_VYUY),
+		{ formats::VYUY, "VYUY 4:2:2" } },
 
 	/* YUV planar formats. */
-	{ V4L2PixelFormat(V4L2_PIX_FMT_NV16), formats::NV16 },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_NV61), formats::NV61 },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_NV12), formats::NV12 },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_NV21), formats::NV21 },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_YUV420), formats::YUV420 },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_YUV422P), formats::YUV422 },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_NV16),
+		{ formats::NV16, "Y/CbCr 4:2:2" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_NV16M),
+		{ formats::NV16, "Y/CbCr 4:2:2 (N-C)" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_NV61),
+		{ formats::NV61, "Y/CrCb 4:2:2" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_NV61M),
+		{ formats::NV61, "Y/CrCb 4:2:2 (N-C)" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_NV12),
+		{ formats::NV12, "Y/CbCr 4:2:0" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_NV12M),
+		{ formats::NV12, "Y/CbCr 4:2:0 (N-C)" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_NV21),
+		{ formats::NV21, "Y/CrCb 4:2:0" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_NV21M),
+		{ formats::NV21, "Y/CrCb 4:2:0 (N-C)" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_NV24),
+		{ formats::NV24, "Y/CbCr 4:4:4" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_NV42),
+		{ formats::NV42, "Y/CrCb 4:4:4" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_YUV420),
+		{ formats::YUV420, "Planar YUV 4:2:0" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_YUV420M),
+		{ formats::YUV420, "Planar YUV 4:2:0 (N-C)" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_YVU420),
+		{ formats::YVU420, "Planar YVU 4:2:0" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_YVU420M),
+		{ formats::YVU420, "Planar YVU 4:2:0 (N-C)" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_YUV422P),
+		{ formats::YUV422, "Planar YUV 4:2:2" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_YUV422M),
+		{ formats::YUV422, "Planar YUV 4:2:2 (N-C)" } },
 
 	/* Greyscale formats. */
-	{ V4L2PixelFormat(V4L2_PIX_FMT_GREY), formats::R8 },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_GREY),
+		{ formats::R8, "8-bit Greyscale" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_Y10),
+		{ formats::R10, "10-bit Greyscale" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_Y12),
+		{ formats::R12, "12-bit Greyscale" } },
 
 	/* Bayer formats. */
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SBGGR8), formats::SBGGR8 },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SGBRG8), formats::SGBRG8 },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SGRBG8), formats::SGRBG8 },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SRGGB8), formats::SRGGB8 },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SBGGR10), formats::SBGGR10 },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SGBRG10), formats::SGBRG10 },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SGRBG10), formats::SGRBG10 },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SRGGB10), formats::SRGGB10 },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SBGGR10P), formats::SBGGR10_CSI2P },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SGBRG10P), formats::SGBRG10_CSI2P },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SGRBG10P), formats::SGRBG10_CSI2P },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SRGGB10P), formats::SRGGB10_CSI2P },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SBGGR12), formats::SBGGR12 },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SGBRG12), formats::SGBRG12 },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SGRBG12), formats::SGRBG12 },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SRGGB12), formats::SRGGB12 },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SBGGR12P), formats::SBGGR12_CSI2P },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SGBRG12P), formats::SGBRG12_CSI2P },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SGRBG12P), formats::SGRBG12_CSI2P },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SRGGB12P), formats::SRGGB12_CSI2P },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SBGGR8),
+		{ formats::SBGGR8, "8-bit Bayer BGBG/GRGR" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SGBRG8),
+		{ formats::SGBRG8, "8-bit Bayer GBGB/RGRG" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SGRBG8),
+		{ formats::SGRBG8, "8-bit Bayer GRGR/BGBG" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SRGGB8),
+		{ formats::SRGGB8, "8-bit Bayer RGRG/GBGB" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SBGGR10),
+		{ formats::SBGGR10, "10-bit Bayer BGBG/GRGR" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SGBRG10),
+		{ formats::SGBRG10, "10-bit Bayer GBGB/RGRG" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SGRBG10),
+		{ formats::SGRBG10, "10-bit Bayer GRGR/BGBG" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SRGGB10),
+		{ formats::SRGGB10, "10-bit Bayer RGRG/GBGB" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SBGGR10P),
+		{ formats::SBGGR10_CSI2P, "10-bit Bayer BGBG/GRGR Packed" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SGBRG10P),
+		{ formats::SGBRG10_CSI2P, "10-bit Bayer GBGB/RGRG Packed" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SGRBG10P),
+		{ formats::SGRBG10_CSI2P, "10-bit Bayer GRGR/BGBG Packed" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SRGGB10P),
+		{ formats::SRGGB10_CSI2P, "10-bit Bayer RGRG/GBGB Packed" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SBGGR12),
+		{ formats::SBGGR12, "12-bit Bayer BGBG/GRGR" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SGBRG12),
+		{ formats::SGBRG12, "12-bit Bayer GBGB/RGRG" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SGRBG12),
+		{ formats::SGRBG12, "12-bit Bayer GRGR/BGBG" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SRGGB12),
+		{ formats::SRGGB12, "12-bit Bayer RGRG/GBGB" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SBGGR12P),
+		{ formats::SBGGR12_CSI2P, "12-bit Bayer BGBG/GRGR Packed" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SGBRG12P),
+		{ formats::SGBRG12_CSI2P, "12-bit Bayer GBGB/RGRG Packed" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SGRBG12P),
+		{ formats::SGRBG12_CSI2P, "12-bit Bayer GRGR/BGBG Packed" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SRGGB12P),
+		{ formats::SRGGB12_CSI2P, "12-bit Bayer RGRG/GBGB Packed" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SBGGR16),
+		{ formats::SBGGR16, "16-bit Bayer BGBG/GRGR" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SGBRG16),
+		{ formats::SGBRG16, "16-bit Bayer GBGB/RGRG" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SGRBG16),
+		{ formats::SGRBG16, "16-bit Bayer GRGR/BGBG" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_SRGGB16),
+		{ formats::SRGGB16, "16-bit Bayer RGRG/GBGB" } },
 
 	/* Compressed formats. */
-	{ V4L2PixelFormat(V4L2_PIX_FMT_MJPEG), formats::MJPEG },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_MJPEG),
+		{ formats::MJPEG, "Motion-JPEG" } },
 };
 
 } /* namespace */
+
+/**
+ * \struct V4L2PixelFormat::Info
+ * \brief Information about a V4L2 pixel format
+ *
+ * \var V4L2PixelFormat::Info::format
+ * \brief The corresponding libcamera PixelFormat
+ *
+ * \sa PixelFormat
+ *
+ * \var V4L2PixelFormat::Info::description
+ * \brief The human-readable description of the V4L2 pixel format
+ */
 
 /**
  * \fn V4L2PixelFormat::V4L2PixelFormat()
@@ -160,6 +255,28 @@ std::string V4L2PixelFormat::toString() const
 }
 
 /**
+ * \brief Retrieve the V4L2 description for the format
+ *
+ * The description matches the value used by the kernel, as would be reported
+ * by the VIDIOC_ENUM_FMT ioctl.
+ *
+ * \return The V4L2 description corresponding to the V4L2 format, or a
+ * placeholder description if not found
+ */
+const char *V4L2PixelFormat::description() const
+{
+	const auto iter = vpf2pf.find(*this);
+	if (iter == vpf2pf.end()) {
+		LOG(V4L2, Warning)
+			<< "Unsupported V4L2 pixel format "
+			<< toString();
+		return "Unsupported format";
+	}
+
+	return iter->second.description;
+}
+
+/**
  * \brief Convert the V4L2 pixel format to the corresponding PixelFormat
  * \return The PixelFormat corresponding to the V4L2 pixel format
  */
@@ -173,7 +290,7 @@ PixelFormat V4L2PixelFormat::toPixelFormat() const
 		return PixelFormat();
 	}
 
-	return iter->second;
+	return iter->second.format;
 }
 
 /**
@@ -196,7 +313,7 @@ V4L2PixelFormat V4L2PixelFormat::fromPixelFormat(const PixelFormat &pixelFormat,
 	if (!info.isValid())
 		return V4L2PixelFormat();
 
-	return info.v4l2Format;
+	return multiplanar ? info.v4l2Formats.multi : info.v4l2Formats.single;
 }
 
 } /* namespace libcamera */

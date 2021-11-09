@@ -12,12 +12,13 @@
 #include <string.h>
 #include <sys/types.h>
 
-#include "libcamera/internal/file.h"
+#include <libcamera/base/file.h>
+#include <libcamera/base/log.h>
+#include <libcamera/base/utils.h>
+
 #include "libcamera/internal/ipa_module.h"
 #include "libcamera/internal/ipa_proxy.h"
-#include "libcamera/internal/log.h"
 #include "libcamera/internal/pipeline_handler.h"
-#include "libcamera/internal/utils.h"
 
 /**
  * \file ipa_manager.h
@@ -43,8 +44,8 @@ LOG_DEFINE_CATEGORY(IPAManager)
  * The isolation mechanism ensures that no code from a closed-source module is
  * ever run in the libcamera process.
  *
- * To create an IPA context, pipeline handlers call the IPAManager::ipaCreate()
- * method. For a directly loaded module, the manager calls the module's
+ * To create an IPA context, pipeline handlers call the IPAManager::createIPA()
+ * function. For a directly loaded module, the manager calls the module's
  * ipaCreate() function directly and wraps the returned context in an
  * IPAContextWrapper that exposes an IPAInterface.
  *
@@ -88,9 +89,10 @@ LOG_DEFINE_CATEGORY(IPAManager)
  * returned to the pipeline handler, and all interactions with the IPA context
  * go the same interface regardless of process isolation.
  *
- * In all cases the data passed to the IPAInterface methods is serialized to
- * Plain Old Data, either for the purpose of passing it to the IPA context
- * plain C API, or to transmit the data to the isolated process through IPC.
+ * In all cases the data passed to the IPAInterface member functions is
+ * serialized to Plain Old Data, either for the purpose of passing it to the IPA
+ * context plain C API, or to transmit the data to the isolated process through
+ * IPC.
  */
 
 IPAManager *IPAManager::self_ = nullptr;
@@ -210,7 +212,7 @@ void IPAManager::parseDir(const char *libDir, unsigned int maxDepth,
  * \param[in] libDir The directory to search for IPA modules
  * \param[in] maxDepth The maximum depth of sub-directories to search
  *
- * This method tries to create an IPAModule instance for every shared object
+ * This function tries to create an IPAModule instance for every shared object
  * found in \a libDir, and skips invalid IPA modules.
  *
  * Sub-directories are searched up to a depth of \a maxDepth. A \a maxDepth
@@ -245,6 +247,24 @@ unsigned int IPAManager::addDir(const char *libDir, unsigned int maxDepth)
 }
 
 /**
+ * \brief Retrieve an IPA module that matches a given pipeline handler
+ * \param[in] pipe The pipeline handler
+ * \param[in] minVersion Minimum acceptable version of IPA module
+ * \param[in] maxVersion Maximum acceptable version of IPA module
+ */
+IPAModule *IPAManager::module(PipelineHandler *pipe, uint32_t minVersion,
+			      uint32_t maxVersion)
+{
+	for (IPAModule *module : modules_) {
+		if (module->match(pipe, minVersion, maxVersion))
+			return module;
+	}
+
+	return nullptr;
+}
+
+/**
+ * \fn IPAManager::createIPA()
  * \brief Create an IPA proxy that matches a given pipeline handler
  * \param[in] pipe The pipeline handler that wants a matching IPA proxy
  * \param[in] minVersion Minimum acceptable version of IPA module
@@ -253,58 +273,20 @@ unsigned int IPAManager::addDir(const char *libDir, unsigned int maxDepth)
  * \return A newly created IPA proxy, or nullptr if no matching IPA module is
  * found or if the IPA proxy fails to initialize
  */
-std::unique_ptr<IPAProxy> IPAManager::createIPA(PipelineHandler *pipe,
-						uint32_t maxVersion,
-						uint32_t minVersion)
-{
-	IPAModule *m = nullptr;
 
-	for (IPAModule *module : self_->modules_) {
-		if (module->match(pipe, minVersion, maxVersion)) {
-			m = module;
-			break;
-		}
-	}
-
-	if (!m)
-		return nullptr;
-
-	/*
-	 * Load and run the IPA module in a thread if it has a valid signature,
-	 * or isolate it in a separate process otherwise.
-	 *
-	 * \todo Implement a better proxy selection
-	 */
-	const char *proxyName = self_->isSignatureValid(m)
-			      ? "IPAProxyThread" : "IPAProxyLinux";
-	IPAProxyFactory *pf = nullptr;
-
-	for (IPAProxyFactory *factory : IPAProxyFactory::factories()) {
-		if (!strcmp(factory->name().c_str(), proxyName)) {
-			pf = factory;
-			break;
-		}
-	}
-
-	if (!pf) {
-		LOG(IPAManager, Error) << "Failed to get proxy factory";
-		return nullptr;
-	}
-
-	std::unique_ptr<IPAProxy> proxy = pf->create(m);
-	if (!proxy->isValid()) {
-		LOG(IPAManager, Error) << "Failed to load proxy";
-		return nullptr;
-	}
-
-	return proxy;
-}
-
-bool IPAManager::isSignatureValid(IPAModule *ipa) const
+bool IPAManager::isSignatureValid([[maybe_unused]] IPAModule *ipa) const
 {
 #if HAVE_IPA_PUBKEY
+	char *force = utils::secure_getenv("LIBCAMERA_IPA_FORCE_ISOLATION");
+	if (force && force[0] != '\0') {
+		LOG(IPAManager, Debug)
+			<< "Isolation of IPA module " << ipa->path()
+			<< " forced through environment variable";
+		return false;
+	}
+
 	File file{ ipa->path() };
-	if (!file.open(File::ReadOnly))
+	if (!file.open(File::OpenModeFlag::ReadOnly))
 		return false;
 
 	Span<uint8_t> data = file.map();

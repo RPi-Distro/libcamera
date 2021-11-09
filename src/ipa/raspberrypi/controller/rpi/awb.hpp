@@ -14,7 +14,7 @@
 #include "../pwl.hpp"
 #include "../awb_status.h"
 
-namespace RPi {
+namespace RPiController {
 
 // Control algorithm to perform AWB calculations.
 
@@ -37,6 +37,7 @@ struct AwbConfig {
 	uint16_t frame_period;
 	// number of initial frames for which speed taken as 1.0 (maximum)
 	uint16_t startup_frames;
+	unsigned int convergence_frames; // approx number of frames to converge
 	double speed; // IIR filter speed applied to algorithm results
 	bool fast; // "fast" mode uses a 16x16 rather than 32x32 grid
 	Pwl ct_r; // function maps CT to r (= R/G)
@@ -82,29 +83,27 @@ public:
 	char const *Name() const override;
 	void Initialise() override;
 	void Read(boost::property_tree::ptree const &params) override;
+	unsigned int GetConvergenceFrames() const override;
 	void SetMode(std::string const &name) override;
 	void SetManualGains(double manual_r, double manual_b) override;
+	void SwitchMode(CameraMode const &camera_mode, Metadata *metadata) override;
 	void Prepare(Metadata *image_metadata) override;
 	void Process(StatisticsPtr &stats, Metadata *image_metadata) override;
 	struct RGB {
-		RGB(double _R = INVALID, double _G = INVALID,
-		    double _B = INVALID)
+		RGB(double _R = 0, double _G = 0, double _B = 0)
 			: R(_R), G(_G), B(_B)
 		{
 		}
 		double R, G, B;
-		static const double INVALID;
-		bool Valid() const { return G != INVALID; }
-		bool Invalid() const { return G == INVALID; }
 		RGB &operator+=(RGB const &other)
 		{
 			R += other.R, G += other.G, B += other.B;
 			return *this;
 		}
-		RGB Square() const { return RGB(R * R, G * G, B * B); }
 	};
 
 private:
+	bool isAutoEnabled() const;
 	// configuration is read-only, and available to both threads
 	AwbConfig config_;
 	std::thread async_thread_;
@@ -127,15 +126,12 @@ private:
 	// counts up to frame_period before restarting the async thread
 	int frame_phase_;
 	int frame_count_; // counts up to startup_frames
-	int frame_count2_; // counts up to startup_frames for Process method
 	AwbStatus sync_results_;
 	AwbStatus prev_sync_results_;
 	std::string mode_name_;
-	std::mutex settings_mutex_;
 	// The following are for the asynchronous thread to use, though the main
 	// thread can set/reset them if the async thread is known to be idle:
-	void restartAsync(StatisticsPtr &stats, std::string const &mode_name,
-			  double lux);
+	void restartAsync(StatisticsPtr &stats, double lux);
 	// copy out the results from the async thread so that it can be restarted
 	void fetchAsyncResults();
 	StatisticsPtr statistics_;
@@ -156,6 +152,7 @@ private:
 	double manual_r_;
 	// manual b setting
 	double manual_b_;
+	bool first_switch_mode_; // is this the first call to SwitchMode?
 };
 
 static inline Awb::RGB operator+(Awb::RGB const &a, Awb::RGB const &b)
@@ -175,4 +172,4 @@ static inline Awb::RGB operator*(Awb::RGB const &rgb, double d)
 	return d * rgb;
 }
 
-} // namespace RPi
+} // namespace RPiController

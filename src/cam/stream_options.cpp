@@ -13,13 +13,13 @@ using namespace libcamera;
 StreamKeyValueParser::StreamKeyValueParser()
 {
 	addOption("role", OptionString,
-		  "Role for the stream (viewfinder, video, still, stillraw)",
+		  "Role for the stream (viewfinder, video, still, raw)",
 		  ArgumentRequired);
 	addOption("width", OptionInteger, "Width in pixels",
 		  ArgumentRequired);
 	addOption("height", OptionInteger, "Height in pixels",
 		  ArgumentRequired);
-	addOption("pixelformat", OptionInteger, "Pixel format",
+	addOption("pixelformat", OptionString, "Pixel format name",
 		  ArgumentRequired);
 }
 
@@ -40,19 +40,18 @@ KeyValueParser::Options StreamKeyValueParser::parse(const char *arguments)
 
 StreamRoles StreamKeyValueParser::roles(const OptionValue &values)
 {
-	const std::vector<OptionValue> &streamParameters = values.toArray();
-
 	/* If no configuration values to examine default to viewfinder. */
-	if (streamParameters.empty())
+	if (values.empty())
 		return { StreamRole::Viewfinder };
+
+	const std::vector<OptionValue> &streamParameters = values.toArray();
 
 	StreamRoles roles;
 	for (auto const &value : streamParameters) {
-		KeyValueParser::Options opts = value.toKeyValues();
 		StreamRole role;
 
 		/* If role is invalid or not set default to viewfinder. */
-		if (!parseRole(&role, value))
+		if (!parseRole(&role, value.toKeyValues()))
 			role = StreamRole::Viewfinder;
 
 		roles.push_back(role);
@@ -64,16 +63,16 @@ StreamRoles StreamKeyValueParser::roles(const OptionValue &values)
 int StreamKeyValueParser::updateConfiguration(CameraConfiguration *config,
 					      const OptionValue &values)
 {
-	const std::vector<OptionValue> &streamParameters = values.toArray();
-
 	if (!config) {
 		std::cerr << "No configuration provided" << std::endl;
 		return -EINVAL;
 	}
 
 	/* If no configuration values nothing to do. */
-	if (!streamParameters.size())
+	if (values.empty())
 		return 0;
+
+	const std::vector<OptionValue> &streamParameters = values.toArray();
 
 	if (config->size() != streamParameters.size()) {
 		std::cerr
@@ -95,9 +94,8 @@ int StreamKeyValueParser::updateConfiguration(CameraConfiguration *config,
 			cfg.size.height = opts["height"];
 		}
 
-		/* \todo Translate 4CC string to pixelformat with modifier. */
 		if (opts.isSet("pixelformat"))
-			cfg.pixelFormat = PixelFormat(opts["pixelformat"]);
+			cfg.pixelFormat = PixelFormat::fromString(opts["pixelformat"].toString());
 	}
 
 	return 0;
@@ -120,8 +118,8 @@ bool StreamKeyValueParser::parseRole(StreamRole *role,
 	} else if (name == "still") {
 		*role = StreamRole::StillCapture;
 		return true;
-	} else if (name == "stillraw") {
-		*role = StreamRole::StillCaptureRaw;
+	} else if (name == "raw") {
+		*role = StreamRole::Raw;
 		return true;
 	}
 

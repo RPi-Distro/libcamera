@@ -7,9 +7,9 @@
 
 #include "main_window.h"
 
+#include <assert.h>
 #include <iomanip>
 #include <string>
-#include <sys/mman.h>
 
 #include <QComboBox>
 #include <QCoreApplication>
@@ -19,6 +19,7 @@
 #include <QInputDialog>
 #include <QMutexLocker>
 #include <QStandardPaths>
+#include <QStringList>
 #include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
@@ -27,7 +28,12 @@
 #include <libcamera/camera_manager.h>
 #include <libcamera/version.h>
 
+#include "../cam/image.h"
 #include "dng_writer.h"
+#ifndef QT_NO_OPENGL
+#include "viewfinder_gl.h"
+#endif
+#include "viewfinder_qt.h"
 
 using namespace libcamera;
 
@@ -105,10 +111,32 @@ MainWindow::MainWindow(CameraManager *cm, const OptionsParser::Options &options)
 	setWindowTitle(title_);
 	connect(&titleTimer_, SIGNAL(timeout()), this, SLOT(updateTitle()));
 
-	viewfinder_ = new ViewFinder(this);
-	connect(viewfinder_, &ViewFinder::renderComplete,
-		this, &MainWindow::queueRequest);
-	setCentralWidget(viewfinder_);
+	/* Renderer type Qt or GLES, select Qt by default. */
+	std::string renderType = "qt";
+	if (options_.isSet(OptRenderer))
+		renderType = options_[OptRenderer].toString();
+
+	if (renderType == "qt") {
+		ViewFinderQt *viewfinder = new ViewFinderQt(this);
+		connect(viewfinder, &ViewFinderQt::renderComplete,
+			this, &MainWindow::queueRequest);
+		viewfinder_ = viewfinder;
+		setCentralWidget(viewfinder);
+#ifndef QT_NO_OPENGL
+	} else if (renderType == "gles") {
+		ViewFinderGL *viewfinder = new ViewFinderGL(this);
+		connect(viewfinder, &ViewFinderGL::renderComplete,
+			this, &MainWindow::queueRequest);
+		viewfinder_ = viewfinder;
+		setCentralWidget(viewfinder);
+#endif
+	} else {
+		qWarning() << "Invalid render type"
+			   << QString::fromStdString(renderType);
+		quit();
+		return;
+	}
+
 	adjustSize();
 
 	/* Hotplug/unplug support */
@@ -169,7 +197,7 @@ int MainWindow::createToolbars()
 		this, &MainWindow::switchCamera);
 
 	for (const std::shared_ptr<Camera> &cam : cm_->cameras())
-		cameraCombo_->addItem(QString::fromStdString(cam->name()));
+		cameraCombo_->addItem(QString::fromStdString(cam->id()));
 
 	toolbar_->addWidget(cameraCombo_);
 
@@ -241,11 +269,11 @@ void MainWindow::switchCamera(int index)
 	const std::shared_ptr<Camera> &cam = cameras[index];
 
 	if (cam->acquire()) {
-		qInfo() << "Failed to acquire camera" << cam->name().c_str();
+		qInfo() << "Failed to acquire camera" << cam->id().c_str();
 		return;
 	}
 
-	qInfo() << "Switching to camera" << cam->name().c_str();
+	qInfo() << "Switching to camera" << cam->id().c_str();
 
 	/*
 	 * Stop the capture session, release the current camera, replace it with
@@ -266,19 +294,19 @@ std::string MainWindow::chooseCamera()
 
 	/* If only one camera is available, use it automatically. */
 	if (cm_->cameras().size() == 1)
-		return cm_->cameras()[0]->name();
+		return cm_->cameras()[0]->id();
 
 	/* Present a dialog box to pick a camera. */
 	for (const std::shared_ptr<Camera> &cam : cm_->cameras())
-		cameras.append(QString::fromStdString(cam->name()));
+		cameras.append(QString::fromStdString(cam->id()));
 
-	QString name = QInputDialog::getItem(this, "Select Camera",
-					     "Camera:", cameras, 0,
-					     false, &result);
+	QString id = QInputDialog::getItem(this, "Select Camera",
+					   "Camera:", cameras, 0,
+					   false, &result);
 	if (!result)
 		return std::string();
 
-	return name.toStdString();
+	return id.toStdString();
 }
 
 int MainWindow::openCamera()
@@ -341,7 +369,6 @@ void MainWindow::toggleCapture(bool start)
 int MainWindow::startCapture()
 {
 	StreamRoles roles = StreamKeyValueParser::roles(options_[OptStream]);
-	std::vector<Request *> requests;
 	int ret;
 
 	/* Verify roles are supported. */
@@ -354,14 +381,14 @@ int MainWindow::startCapture()
 		break;
 	case 2:
 		if (roles[0] != StreamRole::Viewfinder ||
-		    roles[1] != StreamRole::StillCaptureRaw) {
+		    roles[1] != StreamRole::Raw) {
 			qWarning() << "Only viewfinder + raw supported for dual streams";
 			return -EINVAL;
 		}
 		break;
 	default:
 		if (roles.size() != 1) {
-			qWarning() << "Unsuported stream configuration";
+			qWarning() << "Unsupported stream configuration";
 			return -EINVAL;
 		}
 		break;
@@ -421,7 +448,8 @@ int MainWindow::startCapture()
 
 	/* Configure the viewfinder. */
 	ret = viewfinder_->setFormat(vfConfig.pixelFormat,
-				     QSize(vfConfig.size.width, vfConfig.size.height));
+				     QSize(vfConfig.size.width, vfConfig.size.height),
+				     vfConfig.stride);
 	if (ret < 0) {
 		qInfo() << "Failed to set viewfinder format";
 		return ret;
@@ -446,10 +474,10 @@ int MainWindow::startCapture()
 
 		for (const std::unique_ptr<FrameBuffer> &buffer : allocator_->buffers(stream)) {
 			/* Map memory buffers and cache the mappings. */
-			const FrameBuffer::Plane &plane = buffer->planes().front();
-			void *memory = mmap(NULL, plane.length, PROT_READ, MAP_SHARED,
-					    plane.fd.fd(), 0);
-			mappedBuffers_[buffer.get()] = { memory, plane.length };
+			std::unique_ptr<Image> image =
+				Image::fromFrameBuffer(buffer.get(), Image::MapMode::ReadOnly);
+			assert(image != nullptr);
+			mappedBuffers_[buffer.get()] = std::move(image);
 
 			/* Store buffers on the free list. */
 			freeBuffers_[stream].enqueue(buffer.get());
@@ -460,7 +488,7 @@ int MainWindow::startCapture()
 	while (!freeBuffers_[vfStream_].isEmpty()) {
 		FrameBuffer *buffer = freeBuffers_[vfStream_].dequeue();
 
-		Request *request = camera_->createRequest();
+		std::unique_ptr<Request> request = camera_->createRequest();
 		if (!request) {
 			qWarning() << "Can't create request";
 			ret = -ENOMEM;
@@ -473,7 +501,7 @@ int MainWindow::startCapture()
 			goto error;
 		}
 
-		requests.push_back(request);
+		requests_.push_back(std::move(request));
 	}
 
 	/* Start the title timer and the camera. */
@@ -492,8 +520,8 @@ int MainWindow::startCapture()
 	camera_->requestCompleted.connect(this, &MainWindow::requestComplete);
 
 	/* Queue all requests. */
-	for (Request *request : requests) {
-		ret = camera_->queueRequest(request);
+	for (std::unique_ptr<Request> &request : requests_) {
+		ret = camera_->queueRequest(request.get());
 		if (ret < 0) {
 			qWarning() << "Can't queue request";
 			goto error_disconnect;
@@ -505,17 +533,12 @@ int MainWindow::startCapture()
 	return 0;
 
 error_disconnect:
-	camera_->requestCompleted.disconnect(this, &MainWindow::requestComplete);
+	camera_->requestCompleted.disconnect(this);
 	camera_->stop();
 
 error:
-	for (Request *request : requests)
-		delete request;
+	requests_.clear();
 
-	for (auto &iter : mappedBuffers_) {
-		const MappedBuffer &buffer = iter.second;
-		munmap(buffer.memory, buffer.size);
-	}
 	mappedBuffers_.clear();
 
 	freeBuffers_.clear();
@@ -546,13 +569,12 @@ void MainWindow::stopCapture()
 	if (ret)
 		qInfo() << "Failed to stop capture";
 
-	camera_->requestCompleted.disconnect(this, &MainWindow::requestComplete);
+	camera_->requestCompleted.disconnect(this);
 
-	for (auto &iter : mappedBuffers_) {
-		const MappedBuffer &buffer = iter.second;
-		munmap(buffer.memory, buffer.size);
-	}
 	mappedBuffers_.clear();
+
+	requests_.clear();
+	freeQueue_.clear();
 
 	delete allocator_;
 
@@ -582,22 +604,24 @@ void MainWindow::processHotplug(HotplugEvent *e)
 	HotplugEvent::PlugEvent event = e->hotplugEvent();
 
 	if (event == HotplugEvent::HotPlug) {
-		cameraCombo_->addItem(QString::fromStdString(camera->name()));
+		cameraCombo_->addItem(QString::fromStdString(camera->id()));
 	} else if (event == HotplugEvent::HotUnplug) {
 		/* Check if the currently-streaming camera is removed. */
 		if (camera == camera_.get()) {
 			toggleCapture(false);
+			camera_->release();
+			camera_.reset();
 			cameraCombo_->setCurrentIndex(0);
 		}
 
-		int camIndex = cameraCombo_->findText(QString::fromStdString(camera->name()));
+		int camIndex = cameraCombo_->findText(QString::fromStdString(camera->id()));
 		cameraCombo_->removeItem(camIndex);
 	}
 }
 
 void MainWindow::addCamera(std::shared_ptr<Camera> camera)
 {
-	qInfo() << "Adding new camera:" << camera->name().c_str();
+	qInfo() << "Adding new camera:" << camera->id().c_str();
 	QCoreApplication::postEvent(this,
 				    new HotplugEvent(std::move(camera),
 						     HotplugEvent::HotPlug));
@@ -605,7 +629,7 @@ void MainWindow::addCamera(std::shared_ptr<Camera> camera)
 
 void MainWindow::removeCamera(std::shared_ptr<Camera> camera)
 {
-	qInfo() << "Removing camera:" << camera->name().c_str();
+	qInfo() << "Removing camera:" << camera->id().c_str();
 	QCoreApplication::postEvent(this,
 				    new HotplugEvent(std::move(camera),
 						     HotplugEvent::HotUnplug));
@@ -635,7 +659,8 @@ void MainWindow::captureRaw()
 	captureRaw_ = true;
 }
 
-void MainWindow::processRaw(FrameBuffer *buffer, const ControlList &metadata)
+void MainWindow::processRaw(FrameBuffer *buffer,
+			    [[maybe_unused]] const ControlList &metadata)
 {
 #ifdef HAVE_DNG
 	QString defaultPath = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
@@ -643,10 +668,10 @@ void MainWindow::processRaw(FrameBuffer *buffer, const ControlList &metadata)
 							"DNG Files (*.dng)");
 
 	if (!filename.isEmpty()) {
-		const MappedBuffer &mapped = mappedBuffers_[buffer];
+		uint8_t *memory = mappedBuffers_[buffer]->data(0).data();
 		DNGWriter::write(filename.toStdString().c_str(), camera_.get(),
 				 rawStream_->configuration(), metadata, buffer,
-				 mapped.memory);
+				 memory);
 	}
 #endif
 
@@ -672,7 +697,7 @@ void MainWindow::requestComplete(Request *request)
 	 */
 	{
 		QMutexLocker locker(&mutex_);
-		doneQueue_.enqueue({ request->buffers(), request->metadata() });
+		doneQueue_.enqueue(request);
 	}
 
 	QCoreApplication::postEvent(this, new CaptureEvent);
@@ -685,8 +710,7 @@ void MainWindow::processCapture()
 	 * if stopCapture() has been called while a CaptureEvent was posted but
 	 * not processed yet. Return immediately in that case.
 	 */
-	CaptureRequest request;
-
+	Request *request;
 	{
 		QMutexLocker locker(&mutex_);
 		if (doneQueue_.isEmpty())
@@ -696,11 +720,15 @@ void MainWindow::processCapture()
 	}
 
 	/* Process buffers. */
-	if (request.buffers_.count(vfStream_))
-		processViewfinder(request.buffers_[vfStream_]);
+	if (request->buffers().count(vfStream_))
+		processViewfinder(request->buffers().at(vfStream_));
 
-	if (request.buffers_.count(rawStream_))
-		processRaw(request.buffers_[rawStream_], request.metadata_);
+	if (request->buffers().count(rawStream_))
+		processRaw(request->buffers().at(rawStream_), request->metadata());
+
+	request->reuse();
+	QMutexLocker locker(&mutex_);
+	freeQueue_.enqueue(request);
 }
 
 void MainWindow::processViewfinder(FrameBuffer *buffer)
@@ -713,37 +741,44 @@ void MainWindow::processViewfinder(FrameBuffer *buffer)
 	fps = lastBufferTime_ && fps ? 1000000000.0 / fps : 0.0;
 	lastBufferTime_ = metadata.timestamp;
 
-	qInfo().noquote()
+	QStringList bytesused;
+	for (const FrameMetadata::Plane &plane : metadata.planes())
+		bytesused << QString::number(plane.bytesused);
+
+	qDebug().noquote()
 		<< QString("seq: %1").arg(metadata.sequence, 6, 10, QLatin1Char('0'))
-		<< "bytesused:" << metadata.planes[0].bytesused
-		<< "timestamp:" << metadata.timestamp
+		<< "bytesused: {" << bytesused.join(", ")
+		<< "} timestamp:" << metadata.timestamp
 		<< "fps:" << Qt::fixed << qSetRealNumberPrecision(2) << fps;
 
 	/* Render the frame on the viewfinder. */
-	viewfinder_->render(buffer, &mappedBuffers_[buffer]);
+	viewfinder_->render(buffer, mappedBuffers_[buffer].get());
 }
 
 void MainWindow::queueRequest(FrameBuffer *buffer)
 {
-	Request *request = camera_->createRequest();
-	if (!request) {
-		qWarning() << "Can't create request";
-		return;
+	Request *request;
+	{
+		QMutexLocker locker(&mutex_);
+		if (freeQueue_.isEmpty())
+			return;
+
+		request = freeQueue_.dequeue();
 	}
 
 	request->addBuffer(vfStream_, buffer);
 
 	if (captureRaw_) {
-		FrameBuffer *buffer = nullptr;
+		FrameBuffer *rawBuffer = nullptr;
 
 		{
 			QMutexLocker locker(&mutex_);
 			if (!freeBuffers_[rawStream_].isEmpty())
-				buffer = freeBuffers_[rawStream_].dequeue();
+				rawBuffer = freeBuffers_[rawStream_].dequeue();
 		}
 
-		if (buffer) {
-			request->addBuffer(rawStream_, buffer);
+		if (rawBuffer) {
+			request->addBuffer(rawStream_, rawBuffer);
 			captureRaw_ = false;
 		} else {
 			qWarning() << "No free buffer available for RAW capture";

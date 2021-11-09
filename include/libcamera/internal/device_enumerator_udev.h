@@ -26,21 +26,21 @@ class EventNotifier;
 class MediaDevice;
 class MediaEntity;
 
-class DeviceEnumeratorUdev : public DeviceEnumerator
+class DeviceEnumeratorUdev final : public DeviceEnumerator
 {
 public:
 	DeviceEnumeratorUdev();
 	~DeviceEnumeratorUdev();
 
-	int init() final;
-	int enumerate() final;
+	int init();
+	int enumerate();
 
 private:
 	using DependencyMap = std::map<dev_t, std::list<MediaEntity *>>;
 
 	struct MediaDeviceDeps {
-		MediaDeviceDeps(std::unique_ptr<MediaDevice> &&media,
-				DependencyMap &&deps)
+		MediaDeviceDeps(std::unique_ptr<MediaDevice> media,
+				DependencyMap deps)
 			: media_(std::move(media)), deps_(std::move(deps))
 		{
 		}
@@ -59,7 +59,7 @@ private:
 	std::string lookupDeviceNode(dev_t devnum);
 
 	int addV4L2Device(dev_t devnum);
-	void udevNotify(EventNotifier *notifier);
+	void udevNotify();
 
 	struct udev *udev_;
 	struct udev_monitor *monitor_;

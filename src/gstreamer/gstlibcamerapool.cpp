@@ -29,19 +29,21 @@ struct _GstLibcameraPool {
 	Stream *stream;
 };
 
-G_DEFINE_TYPE(GstLibcameraPool, gst_libcamera_pool, GST_TYPE_BUFFER_POOL);
+G_DEFINE_TYPE(GstLibcameraPool, gst_libcamera_pool, GST_TYPE_BUFFER_POOL)
 
 static GstFlowReturn
 gst_libcamera_pool_acquire_buffer(GstBufferPool *pool, GstBuffer **buffer,
-				  GstBufferPoolAcquireParams *params)
+				  [[maybe_unused]] GstBufferPoolAcquireParams *params)
 {
 	GstLibcameraPool *self = GST_LIBCAMERA_POOL(pool);
 	GstBuffer *buf = GST_BUFFER(gst_atomic_queue_pop(self->queue));
 	if (!buf)
 		return GST_FLOW_ERROR;
 
-	if (!gst_libcamera_allocator_prepare_buffer(self->allocator, self->stream, buf))
+	if (!gst_libcamera_allocator_prepare_buffer(self->allocator, self->stream, buf)) {
+		gst_atomic_queue_push(self->queue, buf);
 		return GST_FLOW_ERROR;
+	}
 
 	*buffer = buf;
 	return GST_FLOW_OK;

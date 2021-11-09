@@ -4,72 +4,103 @@
 #
 # ctt_pretty_print_json.py - camera tuning tool JSON formatter
 
-
-"""
-takes a collapsed json file and makes it more readable
-"""
-def process_file(string, fout, state):
-    for c in string:
-        process_char(c, fout, state)
+import sys
 
 
-def print_newline(fout, state):
-    fout.write('\n')
-    fout.write(' '*state["indent"]*4)
+class JSONPrettyPrinter(object):
+    """
+    Take a collapsed JSON file and make it more readable
+    """
+    def __init__(self, fout):
+        self.state = {
+            "indent": 0,
+            "inarray": [False],
+            "arraycount": [],
+            "skipnewline": True,
+            "need_indent": False,
+            "need_space": False,
+        }
 
+        self.fout = fout
 
-def process_char(c, fout, state):
-    if c == '{':
-        if not state["skipnewline"]:
-            print_newline(fout, state)
-        fout.write(c)
-        state["indent"] += 1
-        print_newline(fout, state)
-    elif c == '}':
-        state["indent"] -= 1
-        print_newline(fout, state)
-        fout.write(c)
-    elif c == '[':
-        print_newline(fout, state)
-        fout.write(c)
-        state["indent"] += 1
-        print_newline(fout, state)
-        state["inarray"] = [True] + state["inarray"]
-        state["arraycount"] = [0] + state["arraycount"]
-    elif c == ']':
-        state["indent"] -= 1
-        print_newline(fout, state)
-        state["inarray"].pop(0)
-        state["arraycount"].pop(0)
-        fout.write(c)
-    elif c == ':':
-        fout.write(c)
-        fout.write(' ')
-    elif c == ' ':
-        pass
-    elif c == ',':
-        if not state["inarray"][0]:
-            fout.write(c)
-            fout.write(' ')
-            print_newline(fout, state)
-        else:
-            fout.write(c)
-            state["arraycount"][0] += 1
-            if state["arraycount"][0] == 16:
-                state["arraycount"][0] = 0
-                print_newline(fout, state)
+    def newline(self):
+        if not self.state["skipnewline"]:
+            self.fout.write('\n')
+            self.state["need_indent"] = True
+            self.state["need_space"] = False
+        self.state["skipnewline"] = True
+
+    def write(self, c):
+        if self.state["need_indent"]:
+            self.fout.write(' ' * self.state["indent"] * 4)
+            self.state["need_indent"] = False
+        if self.state["need_space"]:
+            self.fout.write(' ')
+            self.state["need_space"] = False
+        self.fout.write(c)
+        self.state["skipnewline"] = False
+
+    def process_char(self, c):
+        if c == '{':
+            self.newline()
+            self.write(c)
+            self.state["indent"] += 1
+            self.newline()
+        elif c == '}':
+            self.state["indent"] -= 1
+            self.newline()
+            self.write(c)
+        elif c == '[':
+            self.newline()
+            self.write(c)
+            self.state["indent"] += 1
+            self.newline()
+            self.state["inarray"] = [True] + self.state["inarray"]
+            self.state["arraycount"] = [0] + self.state["arraycount"]
+        elif c == ']':
+            self.state["indent"] -= 1
+            self.newline()
+            self.state["inarray"].pop(0)
+            self.state["arraycount"].pop(0)
+            self.write(c)
+        elif c == ':':
+            self.write(c)
+            self.state["need_space"] = True
+        elif c == ',':
+            if not self.state["inarray"][0]:
+                self.write(c)
+                self.newline()
             else:
-                fout.write(' ')
-    else:
-        fout.write(c)
-    state["skipnewline"] = (c == '[')
+                self.write(c)
+                self.state["arraycount"][0] += 1
+                if self.state["arraycount"][0] == 16:
+                    self.state["arraycount"][0] = 0
+                    self.newline()
+                else:
+                    self.state["need_space"] = True
+        elif c.isspace():
+            pass
+        else:
+            self.write(c)
+
+    def print(self, string):
+        for c in string:
+            self.process_char(c)
+        self.newline()
 
 
 def pretty_print_json(str_in, output_filename):
-    state = {"indent": 0, "inarray": [False], "arraycount": [], "skipnewline": True}
     with open(output_filename, "w") as fout:
-        process_file(str_in, fout, state)
+        printer = JSONPrettyPrinter(fout)
+        printer.print(str_in)
 
 
 if __name__ == '__main__':
-    pretty_print_json("../ctt/ref_json/final_imx477.json", "pretty.json")
+    if len(sys.argv) != 2:
+        print("Usage: %s filename" % sys.argv[0])
+        sys.exit(1)
+
+    input_filename = sys.argv[1]
+    with open(input_filename, "r") as fin:
+        printer = JSONPrettyPrinter(sys.stdout)
+        printer.print(fin.read())

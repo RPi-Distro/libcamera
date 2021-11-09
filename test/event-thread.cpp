@@ -10,10 +10,9 @@
 #include <string.h>
 #include <unistd.h>
 
-#include <libcamera/event_notifier.h>
-#include <libcamera/timer.h>
-
-#include "libcamera/internal/thread.h"
+#include <libcamera/base/event_notifier.h>
+#include <libcamera/base/thread.h>
+#include <libcamera/base/timer.h>
 
 #include "test.h"
 
@@ -67,9 +66,9 @@ public:
 	}
 
 private:
-	void readReady(EventNotifier *notifier)
+	void readReady()
 	{
-		size_ = read(notifier->fd(), data_, sizeof(data_));
+		size_ = read(notifier_->fd(), data_, sizeof(data_));
 		notified_ = true;
 	}
 

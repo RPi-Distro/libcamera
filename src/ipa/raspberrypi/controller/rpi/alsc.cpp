@@ -6,12 +6,17 @@
  */
 #include <math.h>
 
+#include <libcamera/base/log.h>
+
 #include "../awb_status.h"
 #include "alsc.hpp"
 
 // Raspberry Pi ALSC (Auto Lens Shading Correction) algorithm.
 
-using namespace RPi;
+using namespace RPiController;
+using namespace libcamera;
+
+LOG_DEFINE_CATEGORY(RPiAlsc)
 
 #define NAME "rpi.alsc"
 
@@ -32,8 +37,8 @@ Alsc::~Alsc()
 	{
 		std::lock_guard<std::mutex> lock(mutex_);
 		async_abort_ = true;
-		async_signal_.notify_one();
 	}
+	async_signal_.notify_one();
 	async_thread_.join();
 }
 
@@ -110,15 +115,14 @@ static void read_calibrations(std::vector<AlscCalibration> &calibrations,
 					"Alsc: too few values for ct " +
 					std::to_string(ct) + " in " + name);
 			calibrations.push_back(calibration);
-			RPI_LOG("Read " << name << " calibration for ct "
-					<< ct);
+			LOG(RPiAlsc, Debug)
+				<< "Read " << name << " calibration for ct " << ct;
 		}
 	}
 }
 
 void Alsc::Read(boost::property_tree::ptree const &params)
 {
-	RPI_LOG("Alsc");
 	config_.frame_period = params.get<uint16_t>("frame_period", 12);
 	config_.startup_frames = params.get<uint16_t>("startup_frames", 10);
 	config_.speed = params.get<double>("speed", 0.05);
@@ -139,13 +143,15 @@ void Alsc::Read(boost::property_tree::ptree const &params)
 		read_lut(config_.luminance_lut,
 			 params.get_child("luminance_lut"));
 	else
-		RPI_WARN("Alsc: no luminance table - assume unity everywhere");
+		LOG(RPiAlsc, Warning)
+			<< "no luminance table - assume unity everywhere";
 	read_calibrations(config_.calibrations_Cr, params, "calibrations_Cr");
 	read_calibrations(config_.calibrations_Cb, params, "calibrations_Cb");
 	config_.default_ct = params.get<double>("default_ct", 4500.0);
 	config_.threshold = params.get<double>("threshold", 1e-3);
 }
 
+static double get_ct(Metadata *metadata, double default_ct);
 static void get_cal_table(double ct,
 			  std::vector<AlscCalibration> const &calibrations,
 			  double cal_table[XY]);
@@ -163,70 +169,109 @@ static void add_luminance_to_tables(double results[3][Y][X],
 
 void Alsc::Initialise()
 {
-	RPI_LOG("Alsc");
 	frame_count2_ = frame_count_ = frame_phase_ = 0;
 	first_time_ = true;
-	// Initialise the lambdas. Each call to Process then restarts from the
-	// previous results.  Also initialise the previous frame tables to the
-	// same harmless values.
-	for (int i = 0; i < XY; i++)
-		lambda_r_[i] = lambda_b_[i] = 1.0;
+	ct_ = config_.default_ct;
+	// The lambdas are initialised in the SwitchMode.
 }
 
-void Alsc::SwitchMode(CameraMode const &camera_mode, Metadata *metadata)
+void Alsc::waitForAysncThread()
 {
-	(void)metadata;
+	if (async_started_) {
+		async_started_ = false;
+		std::unique_lock<std::mutex> lock(mutex_);
+		sync_signal_.wait(lock, [&] {
+			return async_finished_;
+		});
+		async_finished_ = false;
+	}
+}
 
-	// There's a bit of a question what we should do if the "crop" of the
-	// camera mode has changed.  Any calculation currently in flight would
-	// not be useful to the new mode, so arguably we should abort it, and
-	// generate a new table (like the "first_time" code already here).  When
-	// the crop doesn't change, we can presumably just leave things
-	// alone. For now, I think we'll just wait and see. When the crop does
-	// change, any effects should be transient, and if they're not transient
-	// enough, we'll revisit the question then.
+static bool compare_modes(CameraMode const &cm0, CameraMode const &cm1)
+{
+	// Return true if the modes crop from the sensor significantly differently,
+	// or if the user transform has changed.
+	if (cm0.transform != cm1.transform)
+		return true;
+	int left_diff = abs(cm0.crop_x - cm1.crop_x);
+	int top_diff = abs(cm0.crop_y - cm1.crop_y);
+	int right_diff = fabs(cm0.crop_x + cm0.scale_x * cm0.width -
+			      cm1.crop_x - cm1.scale_x * cm1.width);
+	int bottom_diff = fabs(cm0.crop_y + cm0.scale_y * cm0.height -
+			       cm1.crop_y - cm1.scale_y * cm1.height);
+	// These thresholds are a rather arbitrary amount chosen to trigger
+	// when carrying on with the previously calculated tables might be
+	// worse than regenerating them (but without the adaptive algorithm).
+	int threshold_x = cm0.sensor_width >> 4;
+	int threshold_y = cm0.sensor_height >> 4;
+	return left_diff > threshold_x || right_diff > threshold_x ||
+	       top_diff > threshold_y || bottom_diff > threshold_y;
+}
+
+void Alsc::SwitchMode(CameraMode const &camera_mode,
+		      [[maybe_unused]] Metadata *metadata)
+{
+	// We're going to start over with the tables if there's any "significant"
+	// change.
+	bool reset_tables = first_time_ || compare_modes(camera_mode_, camera_mode);
+
+	// Believe the colour temperature from the AWB, if there is one.
+	ct_ = get_ct(metadata, ct_);
+
+	// Ensure the other thread isn't running while we do this.
+	waitForAysncThread();
+
 	camera_mode_ = camera_mode;
-	if (first_time_) {
-		// On the first time, arrange for something sensible in the
-		// initial tables. Construct the tables for some default colour
-		// temperature. This echoes the code in doAlsc, without the
-		// adaptive algorithm.
+
+	// We must resample the luminance table like we do the others, but it's
+	// fixed so we can simply do it up front here.
+	resample_cal_table(config_.luminance_lut, camera_mode_, luminance_table_);
+
+	if (reset_tables) {
+		// Upon every "table reset", arrange for something sensible to be
+		// generated. Construct the tables for the previous recorded colour
+		// temperature. In order to start over from scratch we initialise
+		// the lambdas, but the rest of this code then echoes the code in
+		// doAlsc, without the adaptive algorithm.
+		for (int i = 0; i < XY; i++)
+			lambda_r_[i] = lambda_b_[i] = 1.0;
 		double cal_table_r[XY], cal_table_b[XY], cal_table_tmp[XY];
-		get_cal_table(4000, config_.calibrations_Cr, cal_table_tmp);
+		get_cal_table(ct_, config_.calibrations_Cr, cal_table_tmp);
 		resample_cal_table(cal_table_tmp, camera_mode_, cal_table_r);
-		get_cal_table(4000, config_.calibrations_Cb, cal_table_tmp);
+		get_cal_table(ct_, config_.calibrations_Cb, cal_table_tmp);
 		resample_cal_table(cal_table_tmp, camera_mode_, cal_table_b);
 		compensate_lambdas_for_cal(cal_table_r, lambda_r_,
 					   async_lambda_r_);
 		compensate_lambdas_for_cal(cal_table_b, lambda_b_,
 					   async_lambda_b_);
 		add_luminance_to_tables(sync_results_, async_lambda_r_, 1.0,
-					async_lambda_b_, config_.luminance_lut,
+					async_lambda_b_, luminance_table_,
 					config_.luminance_strength);
 		memcpy(prev_sync_results_, sync_results_,
 		       sizeof(prev_sync_results_));
+		frame_phase_ = config_.frame_period; // run the algo again asap
 		first_time_ = false;
 	}
 }
 
 void Alsc::fetchAsyncResults()
 {
-	RPI_LOG("Fetch ALSC results");
+	LOG(RPiAlsc, Debug) << "Fetch ALSC results";
 	async_finished_ = false;
 	async_started_ = false;
 	memcpy(sync_results_, async_results_, sizeof(sync_results_));
 }
 
-static double get_ct(Metadata *metadata, double default_ct)
+double get_ct(Metadata *metadata, double default_ct)
 {
 	AwbStatus awb_status;
 	awb_status.temperature_K = default_ct; // in case nothing found
 	if (metadata->Get("awb.status", awb_status) != 0)
-		RPI_WARN("Alsc: no AWB results found, using "
-			 << awb_status.temperature_K);
+		LOG(RPiAlsc, Debug) << "no AWB results found, using "
+				    << awb_status.temperature_K;
 	else
-		RPI_LOG("Alsc: AWB results found, using "
-			<< awb_status.temperature_K);
+		LOG(RPiAlsc, Debug) << "AWB results found, using "
+				    << awb_status.temperature_K;
 	return awb_status.temperature_K;
 }
 
@@ -248,15 +293,16 @@ static void copy_stats(bcm2835_isp_stats_region regions[XY], StatisticsPtr &stat
 
 void Alsc::restartAsync(StatisticsPtr &stats, Metadata *image_metadata)
 {
-	RPI_LOG("Starting ALSC thread");
+	LOG(RPiAlsc, Debug) << "Starting ALSC calculation";
 	// Get the current colour temperature. It's all we need from the
-	// metadata.
-	ct_ = get_ct(image_metadata, config_.default_ct);
+	// metadata. Default to the last CT value (which could be the default).
+	ct_ = get_ct(image_metadata, ct_);
 	// We have to copy the statistics here, dividing out our best guess of
 	// the LSC table that the pipeline applied to them.
 	AlscStatus alsc_status;
 	if (image_metadata->Get("alsc.status", alsc_status) != 0) {
-		RPI_WARN("No ALSC status found for applied gains!");
+		LOG(RPiAlsc, Warning)
+			<< "No ALSC status found for applied gains!";
 		for (int y = 0; y < Y; y++)
 			for (int x = 0; x < X; x++) {
 				alsc_status.r[y][x] = 1.0;
@@ -266,10 +312,11 @@ void Alsc::restartAsync(StatisticsPtr &stats, Metadata *image_metadata)
 	}
 	copy_stats(statistics_, stats, alsc_status);
 	frame_phase_ = 0;
-	// copy the camera mode so it won't change during the calculations
-	async_camera_mode_ = camera_mode_;
-	async_start_ = true;
 	async_started_ = true;
+	{
+		std::lock_guard<std::mutex> lock(mutex_);
+		async_start_ = true;
+	}
 	async_signal_.notify_one();
 }
 
@@ -282,13 +329,12 @@ void Alsc::Prepare(Metadata *image_metadata)
 	double speed = frame_count_ < (int)config_.startup_frames
 			       ? 1.0
 			       : config_.speed;
-	RPI_LOG("Alsc: frame_count " << frame_count_ << " speed " << speed);
+	LOG(RPiAlsc, Debug)
+		<< "frame_count " << frame_count_ << " speed " << speed;
 	{
 		std::unique_lock<std::mutex> lock(mutex_);
-		if (async_started_ && async_finished_) {
-			RPI_LOG("ALSC thread finished");
+		if (async_started_ && async_finished_)
 			fetchAsyncResults();
-		}
 	}
 	// Apply IIR filter to results and program into the pipeline.
 	double *ptr = (double *)sync_results_,
@@ -312,14 +358,11 @@ void Alsc::Process(StatisticsPtr &stats, Metadata *image_metadata)
 		frame_phase_++;
 	if (frame_count2_ < (int)config_.startup_frames)
 		frame_count2_++;
-	RPI_LOG("Alsc: frame_phase " << frame_phase_);
+	LOG(RPiAlsc, Debug) << "frame_phase " << frame_phase_;
 	if (frame_phase_ >= (int)config_.frame_period ||
 	    frame_count2_ < (int)config_.startup_frames) {
-		std::unique_lock<std::mutex> lock(mutex_);
-		if (async_started_ == false) {
-			RPI_LOG("ALSC thread starting");
+		if (async_started_ == false)
 			restartAsync(stats, image_metadata);
-		}
 	}
 }
 
@@ -339,8 +382,8 @@ void Alsc::asyncFunc()
 		{
 			std::lock_guard<std::mutex> lock(mutex_);
 			async_finished_ = true;
-			sync_signal_.notify_one();
 		}
+		sync_signal_.notify_one();
 	}
 }
 
@@ -350,25 +393,26 @@ void get_cal_table(double ct, std::vector<AlscCalibration> const &calibrations,
 	if (calibrations.empty()) {
 		for (int i = 0; i < XY; i++)
 			cal_table[i] = 1.0;
-		RPI_LOG("Alsc: no calibrations found");
+		LOG(RPiAlsc, Debug) << "no calibrations found";
 	} else if (ct <= calibrations.front().ct) {
 		memcpy(cal_table, calibrations.front().table,
 		       XY * sizeof(double));
-		RPI_LOG("Alsc: using calibration for "
-			<< calibrations.front().ct);
+		LOG(RPiAlsc, Debug) << "using calibration for "
+				    << calibrations.front().ct;
 	} else if (ct >= calibrations.back().ct) {
 		memcpy(cal_table, calibrations.back().table,
 		       XY * sizeof(double));
-		RPI_LOG("Alsc: using calibration for "
-			<< calibrations.front().ct);
+		LOG(RPiAlsc, Debug) << "using calibration for "
+				    << calibrations.back().ct;
 	} else {
 		int idx = 0;
 		while (ct > calibrations[idx + 1].ct)
 			idx++;
 		double ct0 = calibrations[idx].ct,
 		       ct1 = calibrations[idx + 1].ct;
-		RPI_LOG("Alsc: ct is " << ct << ", interpolating between "
-				       << ct0 << " and " << ct1);
+		LOG(RPiAlsc, Debug)
+			<< "ct is " << ct << ", interpolating between "
+			<< ct0 << " and " << ct1;
 		for (int i = 0; i < XY; i++)
 			cal_table[i] =
 				(calibrations[idx].table[i] * (ct1 - ct) +
@@ -394,6 +438,10 @@ void resample_cal_table(double const cal_table_in[XY],
 		xf[i] = x - x_lo[i];
 		x_hi[i] = std::min(x_lo[i] + 1, X - 1);
 		x_lo[i] = std::max(x_lo[i], 0);
+		if (!!(camera_mode.transform & libcamera::Transform::HFlip)) {
+			x_lo[i] = X - 1 - x_lo[i];
+			x_hi[i] = X - 1 - x_hi[i];
+		}
 	}
 	// Now march over the output table generating the new values.
 	double scale_y = camera_mode.sensor_height /
@@ -406,6 +454,10 @@ void resample_cal_table(double const cal_table_in[XY],
 		double yf = y - y_lo;
 		int y_hi = std::min(y_lo + 1, Y - 1);
 		y_lo = std::max(y_lo, 0);
+		if (!!(camera_mode.transform & libcamera::Transform::VFlip)) {
+			y_lo = Y - 1 - y_lo;
+			y_hi = Y - 1 - y_hi;
+		}
 		double const *row_above = cal_table_in + X * y_lo;
 		double const *row_below = cal_table_in + X * y_hi;
 		for (int i = 0; i < X; i++) {
@@ -455,7 +507,7 @@ void compensate_lambdas_for_cal(double const cal_table[XY],
 		new_lambdas[i] /= min_new_lambda;
 }
 
-static void print_cal_table(double const C[XY])
+[[maybe_unused]] static void print_cal_table(double const C[XY])
 {
 	printf("table: [\n");
 	for (int j = 0; j < Y; j++) {
@@ -561,9 +613,9 @@ static double gauss_seidel2_SOR(double const M[XY][4], double omega,
 				double lambda[XY])
 {
 	double old_lambda[XY];
-	for (int i = 0; i < XY; i++)
-		old_lambda[i] = lambda[i];
 	int i;
+	for (i = 0; i < XY; i++)
+		old_lambda[i] = lambda[i];
 	lambda[0] = compute_lambda_bottom_start(0, M, lambda);
 	for (i = 1; i < X; i++)
 		lambda[i] = compute_lambda_bottom(i, M, lambda);
@@ -583,7 +635,7 @@ static double gauss_seidel2_SOR(double const M[XY][4], double omega,
 		lambda[i] = compute_lambda_bottom(i, M, lambda);
 	lambda[0] = compute_lambda_bottom_start(0, M, lambda);
 	double max_diff = 0;
-	for (int i = 0; i < XY; i++) {
+	for (i = 0; i < XY; i++) {
 		lambda[i] = old_lambda[i] + (lambda[i] - old_lambda[i]) * omega;
 		if (fabs(lambda[i] - old_lambda[i]) > fabs(max_diff))
 			max_diff = lambda[i] - old_lambda[i];
@@ -611,15 +663,16 @@ static void run_matrix_iterations(double const C[XY], double lambda[XY],
 	for (int i = 0; i < n_iter; i++) {
 		double max_diff = fabs(gauss_seidel2_SOR(M, omega, lambda));
 		if (max_diff < threshold) {
-			RPI_LOG("Stop after " << i + 1 << " iterations");
+			LOG(RPiAlsc, Debug)
+				<< "Stop after " << i + 1 << " iterations";
 			break;
 		}
 		// this happens very occasionally (so make a note), though
 		// doesn't seem to matter
 		if (max_diff > last_max_diff)
-			RPI_LOG("Iteration " << i << ": max_diff gone up "
-					     << last_max_diff << " to "
-					     << max_diff);
+			LOG(RPiAlsc, Debug)
+				<< "Iteration " << i << ": max_diff gone up "
+				<< last_max_diff << " to " << max_diff;
 		last_max_diff = max_diff;
 	}
 	// We're going to normalise the lambdas so the smallest is 1. Not sure
@@ -670,12 +723,11 @@ void Alsc::doAlsc()
 	// Fetch the new calibrations (if any) for this CT. Resample them in
 	// case the camera mode is not full-frame.
 	get_cal_table(ct_, config_.calibrations_Cr, cal_table_tmp);
-	resample_cal_table(cal_table_tmp, async_camera_mode_, cal_table_r);
+	resample_cal_table(cal_table_tmp, camera_mode_, cal_table_r);
 	get_cal_table(ct_, config_.calibrations_Cb, cal_table_tmp);
-	resample_cal_table(cal_table_tmp, async_camera_mode_, cal_table_b);
+	resample_cal_table(cal_table_tmp, camera_mode_, cal_table_b);
 	// You could print out the cal tables for this image here, if you're
 	// tuning the algorithm...
-	(void)print_cal_table;
 	// Apply any calibration to the statistics, so the adaptive algorithm
 	// makes only the extra adjustments.
 	apply_cal_table(cal_table_r, Cr);
@@ -695,7 +747,7 @@ void Alsc::doAlsc()
 	compensate_lambdas_for_cal(cal_table_b, lambda_b_, async_lambda_b_);
 	// Fold in the luminance table at the appropriate strength.
 	add_luminance_to_tables(async_results_, async_lambda_r_, 1.0,
-				async_lambda_b_, config_.luminance_lut,
+				async_lambda_b_, luminance_table_,
 				config_.luminance_strength);
 }
 

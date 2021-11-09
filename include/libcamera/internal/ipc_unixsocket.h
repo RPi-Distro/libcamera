@@ -12,9 +12,11 @@
 #include <sys/types.h>
 #include <vector>
 
-#include <libcamera/event_notifier.h>
+#include <libcamera/base/signal.h>
 
 namespace libcamera {
+
+class EventNotifier;
 
 class IPCUnixSocket
 {
@@ -35,7 +37,7 @@ public:
 	int send(const Payload &payload);
 	int receive(Payload *payload);
 
-	Signal<IPCUnixSocket *> readyRead;
+	Signal<> readyRead;
 
 private:
 	struct Header {
@@ -46,7 +48,7 @@ private:
 	int sendData(const void *buffer, size_t length, const int32_t *fds, unsigned int num);
 	int recvData(void *buffer, size_t length, int32_t *fds, unsigned int num);
 
-	void dataNotifier(EventNotifier *notifier);
+	void dataNotifier();
 
 	int fd_;
 	bool headerReceived_;
