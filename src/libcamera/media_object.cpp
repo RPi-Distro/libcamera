@@ -15,7 +15,8 @@
 
 #include <linux/media.h>
 
-#include "libcamera/internal/log.h"
+#include <libcamera/base/log.h>
+
 #include "libcamera/internal/media_device.h"
 
 /**
@@ -67,6 +68,11 @@ LOG_DECLARE_CATEGORY(MediaDevice)
 
 /**
  * \fn MediaObject::device()
+ * \copydoc MediaObject::device() const
+ */
+
+/**
+ * \fn MediaObject::device() const
  * \brief Retrieve the media device the media object belongs to
  * \return The MediaDevice
  */
@@ -191,15 +197,6 @@ MediaPad::MediaPad(const struct media_v2_pad *pad, MediaEntity *entity)
 {
 }
 
-MediaPad::~MediaPad()
-{
-	/*
-	 * Don't delete the links as we only borrow the reference owned by
-	 * MediaDevice.
-	 */
-	links_.clear();
-}
-
 /**
  * \fn MediaPad::index()
  * \brief Retrieve the pad index
@@ -251,6 +248,23 @@ void MediaPad::addLink(MediaLink *link)
  */
 
 /**
+ * \enum MediaEntity::Type
+ * \brief The type of the interface exposed by the entity to userspace
+ *
+ * \var MediaEntity::Type::Invalid
+ * \brief Invalid or unsupported entity type
+ *
+ * \var MediaEntity::Type::MediaEntity
+ * \brief Plain media entity with no userspace interface
+ *
+ * \var MediaEntity::Type::V4L2VideoDevice
+ * \brief V4L2 video device with a V4L2 video device node
+ *
+ * \var MediaEntity::Type::V4L2Subdevice
+ * \brief V4L2 subdevice with a V4L2 subdev device node
+ */
+
+/**
  * \fn MediaEntity::name()
  * \brief Retrieve the entity name
  * \return The entity name
@@ -274,6 +288,15 @@ void MediaPad::addLink(MediaLink *link)
  * defined by the Media Controller API.
  *
  * \return The entity's flags
+ */
+
+/**
+ * \fn MediaEntity::type()
+ * \brief Retrieve the entity's type
+ *
+ * The entity type identifies the type of interface exposed to userspace.
+ *
+ * \return The entity's type
  */
 
 /**
@@ -359,25 +382,32 @@ int MediaEntity::setDeviceNode(const std::string &deviceNode)
  * \brief Construct a MediaEntity
  * \param[in] dev The media device this entity belongs to
  * \param[in] entity The media entity kernel data
- * \param[in] major The major number of the entity associated interface
- * \param[in] minor The minor number of the entity associated interface
+ * \param[in] iface The entity interface data (may be null)
  */
 MediaEntity::MediaEntity(MediaDevice *dev,
 			 const struct media_v2_entity *entity,
-			 unsigned int major, unsigned int minor)
+			 const struct media_v2_interface *iface)
 	: MediaObject(dev, entity->id), name_(entity->name),
 	  function_(entity->function), flags_(entity->flags),
-	  major_(major), minor_(minor)
+	  type_(Type::MediaEntity), major_(0), minor_(0)
 {
-}
+	if (!iface)
+		return;
 
-MediaEntity::~MediaEntity()
-{
-	/*
-	 * Don't delete the pads as we only borrow the reference owned by
-	 * MediaDevice.
-	 */
-	pads_.clear();
+	switch (iface->intf_type) {
+	case MEDIA_INTF_T_V4L_VIDEO:
+		type_ = Type::V4L2VideoDevice;
+		break;
+	case MEDIA_INTF_T_V4L_SUBDEV:
+		type_ = Type::V4L2Subdevice;
+		break;
+	default:
+		type_ = Type::Invalid;
+		return;
+	}
+
+	major_ = iface->devnode.major;
+	minor_ = iface->devnode.minor;
 }
 
 /**

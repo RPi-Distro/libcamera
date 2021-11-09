@@ -35,14 +35,14 @@ enum {
 
 #define GST_TYPE_LIBCAMERA_DEVICE gst_libcamera_device_get_type()
 G_DECLARE_FINAL_TYPE(GstLibcameraDevice, gst_libcamera_device,
-		     GST_LIBCAMERA, DEVICE, GstDevice);
+		     GST_LIBCAMERA, DEVICE, GstDevice)
 
 struct _GstLibcameraDevice {
 	GstDevice parent;
 	gchar *name;
 };
 
-G_DEFINE_TYPE(GstLibcameraDevice, gst_libcamera_device, GST_TYPE_DEVICE);
+G_DEFINE_TYPE(GstLibcameraDevice, gst_libcamera_device, GST_TYPE_DEVICE)
 
 static GstElement *
 gst_libcamera_device_create_element(GstDevice *device, const gchar *name)
@@ -101,7 +101,7 @@ gst_libcamera_device_finalize(GObject *object)
 
 	g_free(self->name);
 
-	G_OBJECT_GET_CLASS(klass)->finalize(object);
+	G_OBJECT_CLASS(klass)->finalize(object);
 }
 
 static void
@@ -132,6 +132,10 @@ gst_libcamera_device_new(const std::shared_ptr<Camera> &camera)
 
 	roles.push_back(StreamRole::VideoRecording);
 	std::unique_ptr<CameraConfiguration> config = camera->generateConfiguration(roles);
+	if (!config || config->size() != roles.size()) {
+		GST_ERROR("Failed to generate a default configuration for %s", name);
+		return nullptr;
+	}
 
 	for (const StreamConfiguration &stream_cfg : *config) {
 		GstCaps *sub_caps = gst_libcamera_stream_formats_to_caps(stream_cfg.formats());
@@ -158,19 +162,18 @@ gst_libcamera_device_new(const std::shared_ptr<Camera> &camera)
 
 struct _GstLibcameraProvider {
 	GstDeviceProvider parent;
-	CameraManager *cm;
 };
 
 G_DEFINE_TYPE_WITH_CODE(GstLibcameraProvider, gst_libcamera_provider,
 			GST_TYPE_DEVICE_PROVIDER,
 			GST_DEBUG_CATEGORY_INIT(provider_debug, "libcamera-provider", 0,
-						"libcamera Device Provider"));
+						"libcamera Device Provider"))
 
 static GList *
 gst_libcamera_provider_probe(GstDeviceProvider *provider)
 {
 	GstLibcameraProvider *self = GST_LIBCAMERA_PROVIDER(provider);
-	CameraManager *cm = self->cm;
+	std::shared_ptr<CameraManager> cm;
 	GList *devices = nullptr;
 	gint ret;
 
@@ -181,7 +184,7 @@ gst_libcamera_provider_probe(GstDeviceProvider *provider)
 	 * gains monitoring support. Meanwhile we need to cycle start()/stop()
 	 * to ensure every probe() calls return the latest list.
 	 */
-	ret = cm->start();
+	cm = gst_libcamera_get_camera_manager(ret);
 	if (ret) {
 		GST_ERROR_OBJECT(self, "Failed to retrieve device list: %s",
 				 g_strerror(-ret));
@@ -190,11 +193,17 @@ gst_libcamera_provider_probe(GstDeviceProvider *provider)
 
 	for (const std::shared_ptr<Camera> &camera : cm->cameras()) {
 		GST_INFO_OBJECT(self, "Found camera '%s'", camera->id().c_str());
-		devices = g_list_append(devices,
-					g_object_ref_sink(gst_libcamera_device_new(camera)));
-	}
 
-	cm->stop();
+		GstDevice *dev = gst_libcamera_device_new(camera);
+		if (!dev) {
+			GST_ERROR_OBJECT(self, "Failed to add camera '%s'",
+					 camera->id().c_str());
+			return nullptr;
+		}
+
+		devices = g_list_append(devices,
+					g_object_ref_sink(dev));
+	}
 
 	return devices;
 }
@@ -204,31 +213,16 @@ gst_libcamera_provider_init(GstLibcameraProvider *self)
 {
 	GstDeviceProvider *provider = GST_DEVICE_PROVIDER(self);
 
-	self->cm = new CameraManager();
-
 	/* Avoid devices being duplicated. */
 	gst_device_provider_hide_provider(provider, "v4l2deviceprovider");
-}
-
-static void
-gst_libcamera_provider_finalize(GObject *object)
-{
-	GstLibcameraProvider *self = GST_LIBCAMERA_PROVIDER(object);
-	gpointer klass = gst_libcamera_provider_parent_class;
-
-	delete self->cm;
-
-	return G_OBJECT_GET_CLASS(klass)->finalize(object);
 }
 
 static void
 gst_libcamera_provider_class_init(GstLibcameraProviderClass *klass)
 {
 	GstDeviceProviderClass *provider_class = GST_DEVICE_PROVIDER_CLASS(klass);
-	GObjectClass *object_class = G_OBJECT_CLASS(klass);
 
 	provider_class->probe = gst_libcamera_provider_probe;
-	object_class->finalize = gst_libcamera_provider_finalize;
 
 	gst_device_provider_class_set_metadata(provider_class,
 					       "libcamera Device Provider",

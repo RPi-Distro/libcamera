@@ -10,6 +10,7 @@
 #ifndef __LIBCAMERA_CONTROL_IDS_H__
 #define __LIBCAMERA_CONTROL_IDS_H__
 
+#include <array>
 #include <stdint.h>
 
 #include <libcamera/controls.h>
@@ -25,6 +26,12 @@ ${ids}
 ${controls}
 
 extern const ControlIdMap controls;
+
+namespace draft {
+
+${draft_controls}
+
+} /* namespace draft */
 
 } /* namespace controls */
 

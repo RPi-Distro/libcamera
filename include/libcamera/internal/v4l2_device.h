@@ -13,10 +13,15 @@
 
 #include <linux/videodev2.h>
 
-#include "libcamera/internal/log.h"
-#include "libcamera/internal/v4l2_controls.h"
+#include <libcamera/base/log.h>
+#include <libcamera/base/signal.h>
+#include <libcamera/base/span.h>
+
+#include <libcamera/controls.h>
 
 namespace libcamera {
+
+class EventNotifier;
 
 class V4L2Device : protected Loggable
 {
@@ -34,6 +39,11 @@ public:
 	const std::string &deviceNode() const { return deviceNode_; }
 	std::string devicePath() const;
 
+	int setFrameStartEnabled(bool enable);
+	Signal<uint32_t> frameStart;
+
+	void updateControlInfo();
+
 protected:
 	V4L2Device(const std::string &deviceNode);
 	~V4L2Device();
@@ -43,19 +53,29 @@ protected:
 
 	int ioctl(unsigned long request, void *argp);
 
-	int fd() { return fd_; }
+	int fd() const { return fd_; }
 
 private:
+	static ControlType v4l2CtrlType(uint32_t ctrlType);
+	static std::unique_ptr<ControlId> v4l2ControlId(const v4l2_query_ext_ctrl &ctrl);
+	ControlInfo v4l2ControlInfo(const v4l2_query_ext_ctrl &ctrl);
+	ControlInfo v4l2MenuControlInfo(const v4l2_query_ext_ctrl &ctrl);
+
 	void listControls();
 	void updateControls(ControlList *ctrls,
-			    const struct v4l2_ext_control *v4l2Ctrls,
-			    unsigned int count);
+			    Span<const v4l2_ext_control> v4l2Ctrls);
+
+	void eventAvailable();
 
 	std::map<unsigned int, struct v4l2_query_ext_ctrl> controlInfo_;
-	std::vector<std::unique_ptr<V4L2ControlId>> controlIds_;
+	std::vector<std::unique_ptr<ControlId>> controlIds_;
+	ControlIdMap controlIdMap_;
 	ControlInfoMap controls_;
 	std::string deviceNode_;
 	int fd_;
+
+	EventNotifier *fdEventNotifier_;
+	bool frameStartEnabled_;
 };
 
 } /* namespace libcamera */

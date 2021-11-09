@@ -20,23 +20,35 @@ list information page.
 IRC Channel
 -----------
 
-For informal and real time discussions, our IRC channel on Freenode is open to
-the public. Point your IRC client to #libcamera to say hello, or use the `WebChat`_.
+For informal and real time discussions, our IRC channel on irc.oftc.net is open
+to the public. Point your IRC client to #libcamera to say hello, or use the
+`WebChat`_.
 
-.. _WebChat: https://webchat.freenode.net/?channels=%23libcamera&uio=d4
+.. _WebChat: https://webchat.oftc.net/?channels=libcamera
 
 Source Code
 -----------
 
 libcamera is in early stages of development, and no releases are available yet.
-The source code is available from the project's `git tree`_, hosted by `LinuxTV`_.
+The source code is available from the project's `git tree`_.
 
 .. code-block:: shell
 
-  $ git clone git://linuxtv.org/libcamera.git
+  $ git clone https://git.libcamera.org/libcamera/libcamera.git
 
-.. _git tree: https://git.linuxtv.org/libcamera.git/
-.. _LinuxTV: https://linuxtv.org/
+.. _git tree: https://git.libcamera.org/libcamera/libcamera.git/
+
+A mirror is also hosted on `LinuxTV`_.
+
+.. _LinuxTV: https://git.linuxtv.org/libcamera.git/
+
+Issue Tracker
+-------------
+
+Our `issue tracker`_ tracks all bugs, issues and feature requests. All issues
+are publicly visible, and you can register for an account to create new issues.
+
+.. _issue tracker: https://bugs.libcamera.org/
 
 Documentation
 -------------

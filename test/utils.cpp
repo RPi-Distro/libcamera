@@ -11,14 +11,16 @@
 #include <string>
 #include <vector>
 
-#include <libcamera/geometry.h>
+#include <libcamera/base/span.h>
+#include <libcamera/base/utils.h>
 
-#include "libcamera/internal/utils.h"
+#include <libcamera/geometry.h>
 
 #include "test.h"
 
 using namespace std;
 using namespace libcamera;
+using namespace std::literals::chrono_literals;
 
 class UtilsTest : public Test
 {
@@ -67,6 +69,100 @@ protected:
 			for (const auto &path : results)
 				cerr << "\t" << path << endl;
 
+			return TestFail;
+		}
+
+		return TestPass;
+	}
+
+	int testEnumerate()
+	{
+		std::vector<unsigned int> integers{ 1, 2, 3, 4, 5 };
+		unsigned int i = 0;
+
+		for (auto [index, value] : utils::enumerate(integers)) {
+			if (index != i || value != i + 1) {
+				cerr << "utils::enumerate(<vector>) test failed: i=" << i
+				     << ", index=" << index << ", value=" << value
+				     << std::endl;
+				return TestFail;
+			}
+
+			/* Verify that we can modify the value. */
+			--value;
+			++i;
+		}
+
+		if (integers != std::vector<unsigned int>{ 0, 1, 2, 3, 4 }) {
+			cerr << "Failed to modify container in enumerated range loop" << endl;
+			return TestFail;
+		}
+
+		Span<const unsigned int> span{ integers };
+		i = 0;
+
+		for (auto [index, value] : utils::enumerate(span)) {
+			if (index != i || value != i) {
+				cerr << "utils::enumerate(<span>) test failed: i=" << i
+				     << ", index=" << index << ", value=" << value
+				     << std::endl;
+				return TestFail;
+			}
+
+			++i;
+		}
+
+		const unsigned int array[] = { 0, 2, 4, 6, 8 };
+		i = 0;
+
+		for (auto [index, value] : utils::enumerate(array)) {
+			if (index != i || value != i * 2) {
+				cerr << "utils::enumerate(<array>) test failed: i=" << i
+				     << ", index=" << index << ", value=" << value
+				     << std::endl;
+				return TestFail;
+			}
+
+			++i;
+		}
+
+		return TestPass;
+	}
+
+	int testDuration()
+	{
+		std::ostringstream os;
+		utils::Duration exposure;
+		double ratio;
+
+		exposure = 25ms + 25ms;
+		if (exposure.get<std::micro>() != 50000.0) {
+			cerr << "utils::Duration failed to return microsecond count";
+			return TestFail;
+		}
+
+		exposure = 1.0s / 4;
+		if (exposure != 250ms) {
+			cerr << "utils::Duration failed scalar divide test";
+			return TestFail;
+		}
+
+		exposure = 5000.5us;
+		if (!exposure) {
+			cerr << "utils::Duration failed boolean test";
+			return TestFail;
+		}
+
+		os << exposure;
+		if (os.str() != "5000.50us") {
+			cerr << "utils::Duration operator << failed";
+			return TestFail;
+		}
+
+		exposure = 100ms;
+		ratio = exposure / 25ms;
+		if (ratio != 4.0) {
+			cerr << "utils::Duration failed ratio test";
 			return TestFail;
 		}
 
@@ -176,6 +272,14 @@ protected:
 			cerr << "utils::alignUp test failed" << endl;
 			return TestFail;
 		}
+
+		/* utils::enumerate() test. */
+		if (testEnumerate() != TestPass)
+			return TestFail;
+
+		/* utils::Duration test. */
+		if (testDuration() != TestPass)
+			return TestFail;
 
 		return TestPass;
 	}

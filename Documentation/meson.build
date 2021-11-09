@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: CC0-1.0
 
-doc_install_dir = join_paths(get_option('datadir'), 'doc',
-                             'libcamera-@0@'.format(libcamera_version))
+doc_install_dir = get_option('datadir') / 'doc' / 'libcamera-@0@'.format(libcamera_version)
 
 #
 # Doxygen
@@ -20,16 +19,25 @@ if doxygen.found() and dot.found()
                               output : 'Doxyfile',
                               configuration : cdata)
 
+    doxygen_input = [
+        doxyfile,
+        libcamera_base_headers,
+        libcamera_base_sources,
+        libcamera_internal_headers,
+        libcamera_ipa_headers,
+        libcamera_ipa_interfaces,
+        libcamera_public_headers,
+        libcamera_sources,
+        libipa_headers,
+        libipa_sources,
+    ]
+
+    if is_variable('ipu3_ipa_sources')
+        doxygen_input += [ipu3_ipa_sources]
+    endif
+
     custom_target('doxygen',
-                  input : [
-                      doxyfile,
-                      libcamera_internal_headers,
-                      libcamera_ipa_headers,
-                      libcamera_public_headers,
-                      libcamera_sources,
-                      libipa_headers,
-                      libipa_sources,
-                  ],
+                  input : doxygen_input,
                   output : 'api-html',
                   command : [doxygen, doxyfile],
                   install : true,
@@ -47,15 +55,19 @@ endif
 
 if sphinx.found()
     docs_sources = [
-       '../README.rst',
         'coding-style.rst',
         'conf.py',
         'contributing.rst',
         'docs.rst',
-        'index.rst',
-        'guides/introduction.rst',
+        'environment_variables.rst',
         'guides/application-developer.rst',
+        'guides/introduction.rst',
+        'guides/ipa.rst',
         'guides/pipeline-handler.rst',
+        'guides/tracing.rst',
+        'index.rst',
+        'sensor_driver_requirements.rst',
+       '../README.rst',
     ]
 
     release = 'release=v' + libcamera_git_version

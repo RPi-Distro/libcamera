@@ -7,18 +7,24 @@
 
 #include <map>
 
-#include "linux/bcm2835-isp.h"
+#include <linux/bcm2835-isp.h>
+
+#include <libcamera/base/log.h>
 
 #include "../awb_status.h"
 #include "../device_status.h"
 #include "../histogram.hpp"
-#include "../logging.hpp"
 #include "../lux_status.h"
 #include "../metadata.hpp"
 
 #include "agc.hpp"
 
 using namespace RPiController;
+using namespace libcamera;
+using libcamera::utils::Duration;
+using namespace std::literals::chrono_literals;
+
+LOG_DEFINE_CATEGORY(RPiAgc)
 
 #define NAME "rpi.agc"
 
@@ -51,19 +57,26 @@ read_metering_modes(std::map<std::string, AgcMeteringMode> &metering_modes,
 	return first;
 }
 
-static int read_double_list(std::vector<double> &list,
-			    boost::property_tree::ptree const &params)
+static int read_list(std::vector<double> &list,
+		     boost::property_tree::ptree const &params)
 {
 	for (auto &p : params)
 		list.push_back(p.second.get_value<double>());
 	return list.size();
 }
 
+static int read_list(std::vector<Duration> &list,
+		     boost::property_tree::ptree const &params)
+{
+	for (auto &p : params)
+		list.push_back(p.second.get_value<double>() * 1us);
+	return list.size();
+}
+
 void AgcExposureMode::Read(boost::property_tree::ptree const &params)
 {
-	int num_shutters =
-		read_double_list(shutter, params.get_child("shutter"));
-	int num_ags = read_double_list(gain, params.get_child("gain"));
+	int num_shutters = read_list(shutter, params.get_child("shutter"));
+	int num_ags = read_list(gain, params.get_child("gain"));
 	if (num_shutters < 2 || num_ags < 2)
 		throw std::runtime_error(
 			"AgcConfig: must have at least two entries in exposure profile");
@@ -128,7 +141,7 @@ static std::string read_constraint_modes(
 
 void AgcConfig::Read(boost::property_tree::ptree const &params)
 {
-	RPI_LOG("AgcConfig");
+	LOG(RPiAgc, Debug) << "AgcConfig";
 	default_metering_mode = read_metering_modes(
 		metering_modes, params.get_child("metering_modes"));
 	default_exposure_mode = read_exposure_modes(
@@ -138,25 +151,34 @@ void AgcConfig::Read(boost::property_tree::ptree const &params)
 	Y_target.Read(params.get_child("y_target"));
 	speed = params.get<double>("speed", 0.2);
 	startup_frames = params.get<uint16_t>("startup_frames", 10);
+	convergence_frames = params.get<unsigned int>("convergence_frames", 6);
 	fast_reduce_threshold =
 		params.get<double>("fast_reduce_threshold", 0.4);
 	base_ev = params.get<double>("base_ev", 1.0);
+	// Start with quite a low value as ramping up is easier than ramping down.
+	default_exposure_time = params.get<double>("default_exposure_time", 1000) * 1us;
+	default_analogue_gain = params.get<double>("default_analogue_gain", 1.0);
+}
+
+Agc::ExposureValues::ExposureValues()
+	: shutter(0s), analogue_gain(0),
+	  total_exposure(0s), total_exposure_no_dg(0s)
+{
 }
 
 Agc::Agc(Controller *controller)
 	: AgcAlgorithm(controller), metering_mode_(nullptr),
 	  exposure_mode_(nullptr), constraint_mode_(nullptr),
-	  frame_count_(0), lock_count_(0)
+	  frame_count_(0), lock_count_(0),
+	  last_target_exposure_(0s), last_sensitivity_(0.0),
+	  ev_(1.0), flicker_period_(0s),
+	  max_shutter_(0s), fixed_shutter_(0s), fixed_analogue_gain_(0.0)
 {
-	ev_ = status_.ev = 1.0;
-	flicker_period_ = status_.flicker_period = 0.0;
-	fixed_shutter_ = status_.fixed_shutter = 0;
-	fixed_analogue_gain_ = status_.fixed_analogue_gain = 0.0;
-	// set to zero initially, so we can tell it's not been calculated
-	status_.total_exposure_value = 0.0;
-	status_.target_exposure_value = 0.0;
-	status_.locked = false;
-	output_status_ = status_;
+	memset(&awb_, 0, sizeof(awb_));
+	// Setting status_.total_exposure_value_ to zero initially tells us
+	// it's not been calculated yet (i.e. Process hasn't yet run).
+	memset(&status_, 0, sizeof(status_));
+	status_.ev = ev_;
 }
 
 char const *Agc::Name() const
@@ -166,7 +188,7 @@ char const *Agc::Name() const
 
 void Agc::Read(boost::property_tree::ptree const &params)
 {
-	RPI_LOG("Agc");
+	LOG(RPiAgc, Debug) << "Agc";
 	config_.Read(params);
 	// Set the config's defaults (which are the first ones it read) as our
 	// current modes, until someone changes them.  (they're all known to
@@ -177,122 +199,172 @@ void Agc::Read(boost::property_tree::ptree const &params)
 	exposure_mode_ = &config_.exposure_modes[exposure_mode_name_];
 	constraint_mode_name_ = config_.default_constraint_mode;
 	constraint_mode_ = &config_.constraint_modes[constraint_mode_name_];
+	// Set up the "last shutter/gain" values, in case AGC starts "disabled".
+	status_.shutter_time = config_.default_exposure_time;
+	status_.analogue_gain = config_.default_analogue_gain;
+}
+
+bool Agc::IsPaused() const
+{
+	return false;
+}
+
+void Agc::Pause()
+{
+	fixed_shutter_ = status_.shutter_time;
+	fixed_analogue_gain_ = status_.analogue_gain;
+}
+
+void Agc::Resume()
+{
+	fixed_shutter_ = 0s;
+	fixed_analogue_gain_ = 0;
+}
+
+unsigned int Agc::GetConvergenceFrames() const
+{
+	// If shutter and gain have been explicitly set, there is no
+	// convergence to happen, so no need to drop any frames - return zero.
+	if (fixed_shutter_ && fixed_analogue_gain_)
+		return 0;
+	else
+		return config_.convergence_frames;
 }
 
 void Agc::SetEv(double ev)
 {
-	std::unique_lock<std::mutex> lock(settings_mutex_);
 	ev_ = ev;
 }
 
-void Agc::SetFlickerPeriod(double flicker_period)
+void Agc::SetFlickerPeriod(Duration flicker_period)
 {
-	std::unique_lock<std::mutex> lock(settings_mutex_);
 	flicker_period_ = flicker_period;
 }
 
-void Agc::SetFixedShutter(double fixed_shutter)
+void Agc::SetMaxShutter(Duration max_shutter)
 {
-	std::unique_lock<std::mutex> lock(settings_mutex_);
+	max_shutter_ = max_shutter;
+}
+
+void Agc::SetFixedShutter(Duration fixed_shutter)
+{
 	fixed_shutter_ = fixed_shutter;
+	// Set this in case someone calls Pause() straight after.
+	status_.shutter_time = clipShutter(fixed_shutter_);
 }
 
 void Agc::SetFixedAnalogueGain(double fixed_analogue_gain)
 {
-	std::unique_lock<std::mutex> lock(settings_mutex_);
 	fixed_analogue_gain_ = fixed_analogue_gain;
+	// Set this in case someone calls Pause() straight after.
+	status_.analogue_gain = fixed_analogue_gain;
 }
 
 void Agc::SetMeteringMode(std::string const &metering_mode_name)
 {
-	std::unique_lock<std::mutex> lock(settings_mutex_);
 	metering_mode_name_ = metering_mode_name;
 }
 
 void Agc::SetExposureMode(std::string const &exposure_mode_name)
 {
-	std::unique_lock<std::mutex> lock(settings_mutex_);
 	exposure_mode_name_ = exposure_mode_name;
 }
 
 void Agc::SetConstraintMode(std::string const &constraint_mode_name)
 {
-	std::unique_lock<std::mutex> lock(settings_mutex_);
 	constraint_mode_name_ = constraint_mode_name;
 }
 
-void Agc::SwitchMode([[maybe_unused]] CameraMode const &camera_mode,
+void Agc::SwitchMode(CameraMode const &camera_mode,
 		     Metadata *metadata)
 {
-	// On a mode switch, it's possible the exposure profile could change,
-	// so we run through the dividing up of exposure/gain again and
-	// write the results into the metadata we've been given.
-	if (status_.total_exposure_value) {
-		housekeepConfig();
-		divvyupExposure();
-		writeAndFinish(metadata, false);
+	/* AGC expects the mode sensitivity always to be non-zero. */
+	ASSERT(camera_mode.sensitivity);
+
+	housekeepConfig();
+
+	Duration fixed_shutter = clipShutter(fixed_shutter_);
+	if (fixed_shutter && fixed_analogue_gain_) {
+		// We're going to reset the algorithm here with these fixed values.
+
+		fetchAwbStatus(metadata);
+		double min_colour_gain = std::min({ awb_.gain_r, awb_.gain_g, awb_.gain_b, 1.0 });
+		ASSERT(min_colour_gain != 0.0);
+
+		// This is the equivalent of computeTargetExposure and applyDigitalGain.
+		target_.total_exposure_no_dg = fixed_shutter * fixed_analogue_gain_;
+		target_.total_exposure = target_.total_exposure_no_dg / min_colour_gain;
+
+		// Equivalent of filterExposure. This resets any "history".
+		filtered_ = target_;
+
+		// Equivalent of divideUpExposure.
+		filtered_.shutter = fixed_shutter;
+		filtered_.analogue_gain = fixed_analogue_gain_;
+	} else if (status_.total_exposure_value) {
+		// On a mode switch, various things could happen:
+		// - the exposure profile might change
+		// - a fixed exposure or gain might be set
+		// - the new mode's sensitivity might be different
+		// We cope with the last of these by scaling the target values. After
+		// that we just need to re-divide the exposure/gain according to the
+		// current exposure profile, which takes care of everything else.
+
+		double ratio = last_sensitivity_ / camera_mode.sensitivity;
+		target_.total_exposure_no_dg *= ratio;
+		target_.total_exposure *= ratio;
+		filtered_.total_exposure_no_dg *= ratio;
+		filtered_.total_exposure *= ratio;
+
+		divideUpExposure();
+	} else {
+		// We come through here on startup, when at least one of the shutter
+		// or gain has not been fixed. We must still write those values out so
+		// that they will be applied immediately. We supply some arbitrary defaults
+		// for any that weren't set.
+
+		// Equivalent of divideUpExposure.
+		filtered_.shutter = fixed_shutter ? fixed_shutter : config_.default_exposure_time;
+		filtered_.analogue_gain = fixed_analogue_gain_ ? fixed_analogue_gain_ : config_.default_analogue_gain;
 	}
+
+	writeAndFinish(metadata, false);
+
+	// We must remember the sensitivity of this mode for the next SwitchMode.
+	last_sensitivity_ = camera_mode.sensitivity;
 }
 
 void Agc::Prepare(Metadata *image_metadata)
 {
-	AgcStatus status;
-	{
-		std::unique_lock<std::mutex> lock(output_mutex_);
-		status = output_status_;
-	}
-	int lock_count = lock_count_;
-	lock_count_ = 0;
-	status.digital_gain = 1.0;
+	status_.digital_gain = 1.0;
+	fetchAwbStatus(image_metadata); // always fetch it so that Process knows it's been done
+
 	if (status_.total_exposure_value) {
 		// Process has run, so we have meaningful values.
 		DeviceStatus device_status;
 		if (image_metadata->Get("device.status", device_status) == 0) {
-			double actual_exposure = device_status.shutter_speed *
-						 device_status.analogue_gain;
+			Duration actual_exposure = device_status.shutter_speed *
+						   device_status.analogue_gain;
 			if (actual_exposure) {
-				status.digital_gain =
+				status_.digital_gain =
 					status_.total_exposure_value /
 					actual_exposure;
-				RPI_LOG("Want total exposure " << status_.total_exposure_value);
+				LOG(RPiAgc, Debug) << "Want total exposure " << status_.total_exposure_value;
 				// Never ask for a gain < 1.0, and also impose
 				// some upper limit. Make it customisable?
-				status.digital_gain = std::max(
+				status_.digital_gain = std::max(
 					1.0,
-					std::min(status.digital_gain, 4.0));
-				RPI_LOG("Actual exposure " << actual_exposure);
-				RPI_LOG("Use digital_gain " << status.digital_gain);
-				RPI_LOG("Effective exposure " << actual_exposure * status.digital_gain);
+					std::min(status_.digital_gain, 4.0));
+				LOG(RPiAgc, Debug) << "Actual exposure " << actual_exposure;
+				LOG(RPiAgc, Debug) << "Use digital_gain " << status_.digital_gain;
+				LOG(RPiAgc, Debug) << "Effective exposure "
+						   << actual_exposure * status_.digital_gain;
 				// Decide whether AEC/AGC has converged.
-				// Insist AGC is steady for MAX_LOCK_COUNT
-				// frames before we say we are "locked".
-				// (The hard-coded constants may need to
-				// become customisable.)
-				if (status.target_exposure_value) {
-#define MAX_LOCK_COUNT 3
-					double err = 0.10 * status.target_exposure_value + 200;
-					if (actual_exposure <
-					    status.target_exposure_value + err
-					    && actual_exposure >
-					    status.target_exposure_value - err)
-						lock_count_ =
-							std::min(lock_count + 1,
-							       MAX_LOCK_COUNT);
-					else if (actual_exposure <
-						 status.target_exposure_value
-						 + 1.5 * err &&
-						 actual_exposure >
-						 status.target_exposure_value
-						 - 1.5 * err)
-						lock_count_ = lock_count;
-					RPI_LOG("Lock count: " << lock_count_);
-				}
+				updateLockStatus(device_status);
 			}
 		} else
-			RPI_LOG(Name() << ": no device metadata");
-		status.locked = lock_count_ >= MAX_LOCK_COUNT;
-		//printf("%s\n", status.locked ? "+++++++++" : "-");
-		image_metadata->Set("agc.status", status);
+			LOG(RPiAgc, Warning) << Name() << ": no device metadata";
+		image_metadata->Set("agc.status", status_);
 	}
 }
 
@@ -312,14 +384,51 @@ void Agc::Process(StatisticsPtr &stats, Metadata *image_metadata)
 	// Some of the exposure has to be applied as digital gain, so work out
 	// what that is. This function also tells us whether it's decided to
 	// "desaturate" the image more quickly.
-	bool desaturate = applyDigitalGain(image_metadata, gain, target_Y);
+	bool desaturate = applyDigitalGain(gain, target_Y);
 	// The results have to be filtered so as not to change too rapidly.
 	filterExposure(desaturate);
-	// The last thing is to divvy up the exposure value into a shutter time
+	// The last thing is to divide up the exposure value into a shutter time
 	// and analogue_gain, according to the current exposure mode.
-	divvyupExposure();
+	divideUpExposure();
 	// Finally advertise what we've done.
 	writeAndFinish(image_metadata, desaturate);
+}
+
+void Agc::updateLockStatus(DeviceStatus const &device_status)
+{
+	const double ERROR_FACTOR = 0.10; // make these customisable?
+	const int MAX_LOCK_COUNT = 5;
+	// Reset "lock count" when we exceed this multiple of ERROR_FACTOR
+	const double RESET_MARGIN = 1.5;
+
+	// Add 200us to the exposure time error to allow for line quantisation.
+	Duration exposure_error = last_device_status_.shutter_speed * ERROR_FACTOR + 200us;
+	double gain_error = last_device_status_.analogue_gain * ERROR_FACTOR;
+	Duration target_error = last_target_exposure_ * ERROR_FACTOR;
+
+	// Note that we don't know the exposure/gain limits of the sensor, so
+	// the values we keep requesting may be unachievable. For this reason
+	// we only insist that we're close to values in the past few frames.
+	if (device_status.shutter_speed > last_device_status_.shutter_speed - exposure_error &&
+	    device_status.shutter_speed < last_device_status_.shutter_speed + exposure_error &&
+	    device_status.analogue_gain > last_device_status_.analogue_gain - gain_error &&
+	    device_status.analogue_gain < last_device_status_.analogue_gain + gain_error &&
+	    status_.target_exposure_value > last_target_exposure_ - target_error &&
+	    status_.target_exposure_value < last_target_exposure_ + target_error)
+		lock_count_ = std::min(lock_count_ + 1, MAX_LOCK_COUNT);
+	else if (device_status.shutter_speed < last_device_status_.shutter_speed - RESET_MARGIN * exposure_error ||
+		 device_status.shutter_speed > last_device_status_.shutter_speed + RESET_MARGIN * exposure_error ||
+		 device_status.analogue_gain < last_device_status_.analogue_gain - RESET_MARGIN * gain_error ||
+		 device_status.analogue_gain > last_device_status_.analogue_gain + RESET_MARGIN * gain_error ||
+		 status_.target_exposure_value < last_target_exposure_ - RESET_MARGIN * target_error ||
+		 status_.target_exposure_value > last_target_exposure_ + RESET_MARGIN * target_error)
+		lock_count_ = 0;
+
+	last_device_status_ = device_status;
+	last_target_exposure_ = status_.target_exposure_value;
+
+	LOG(RPiAgc, Debug) << "Lock count updated to " << lock_count_;
+	status_.locked = lock_count_ == MAX_LOCK_COUNT;
 }
 
 static void copy_string(std::string const &s, char *d, size_t size)
@@ -331,55 +440,47 @@ static void copy_string(std::string const &s, char *d, size_t size)
 void Agc::housekeepConfig()
 {
 	// First fetch all the up-to-date settings, so no one else has to do it.
-	std::string new_exposure_mode_name, new_constraint_mode_name,
-		new_metering_mode_name;
-	{
-		std::unique_lock<std::mutex> lock(settings_mutex_);
-		new_metering_mode_name = metering_mode_name_;
-		new_exposure_mode_name = exposure_mode_name_;
-		new_constraint_mode_name = constraint_mode_name_;
-		status_.ev = ev_;
-		status_.fixed_shutter = fixed_shutter_;
-		status_.fixed_analogue_gain = fixed_analogue_gain_;
-		status_.flicker_period = flicker_period_;
-	}
-	RPI_LOG("ev " << status_.ev << " fixed_shutter "
-		      << status_.fixed_shutter << " fixed_analogue_gain "
-		      << status_.fixed_analogue_gain);
+	status_.ev = ev_;
+	status_.fixed_shutter = clipShutter(fixed_shutter_);
+	status_.fixed_analogue_gain = fixed_analogue_gain_;
+	status_.flicker_period = flicker_period_;
+	LOG(RPiAgc, Debug) << "ev " << status_.ev << " fixed_shutter "
+			   << status_.fixed_shutter << " fixed_analogue_gain "
+			   << status_.fixed_analogue_gain;
 	// Make sure the "mode" pointers point to the up-to-date things, if
 	// they've changed.
-	if (strcmp(new_metering_mode_name.c_str(), status_.metering_mode)) {
-		auto it = config_.metering_modes.find(new_metering_mode_name);
+	if (strcmp(metering_mode_name_.c_str(), status_.metering_mode)) {
+		auto it = config_.metering_modes.find(metering_mode_name_);
 		if (it == config_.metering_modes.end())
 			throw std::runtime_error("Agc: no metering mode " +
-						 new_metering_mode_name);
+						 metering_mode_name_);
 		metering_mode_ = &it->second;
-		copy_string(new_metering_mode_name, status_.metering_mode,
+		copy_string(metering_mode_name_, status_.metering_mode,
 			    sizeof(status_.metering_mode));
 	}
-	if (strcmp(new_exposure_mode_name.c_str(), status_.exposure_mode)) {
-		auto it = config_.exposure_modes.find(new_exposure_mode_name);
+	if (strcmp(exposure_mode_name_.c_str(), status_.exposure_mode)) {
+		auto it = config_.exposure_modes.find(exposure_mode_name_);
 		if (it == config_.exposure_modes.end())
 			throw std::runtime_error("Agc: no exposure profile " +
-						 new_exposure_mode_name);
+						 exposure_mode_name_);
 		exposure_mode_ = &it->second;
-		copy_string(new_exposure_mode_name, status_.exposure_mode,
+		copy_string(exposure_mode_name_, status_.exposure_mode,
 			    sizeof(status_.exposure_mode));
 	}
-	if (strcmp(new_constraint_mode_name.c_str(), status_.constraint_mode)) {
+	if (strcmp(constraint_mode_name_.c_str(), status_.constraint_mode)) {
 		auto it =
-			config_.constraint_modes.find(new_constraint_mode_name);
+			config_.constraint_modes.find(constraint_mode_name_);
 		if (it == config_.constraint_modes.end())
 			throw std::runtime_error("Agc: no constraint list " +
-						 new_constraint_mode_name);
+						 constraint_mode_name_);
 		constraint_mode_ = &it->second;
-		copy_string(new_constraint_mode_name, status_.constraint_mode,
+		copy_string(constraint_mode_name_, status_.constraint_mode,
 			    sizeof(status_.constraint_mode));
 	}
-	RPI_LOG("exposure_mode "
-		<< new_exposure_mode_name << " constraint_mode "
-		<< new_constraint_mode_name << " metering_mode "
-		<< new_metering_mode_name);
+	LOG(RPiAgc, Debug) << "exposure_mode "
+			   << exposure_mode_name_ << " constraint_mode "
+			   << constraint_mode_name_ << " metering_mode "
+			   << metering_mode_name_;
 }
 
 void Agc::fetchCurrentExposure(Metadata *image_metadata)
@@ -393,30 +494,44 @@ void Agc::fetchCurrentExposure(Metadata *image_metadata)
 	current_.analogue_gain = device_status->analogue_gain;
 	AgcStatus *agc_status =
 		image_metadata->GetLocked<AgcStatus>("agc.status");
-	current_.total_exposure = agc_status ? agc_status->total_exposure_value : 0;
+	current_.total_exposure = agc_status ? agc_status->total_exposure_value : 0s;
 	current_.total_exposure_no_dg = current_.shutter * current_.analogue_gain;
 }
 
-static double compute_initial_Y(bcm2835_isp_stats *stats, Metadata *image_metadata,
-				double weights[])
+void Agc::fetchAwbStatus(Metadata *image_metadata)
+{
+	awb_.gain_r = 1.0; // in case not found in metadata
+	awb_.gain_g = 1.0;
+	awb_.gain_b = 1.0;
+	if (image_metadata->Get("awb.status", awb_) != 0)
+		LOG(RPiAgc, Debug) << "Agc: no AWB status found";
+}
+
+static double compute_initial_Y(bcm2835_isp_stats *stats, AwbStatus const &awb,
+				double weights[], double gain)
 {
 	bcm2835_isp_stats_region *regions = stats->agc_stats;
-	struct AwbStatus awb;
-	awb.gain_r = awb.gain_g = awb.gain_b = 1.0; // in case no metadata
-	if (image_metadata->Get("awb.status", awb) != 0)
-		RPI_WARN("Agc: no AWB status found");
-	double Y_sum = 0, weight_sum = 0;
+	// Note how the calculation below means that equal weights give you
+	// "average" metering (i.e. all pixels equally important).
+	double R_sum = 0, G_sum = 0, B_sum = 0, pixel_sum = 0;
 	for (int i = 0; i < AGC_STATS_SIZE; i++) {
-		if (regions[i].counted == 0)
-			continue;
-		weight_sum += weights[i];
-		double Y = regions[i].r_sum * awb.gain_r * .299 +
-			   regions[i].g_sum * awb.gain_g * .587 +
-			   regions[i].b_sum * awb.gain_b * .114;
-		Y /= regions[i].counted;
-		Y_sum += Y * weights[i];
+		double counted = regions[i].counted;
+		double r_sum = std::min(regions[i].r_sum * gain, ((1 << PIPELINE_BITS) - 1) * counted);
+		double g_sum = std::min(regions[i].g_sum * gain, ((1 << PIPELINE_BITS) - 1) * counted);
+		double b_sum = std::min(regions[i].b_sum * gain, ((1 << PIPELINE_BITS) - 1) * counted);
+		R_sum += r_sum * weights[i];
+		G_sum += g_sum * weights[i];
+		B_sum += b_sum * weights[i];
+		pixel_sum += counted * weights[i];
 	}
-	return Y_sum / weight_sum / (1 << PIPELINE_BITS);
+	if (pixel_sum == 0.0) {
+		LOG(RPiAgc, Warning) << "compute_initial_Y: pixel_sum is zero";
+		return 0;
+	}
+	double Y_sum = R_sum * awb.gain_r * .299 +
+		       G_sum * awb.gain_g * .587 +
+		       B_sum * awb.gain_b * .114;
+	return Y_sum / pixel_sum / (1 << PIPELINE_BITS);
 }
 
 // We handle extra gain through EV by adjusting our Y targets. However, you
@@ -443,7 +558,7 @@ void Agc::computeGain(bcm2835_isp_stats *statistics, Metadata *image_metadata,
 	struct LuxStatus lux = {};
 	lux.lux = 400; // default lux level to 400 in case no metadata found
 	if (image_metadata->Get("lux.status", lux) != 0)
-		RPI_WARN("Agc: no lux level found");
+		LOG(RPiAgc, Warning) << "Agc: no lux level found";
 	Histogram h(statistics->hist[0].g_hist, NUM_HISTOGRAM_BINS);
 	double ev_gain = status_.ev * config_.base_ev;
 	// The initial gain and target_Y come from some of the regions. After
@@ -451,67 +566,84 @@ void Agc::computeGain(bcm2835_isp_stats *statistics, Metadata *image_metadata,
 	target_Y =
 		config_.Y_target.Eval(config_.Y_target.Domain().Clip(lux.lux));
 	target_Y = std::min(EV_GAIN_Y_TARGET_LIMIT, target_Y * ev_gain);
-	double initial_Y = compute_initial_Y(statistics, image_metadata,
-					     metering_mode_->weights);
-	gain = std::min(10.0, target_Y / (initial_Y + .001));
-	RPI_LOG("Initially Y " << initial_Y << " target " << target_Y
-			       << " gives gain " << gain);
+
+	// Do this calculation a few times as brightness increase can be
+	// non-linear when there are saturated regions.
+	gain = 1.0;
+	for (int i = 0; i < 8; i++) {
+		double initial_Y = compute_initial_Y(statistics, awb_,
+						     metering_mode_->weights, gain);
+		double extra_gain = std::min(10.0, target_Y / (initial_Y + .001));
+		gain *= extra_gain;
+		LOG(RPiAgc, Debug) << "Initial Y " << initial_Y << " target " << target_Y
+				   << " gives gain " << gain;
+		if (extra_gain < 1.01) // close enough
+			break;
+	}
+
 	for (auto &c : *constraint_mode_) {
 		double new_target_Y;
 		double new_gain =
 			constraint_compute_gain(c, h, lux.lux, ev_gain,
 						new_target_Y);
-		RPI_LOG("Constraint has target_Y "
-			<< new_target_Y << " giving gain " << new_gain);
+		LOG(RPiAgc, Debug) << "Constraint has target_Y "
+				   << new_target_Y << " giving gain " << new_gain;
 		if (c.bound == AgcConstraint::Bound::LOWER &&
 		    new_gain > gain) {
-			RPI_LOG("Lower bound constraint adopted");
+			LOG(RPiAgc, Debug) << "Lower bound constraint adopted";
 			gain = new_gain, target_Y = new_target_Y;
 		} else if (c.bound == AgcConstraint::Bound::UPPER &&
 			   new_gain < gain) {
-			RPI_LOG("Upper bound constraint adopted");
+			LOG(RPiAgc, Debug) << "Upper bound constraint adopted";
 			gain = new_gain, target_Y = new_target_Y;
 		}
 	}
-	RPI_LOG("Final gain " << gain << " (target_Y " << target_Y << " ev "
-			      << status_.ev << " base_ev " << config_.base_ev
-			      << ")");
+	LOG(RPiAgc, Debug) << "Final gain " << gain << " (target_Y " << target_Y << " ev "
+			   << status_.ev << " base_ev " << config_.base_ev
+			   << ")";
 }
 
 void Agc::computeTargetExposure(double gain)
 {
-	// The statistics reflect the image without digital gain, so the final
-	// total exposure we're aiming for is:
-	target_.total_exposure = current_.total_exposure_no_dg * gain;
-	// The final target exposure is also limited to what the exposure
-	// mode allows.
-	double max_total_exposure =
-		(status_.fixed_shutter != 0.0
-			 ? status_.fixed_shutter
-			 : exposure_mode_->shutter.back()) *
-		(status_.fixed_analogue_gain != 0.0
-			 ? status_.fixed_analogue_gain
-			 : exposure_mode_->gain.back());
-	target_.total_exposure = std::min(target_.total_exposure,
-					  max_total_exposure);
-	RPI_LOG("Target total_exposure " << target_.total_exposure);
+	if (status_.fixed_shutter && status_.fixed_analogue_gain) {
+		// When ag and shutter are both fixed, we need to drive the
+		// total exposure so that we end up with a digital gain of at least
+		// 1/min_colour_gain. Otherwise we'd desaturate channels causing
+		// white to go cyan or magenta.
+		double min_colour_gain = std::min({ awb_.gain_r, awb_.gain_g, awb_.gain_b, 1.0 });
+		ASSERT(min_colour_gain != 0.0);
+		target_.total_exposure =
+			status_.fixed_shutter * status_.fixed_analogue_gain / min_colour_gain;
+	} else {
+		// The statistics reflect the image without digital gain, so the final
+		// total exposure we're aiming for is:
+		target_.total_exposure = current_.total_exposure_no_dg * gain;
+		// The final target exposure is also limited to what the exposure
+		// mode allows.
+		Duration max_shutter = status_.fixed_shutter
+				   ? status_.fixed_shutter
+				   : exposure_mode_->shutter.back();
+		max_shutter = clipShutter(max_shutter);
+		Duration max_total_exposure =
+			max_shutter *
+			(status_.fixed_analogue_gain != 0.0
+				 ? status_.fixed_analogue_gain
+				 : exposure_mode_->gain.back());
+		target_.total_exposure = std::min(target_.total_exposure,
+						  max_total_exposure);
+	}
+	LOG(RPiAgc, Debug) << "Target total_exposure " << target_.total_exposure;
 }
 
-bool Agc::applyDigitalGain(Metadata *image_metadata, double gain,
-			   double target_Y)
+bool Agc::applyDigitalGain(double gain, double target_Y)
 {
-	double dg = 1.0;
+	double min_colour_gain = std::min({ awb_.gain_r, awb_.gain_g, awb_.gain_b, 1.0 });
+	ASSERT(min_colour_gain != 0.0);
+	double dg = 1.0 / min_colour_gain;
 	// I think this pipeline subtracts black level and rescales before we
 	// get the stats, so no need to worry about it.
-	struct AwbStatus awb;
-	if (image_metadata->Get("awb.status", awb) == 0) {
-		double min_gain = std::min(awb.gain_r,
-					   std::min(awb.gain_g, awb.gain_b));
-		dg *= std::max(1.0, 1.0 / min_gain);
-	} else
-		RPI_WARN("Agc: no AWB status found");
-	RPI_LOG("after AWB, target dg " << dg << " gain " << gain
-					<< " target_Y " << target_Y);
+	LOG(RPiAgc, Debug) << "after AWB, target dg " << dg << " gain " << gain
+			   << " target_Y " << target_Y;
 	// Finally, if we're trying to reduce exposure but the target_Y is
 	// "close" to 1.0, then the gain computed for that constraint will be
 	// only slightly less than one, because the measured Y can never be
@@ -523,16 +655,21 @@ bool Agc::applyDigitalGain(Metadata *image_metadata, double gain,
 			  gain < sqrt(target_Y);
 	if (desaturate)
 		dg /= config_.fast_reduce_threshold;
-	RPI_LOG("Digital gain " << dg << " desaturate? " << desaturate);
+	LOG(RPiAgc, Debug) << "Digital gain " << dg << " desaturate? " << desaturate;
 	target_.total_exposure_no_dg = target_.total_exposure / dg;
-	RPI_LOG("Target total_exposure_no_dg " << target_.total_exposure_no_dg);
+	LOG(RPiAgc, Debug) << "Target total_exposure_no_dg " << target_.total_exposure_no_dg;
 	return desaturate;
 }
 
 void Agc::filterExposure(bool desaturate)
 {
-	double speed = frame_count_ <= config_.startup_frames ? 1.0 : config_.speed;
-	if (filtered_.total_exposure == 0.0) {
+	double speed = config_.speed;
+	// AGC adapts instantly if both shutter and gain are directly specified
+	// or we're in the startup phase.
+	if ((status_.fixed_shutter && status_.fixed_analogue_gain) ||
+	    frame_count_ <= config_.startup_frames)
+		speed = 1.0;
+	if (!filtered_.total_exposure) {
 		filtered_.total_exposure = target_.total_exposure;
 		filtered_.total_exposure_no_dg = target_.total_exposure_no_dg;
 	} else {
@@ -560,35 +697,38 @@ void Agc::filterExposure(bool desaturate)
 	    filtered_.total_exposure * config_.fast_reduce_threshold)
 		filtered_.total_exposure_no_dg = filtered_.total_exposure *
 						 config_.fast_reduce_threshold;
-	RPI_LOG("After filtering, total_exposure " << filtered_.total_exposure <<
-		" no dg " << filtered_.total_exposure_no_dg);
+	LOG(RPiAgc, Debug) << "After filtering, total_exposure " << filtered_.total_exposure
+			   << " no dg " << filtered_.total_exposure_no_dg;
 }
 
-void Agc::divvyupExposure()
+void Agc::divideUpExposure()
 {
 	// Sending the fixed shutter/gain cases through the same code may seem
 	// unnecessary, but it will make more sense when extend this to cover
 	// variable aperture.
-	double exposure_value = filtered_.total_exposure_no_dg;
-	double shutter_time, analogue_gain;
-	shutter_time = status_.fixed_shutter != 0.0
+	Duration exposure_value = filtered_.total_exposure_no_dg;
+	Duration shutter_time;
+	double analogue_gain;
+	shutter_time = status_.fixed_shutter
 			       ? status_.fixed_shutter
 			       : exposure_mode_->shutter[0];
+	shutter_time = clipShutter(shutter_time);
 	analogue_gain = status_.fixed_analogue_gain != 0.0
 				? status_.fixed_analogue_gain
 				: exposure_mode_->gain[0];
 	if (shutter_time * analogue_gain < exposure_value) {
 		for (unsigned int stage = 1;
 		     stage < exposure_mode_->gain.size(); stage++) {
-			if (status_.fixed_shutter == 0.0) {
-				if (exposure_mode_->shutter[stage] *
-					    analogue_gain >=
+			if (!status_.fixed_shutter) {
+				Duration stage_shutter =
+					clipShutter(exposure_mode_->shutter[stage]);
+				if (stage_shutter * analogue_gain >=
 				    exposure_value) {
 					shutter_time =
 						exposure_value / analogue_gain;
 					break;
 				}
-				shutter_time = exposure_mode_->shutter[stage];
+				shutter_time = stage_shutter;
 			}
 			if (status_.fixed_analogue_gain == 0.0) {
 				if (exposure_mode_->gain[stage] *
@@ -602,16 +742,15 @@ void Agc::divvyupExposure()
 			}
 		}
 	}
-	RPI_LOG("Divided up shutter and gain are " << shutter_time << " and "
-						   << analogue_gain);
+	LOG(RPiAgc, Debug) << "Divided up shutter and gain are " << shutter_time << " and "
+			   << analogue_gain;
 	// Finally adjust shutter time for flicker avoidance (require both
 	// shutter and gain not to be fixed).
-	if (status_.fixed_shutter == 0.0 &&
-	    status_.fixed_analogue_gain == 0.0 &&
-	    status_.flicker_period != 0.0) {
+	if (!status_.fixed_shutter && !status_.fixed_analogue_gain &&
+	    status_.flicker_period) {
 		int flicker_periods = shutter_time / status_.flicker_period;
-		if (flicker_periods > 0) {
-			double new_shutter_time = flicker_periods * status_.flicker_period;
+		if (flicker_periods) {
+			Duration new_shutter_time = flicker_periods * status_.flicker_period;
 			analogue_gain *= shutter_time / new_shutter_time;
 			// We should still not allow the ag to go over the
 			// largest value in the exposure mode. Note that this
@@ -621,8 +760,8 @@ void Agc::divvyupExposure()
 						 exposure_mode_->gain.back());
 			shutter_time = new_shutter_time;
 		}
-		RPI_LOG("After flicker avoidance, shutter "
-			<< shutter_time << " gain " << analogue_gain);
+		LOG(RPiAgc, Debug) << "After flicker avoidance, shutter "
+				   << shutter_time << " gain " << analogue_gain;
 	}
 	filtered_.shutter = shutter_time;
 	filtered_.analogue_gain = analogue_gain;
@@ -631,20 +770,23 @@ void Agc::divvyupExposure()
 void Agc::writeAndFinish(Metadata *image_metadata, bool desaturate)
 {
 	status_.total_exposure_value = filtered_.total_exposure;
-	status_.target_exposure_value = desaturate ? 0 : target_.total_exposure_no_dg;
+	status_.target_exposure_value = desaturate ? 0s : target_.total_exposure_no_dg;
 	status_.shutter_time = filtered_.shutter;
 	status_.analogue_gain = filtered_.analogue_gain;
-	{
-		std::unique_lock<std::mutex> lock(output_mutex_);
-		output_status_ = status_;
-	}
 	// Write to metadata as well, in case anyone wants to update the camera
 	// immediately.
 	image_metadata->Set("agc.status", status_);
-	RPI_LOG("Output written, total exposure requested is "
-		<< filtered_.total_exposure);
-	RPI_LOG("Camera exposure update: shutter time " << filtered_.shutter <<
-		" analogue gain " << filtered_.analogue_gain);
+	LOG(RPiAgc, Debug) << "Output written, total exposure requested is "
+			   << filtered_.total_exposure;
+	LOG(RPiAgc, Debug) << "Camera exposure update: shutter time " << filtered_.shutter
+			   << " analogue gain " << filtered_.analogue_gain;
+}
+
+Duration Agc::clipShutter(Duration shutter)
+{
+	if (max_shutter_)
+		shutter = std::min(shutter, max_shutter_);
+	return shutter;
 }
 
 // Register algorithm with the system.

@@ -8,6 +8,9 @@
 #ifndef __VIEWFINDER_GL_H__
 #define __VIEWFINDER_GL_H__
 
+#include <array>
+#include <memory>
+
 #include <QImage>
 #include <QMutex>
 #include <QOpenGLBuffer>
@@ -18,8 +21,8 @@
 #include <QOpenGLWidget>
 #include <QSize>
 
-#include <libcamera/buffer.h>
 #include <libcamera/formats.h>
+#include <libcamera/framebuffer.h>
 
 #include "viewfinder.h"
 
@@ -35,8 +38,9 @@ public:
 
 	const QList<libcamera::PixelFormat> &nativeFormats() const override;
 
-	int setFormat(const libcamera::PixelFormat &format, const QSize &size) override;
-	void render(libcamera::FrameBuffer *buffer, MappedBuffer *map) override;
+	int setFormat(const libcamera::PixelFormat &format, const QSize &size,
+		      unsigned int stride) override;
+	void render(libcamera::FrameBuffer *buffer, Image *image) override;
 	void stop() override;
 
 	QImage getCurrentImage() override;
@@ -63,28 +67,39 @@ private:
 	libcamera::FrameBuffer *buffer_;
 	libcamera::PixelFormat format_;
 	QSize size_;
-	unsigned char *yuvData_;
+	unsigned int stride_;
+	Image *image_;
 
 	/* Shaders */
 	QOpenGLShaderProgram shaderProgram_;
-	QOpenGLShader *vertexShader_;
-	QOpenGLShader *fragmentShader_;
+	std::unique_ptr<QOpenGLShader> vertexShader_;
+	std::unique_ptr<QOpenGLShader> fragmentShader_;
+	QString vertexShaderFile_;
 	QString fragmentShaderFile_;
 	QStringList fragmentShaderDefines_;
 
 	/* Vertex buffer */
 	QOpenGLBuffer vertexBuffer_;
 
-	/* YUV texture planars and parameters */
+	/* Textures */
+	std::array<std::unique_ptr<QOpenGLTexture>, 3> textures_;
+
+	/* Common texture parameters */
+	GLuint textureMinMagFilters_;
+
+	/* YUV texture parameters */
 	GLuint textureUniformU_;
 	GLuint textureUniformV_;
 	GLuint textureUniformY_;
-	GLuint textureUniformStepX_;
-	QOpenGLTexture textureU_;
-	QOpenGLTexture textureV_;
-	QOpenGLTexture textureY_;
+	GLuint textureUniformStep_;
 	unsigned int horzSubSample_;
 	unsigned int vertSubSample_;
+
+	/* Raw Bayer texture parameters */
+	GLuint textureUniformSize_;
+	GLuint textureUniformStrideFactor_;
+	GLuint textureUniformBayerFirstRed_;
+	QPointF firstRed_;
 
 	QMutex mutex_; /* Prevent concurrent access to image_ */
 };

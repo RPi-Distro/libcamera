@@ -12,20 +12,21 @@
 #include <iostream>
 #include <sstream>
 #include <string.h>
-#include <sys/mman.h>
 #include <unistd.h>
 #include <vector>
+
+#include <libcamera/base/log.h>
 
 #include <libcamera/camera.h>
 #include <libcamera/formats.h>
 #include <libcamera/pixel_format.h>
 
 #include "libcamera/internal/formats.h"
-#include "libcamera/internal/log.h"
+#include "libcamera/internal/mapped_framebuffer.h"
 
 using namespace libcamera;
 
-LOG_DECLARE_CATEGORY(JPEG);
+LOG_DECLARE_CATEGORY(JPEG)
 
 namespace {
 
@@ -68,7 +69,6 @@ const struct JPEGPixelFormatInfo &findPixelInfo(const PixelFormat &format)
 } /* namespace */
 
 EncoderLibJpeg::EncoderLibJpeg()
-	: quality_(95)
 {
 	/* \todo Expand error handling coverage with a custom handler. */
 	compress_.err = jpeg_std_error(&jerr_);
@@ -94,7 +94,6 @@ int EncoderLibJpeg::configure(const StreamConfiguration &cfg)
 	compress_.input_components = info.colorSpace == JCS_GRAYSCALE ? 1 : 3;
 
 	jpeg_set_defaults(&compress_);
-	jpeg_set_quality(&compress_, quality_, TRUE);
 
 	pixelFormatInfo_ = &info.pixelFormatInfo;
 
@@ -104,9 +103,9 @@ int EncoderLibJpeg::configure(const StreamConfiguration &cfg)
 	return 0;
 }
 
-void EncoderLibJpeg::compressRGB(const libcamera::MappedBuffer *frame)
+void EncoderLibJpeg::compressRGB(const std::vector<Span<uint8_t>> &planes)
 {
-	unsigned char *src = static_cast<unsigned char *>(frame->maps()[0].data());
+	unsigned char *src = const_cast<unsigned char *>(planes[0].data());
 	/* \todo Stride information should come from buffer configuration. */
 	unsigned int stride = pixelFormatInfo_->stride(compress_.image_width, 0);
 
@@ -122,7 +121,7 @@ void EncoderLibJpeg::compressRGB(const libcamera::MappedBuffer *frame)
  * Compress the incoming buffer from a supported NV format.
  * This naively unpacks the semi-planar NV12 to a YUV888 format for libjpeg.
  */
-void EncoderLibJpeg::compressNV(const libcamera::MappedBuffer *frame)
+void EncoderLibJpeg::compressNV(const std::vector<Span<uint8_t>> &planes)
 {
 	uint8_t tmprowbuf[compress_.image_width * 3];
 
@@ -144,8 +143,8 @@ void EncoderLibJpeg::compressNV(const libcamera::MappedBuffer *frame)
 	unsigned int cb_pos = nvSwap_ ? 1 : 0;
 	unsigned int cr_pos = nvSwap_ ? 0 : 1;
 
-	const unsigned char *src = static_cast<unsigned char *>(frame->maps()[0].data());
-	const unsigned char *src_c = src + y_stride * compress_.image_height;
+	const unsigned char *src = planes[0].data();
+	const unsigned char *src_c = planes[1].data();
 
 	JSAMPROW row_pointer[1];
 	row_pointer[0] = &tmprowbuf[0];
@@ -153,7 +152,7 @@ void EncoderLibJpeg::compressNV(const libcamera::MappedBuffer *frame)
 	for (unsigned int y = 0; y < compress_.image_height; y++) {
 		unsigned char *dst = &tmprowbuf[0];
 
-		const unsigned char *src_y = src + y * compress_.image_width;
+		const unsigned char *src_y = src + y * y_stride;
 		const unsigned char *src_cb = src_c + (y / vertSubSample) * c_stride + cb_pos;
 		const unsigned char *src_cr = src_c + (y / vertSubSample) * c_stride + cr_pos;
 
@@ -179,19 +178,27 @@ void EncoderLibJpeg::compressNV(const libcamera::MappedBuffer *frame)
 	}
 }
 
-int EncoderLibJpeg::encode(const FrameBuffer *source,
-			   const libcamera::Span<uint8_t> &dest,
-			   const libcamera::Span<const uint8_t> &exifData)
+int EncoderLibJpeg::encode(const FrameBuffer &source, Span<uint8_t> dest,
+			   Span<const uint8_t> exifData, unsigned int quality)
 {
-	MappedFrameBuffer frame(source, PROT_READ);
+	MappedFrameBuffer frame(&source, MappedFrameBuffer::MapFlag::Read);
 	if (!frame.isValid()) {
 		LOG(JPEG, Error) << "Failed to map FrameBuffer : "
 				 << strerror(frame.error());
 		return frame.error();
 	}
 
+	return encode(frame.planes(), dest, exifData, quality);
+}
+
+int EncoderLibJpeg::encode(const std::vector<Span<uint8_t>> &src,
+			   Span<uint8_t> dest, Span<const uint8_t> exifData,
+			   unsigned int quality)
+{
 	unsigned char *destination = dest.data();
 	unsigned long size = dest.size();
+
+	jpeg_set_quality(&compress_, quality, TRUE);
 
 	/*
 	 * The jpeg_mem_dest will reallocate if the required size is not
@@ -214,10 +221,12 @@ int EncoderLibJpeg::encode(const FrameBuffer *source,
 	LOG(JPEG, Debug) << "JPEG Encode Starting:" << compress_.image_width
 			 << "x" << compress_.image_height;
 
+	ASSERT(src.size() == pixelFormatInfo_->numPlanes());
+
 	if (nv_)
-		compressNV(&frame);
+		compressNV(src);
 	else
-		compressRGB(&frame);
+		compressRGB(src);
 
 	jpeg_finish_compress(&compress_);
 

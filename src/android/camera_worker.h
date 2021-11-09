@@ -8,14 +8,15 @@
 #define __ANDROID_CAMERA_WORKER_H__
 
 #include <memory>
+#include <stdint.h>
 
-#include <libcamera/buffer.h>
+#include <libcamera/base/object.h>
+#include <libcamera/base/thread.h>
+
 #include <libcamera/camera.h>
-#include <libcamera/object.h>
+#include <libcamera/framebuffer.h>
 #include <libcamera/request.h>
 #include <libcamera/stream.h>
-
-#include "libcamera/internal/thread.h"
 
 class CameraDevice;
 
@@ -25,6 +26,12 @@ public:
 	CaptureRequest(libcamera::Camera *camera, uint64_t cookie);
 
 	const std::vector<int> &fences() const { return acquireFences_; }
+	libcamera::ControlList &controls() { return request_->controls(); }
+	const libcamera::ControlList &metadata() const
+	{
+		return request_->metadata();
+	}
+	unsigned long cookie() const { return request_->cookie(); }
 
 	void addBuffer(libcamera::Stream *stream,
 		       libcamera::FrameBuffer *buffer, int fence);
@@ -36,7 +43,7 @@ private:
 	std::unique_ptr<libcamera::Request> request_;
 };
 
-class CameraWorker
+class CameraWorker : private libcamera::Thread
 {
 public:
 	CameraWorker();
@@ -45,6 +52,9 @@ public:
 	void stop();
 
 	void queueRequest(CaptureRequest *request);
+
+protected:
+	void run() override;
 
 private:
 	class Worker : public libcamera::Object
@@ -57,7 +67,6 @@ private:
 	};
 
 	Worker worker_;
-	libcamera::Thread thread_;
 };
 
 #endif /* __ANDROID_CAMERA_WORKER_H__ */

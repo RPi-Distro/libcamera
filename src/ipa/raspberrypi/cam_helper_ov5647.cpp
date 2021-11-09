@@ -8,7 +8,6 @@
 #include <assert.h>
 
 #include "cam_helper.hpp"
-#include "md_parser_rpi.hpp"
 
 using namespace RPiController;
 
@@ -18,10 +17,19 @@ public:
 	CamHelperOv5647();
 	uint32_t GainCode(double gain) const override;
 	double Gain(uint32_t gain_code) const override;
-	void GetDelays(int &exposure_delay, int &gain_delay) const override;
+	void GetDelays(int &exposure_delay, int &gain_delay,
+		       int &vblank_delay) const override;
+	unsigned int HideFramesStartup() const override;
 	unsigned int HideFramesModeSwitch() const override;
 	unsigned int MistrustFramesStartup() const override;
 	unsigned int MistrustFramesModeSwitch() const override;
+
+private:
+	/*
+	 * Smallest difference between the frame length and integration time,
+	 * in units of lines.
+	 */
+	static constexpr int frameIntegrationDiff = 4;
 };
 
 /*
@@ -30,7 +38,7 @@ public:
  */
 
 CamHelperOv5647::CamHelperOv5647()
-	: CamHelper(new MdParserRPi())
+	: CamHelper({}, frameIntegrationDiff)
 {
 }
 
@@ -44,7 +52,8 @@ double CamHelperOv5647::Gain(uint32_t gain_code) const
 	return static_cast<double>(gain_code) / 16.0;
 }
 
-void CamHelperOv5647::GetDelays(int &exposure_delay, int &gain_delay) const
+void CamHelperOv5647::GetDelays(int &exposure_delay, int &gain_delay,
+				int &vblank_delay) const
 {
 	/*
 	 * We run this sensor in a mode where the gain delay is bumped up to
@@ -52,6 +61,16 @@ void CamHelperOv5647::GetDelays(int &exposure_delay, int &gain_delay) const
 	 */
 	exposure_delay = 2;
 	gain_delay = 2;
+	vblank_delay = 2;
+}
+
+unsigned int CamHelperOv5647::HideFramesStartup() const
+{
+	/*
+	 * On startup, we get a couple of under-exposed frames which
+	 * we don't want shown.
+	 */
+	return 2;
 }
 
 unsigned int CamHelperOv5647::HideFramesModeSwitch() const

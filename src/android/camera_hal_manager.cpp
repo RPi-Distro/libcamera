@@ -7,16 +7,16 @@
 
 #include "camera_hal_manager.h"
 
+#include <libcamera/base/log.h>
+
 #include <libcamera/camera.h>
 #include <libcamera/property_ids.h>
-
-#include "libcamera/internal/log.h"
 
 #include "camera_device.h"
 
 using namespace libcamera;
 
-LOG_DECLARE_CATEGORY(HAL);
+LOG_DECLARE_CATEGORY(HAL)
 
 /*
  * \class CameraHalManager
@@ -34,20 +34,28 @@ CameraHalManager::CameraHalManager()
 {
 }
 
-CameraHalManager::~CameraHalManager()
-{
-	cameras_.clear();
+/* CameraManager calls stop() in the destructor. */
+CameraHalManager::~CameraHalManager() = default;
 
-	if (cameraManager_) {
-		cameraManager_->stop();
-		delete cameraManager_;
-		cameraManager_ = nullptr;
-	}
+/* static */
+CameraHalManager *CameraHalManager::instance()
+{
+	static CameraHalManager *cameraHalManager = new CameraHalManager;
+	return cameraHalManager;
 }
 
 int CameraHalManager::init()
 {
-	cameraManager_ = new CameraManager();
+	cameraManager_ = std::make_unique<CameraManager>();
+
+	/*
+	 * If the configuration file is not available the HAL only supports
+	 * external cameras. If it exists but it's not valid then error out.
+	 */
+	if (halConfig_.exists() && !halConfig_.isValid()) {
+		LOG(HAL, Error) << "HAL configuration file is not valid";
+		return -EINVAL;
+	}
 
 	/* Support camera hotplug. */
 	cameraManager_->cameraAdded.connect(this, &CameraHalManager::cameraAdded);
@@ -57,36 +65,36 @@ int CameraHalManager::init()
 	if (ret) {
 		LOG(HAL, Error) << "Failed to start camera manager: "
 				<< strerror(-ret);
-		delete cameraManager_;
-		cameraManager_ = nullptr;
+		cameraManager_.reset();
 		return ret;
 	}
 
 	return 0;
 }
 
-CameraDevice *CameraHalManager::open(unsigned int id,
-				     const hw_module_t *hardwareModule)
+std::tuple<CameraDevice *, int>
+CameraHalManager::open(unsigned int id, const hw_module_t *hardwareModule)
 {
 	MutexLocker locker(mutex_);
 
 	if (!callbacks_) {
 		LOG(HAL, Error) << "Can't open camera before callbacks are set";
-		return nullptr;
+		return { nullptr, -ENODEV };
 	}
 
 	CameraDevice *camera = cameraDeviceFromHalId(id);
 	if (!camera) {
 		LOG(HAL, Error) << "Invalid camera id '" << id << "'";
-		return nullptr;
+		return { nullptr, -ENODEV };
 	}
 
-	if (camera->open(hardwareModule))
-		return nullptr;
+	int ret = camera->open(hardwareModule);
+	if (ret)
+		return { nullptr, ret };
 
 	LOG(HAL, Info) << "Open camera '" << id << "'";
 
-	return camera;
+	return { camera, 0 };
 }
 
 void CameraHalManager::cameraAdded(std::shared_ptr<Camera> cam)
@@ -108,6 +116,8 @@ void CameraHalManager::cameraAdded(std::shared_ptr<Camera> cam)
 	auto iter = cameraIdsMap_.find(cam->id());
 	if (iter != cameraIdsMap_.end()) {
 		id = iter->second;
+		if (id >= firstExternalCameraId_)
+			isCameraExternal = true;
 	} else {
 		isCameraNew = true;
 
@@ -123,9 +133,46 @@ void CameraHalManager::cameraAdded(std::shared_ptr<Camera> cam)
 		}
 	}
 
+	/*
+	 * The configuration file must be valid, and contain a corresponding
+	 * entry for internal cameras. External cameras can be initialized
+	 * without configuration file.
+	 */
+	if (!isCameraExternal && !halConfig_.exists()) {
+		LOG(HAL, Error)
+			<< "HAL configuration file is mandatory for internal cameras";
+		return;
+	}
+
+	const CameraConfigData *cameraConfigData = halConfig_.cameraConfigData(cam->id());
+
+	/*
+	 * Some cameras whose location is reported by libcamera as external may
+	 * actually be internal to the device. This is common with UVC cameras
+	 * that are integrated in a laptop. In that case the real location
+	 * should be specified in the configuration file.
+	 *
+	 * If the camera location is external and a configuration entry exists
+	 * for it, override its location.
+	 */
+	if (isCameraNew && isCameraExternal) {
+		if (cameraConfigData && cameraConfigData->facing != -1) {
+			isCameraExternal = false;
+			id = numInternalCameras_;
+		}
+	}
+
+	if (!isCameraExternal && !cameraConfigData) {
+		LOG(HAL, Error)
+			<< "HAL configuration entry for internal camera "
+			<< cam->id() << " is missing";
+		return;
+	}
+
 	/* Create a CameraDevice instance to wrap the libcamera Camera. */
-	std::shared_ptr<CameraDevice> camera = CameraDevice::create(id, std::move(cam));
-	int ret = camera->initialize();
+	std::unique_ptr<CameraDevice> camera = CameraDevice::create(id, cam);
+
+	int ret = camera->initialize(cameraConfigData);
 	if (ret) {
 		LOG(HAL, Error) << "Failed to initialize camera: " << cam->id();
 		return;
@@ -154,7 +201,7 @@ void CameraHalManager::cameraRemoved(std::shared_ptr<Camera> cam)
 	MutexLocker locker(mutex_);
 
 	auto iter = std::find_if(cameras_.begin(), cameras_.end(),
-				 [&cam](std::shared_ptr<CameraDevice> &camera) {
+				 [&cam](const std::unique_ptr<CameraDevice> &camera) {
 					 return cam == camera->camera();
 				 });
 	if (iter == cameras_.end())
@@ -191,7 +238,7 @@ int32_t CameraHalManager::cameraLocation(const Camera *cam)
 CameraDevice *CameraHalManager::cameraDeviceFromHalId(unsigned int id)
 {
 	auto iter = std::find_if(cameras_.begin(), cameras_.end(),
-				 [id](std::shared_ptr<CameraDevice> &camera) {
+				 [id](const std::unique_ptr<CameraDevice> &camera) {
 					 return camera->id() == id;
 				 });
 	if (iter == cameras_.end())
@@ -243,7 +290,7 @@ void CameraHalManager::setCallbacks(const camera_module_callbacks_t *callbacks)
 	 * Internal cameras are already assumed to be present at module load
 	 * time by the Android framework.
 	 */
-	for (std::shared_ptr<CameraDevice> &camera : cameras_) {
+	for (const std::unique_ptr<CameraDevice> &camera : cameras_) {
 		unsigned int id = camera->id();
 		if (id >= firstExternalCameraId_)
 			callbacks_->camera_device_status_change(callbacks_, id,

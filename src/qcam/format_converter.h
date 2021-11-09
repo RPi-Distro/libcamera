@@ -13,30 +13,35 @@
 
 #include <libcamera/pixel_format.h>
 
+class Image;
 class QImage;
 
 class FormatConverter
 {
 public:
-	int configure(const libcamera::PixelFormat &format, const QSize &size);
+	int configure(const libcamera::PixelFormat &format, const QSize &size,
+		      unsigned int stride);
 
-	void convert(const unsigned char *src, size_t size, QImage *dst);
+	void convert(const Image *src, size_t size, QImage *dst);
 
 private:
 	enum FormatFamily {
 		MJPEG,
-		NV,
 		RGB,
-		YUV,
+		YUVPacked,
+		YUVPlanar,
+		YUVSemiPlanar,
 	};
 
-	void convertNV(const unsigned char *src, unsigned char *dst);
-	void convertRGB(const unsigned char *src, unsigned char *dst);
-	void convertYUV(const unsigned char *src, unsigned char *dst);
+	void convertRGB(const Image *src, unsigned char *dst);
+	void convertYUVPacked(const Image *src, unsigned char *dst);
+	void convertYUVPlanar(const Image *src, unsigned char *dst);
+	void convertYUVSemiPlanar(const Image *src, unsigned char *dst);
 
 	libcamera::PixelFormat format_;
 	unsigned int width_;
 	unsigned int height_;
+	unsigned int stride_;
 
 	enum FormatFamily formatFamily_;
 

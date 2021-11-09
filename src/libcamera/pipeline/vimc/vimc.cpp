@@ -14,23 +14,27 @@
 #include <linux/media-bus-format.h>
 #include <linux/version.h>
 
+#include <libcamera/base/log.h>
+#include <libcamera/base/utils.h>
+
 #include <libcamera/camera.h>
 #include <libcamera/control_ids.h>
 #include <libcamera/controls.h>
 #include <libcamera/formats.h>
-#include <libcamera/ipa/ipa_interface.h>
-#include <libcamera/ipa/ipa_module_info.h>
 #include <libcamera/request.h>
 #include <libcamera/stream.h>
 
+#include <libcamera/ipa/ipa_interface.h>
+#include <libcamera/ipa/ipa_module_info.h>
+#include <libcamera/ipa/vimc_ipa_interface.h>
+#include <libcamera/ipa/vimc_ipa_proxy.h>
+
+#include "libcamera/internal/camera.h"
 #include "libcamera/internal/camera_sensor.h"
 #include "libcamera/internal/device_enumerator.h"
 #include "libcamera/internal/ipa_manager.h"
-#include "libcamera/internal/log.h"
 #include "libcamera/internal/media_device.h"
 #include "libcamera/internal/pipeline_handler.h"
-#include "libcamera/internal/utils.h"
-#include "libcamera/internal/v4l2_controls.h"
 #include "libcamera/internal/v4l2_subdevice.h"
 #include "libcamera/internal/v4l2_videodevice.h"
 
@@ -38,35 +42,29 @@ namespace libcamera {
 
 LOG_DEFINE_CATEGORY(VIMC)
 
-class VimcCameraData : public CameraData
+class VimcCameraData : public Camera::Private
 {
 public:
 	VimcCameraData(PipelineHandler *pipe, MediaDevice *media)
-		: CameraData(pipe), media_(media), sensor_(nullptr),
-		  debayer_(nullptr), scaler_(nullptr), video_(nullptr),
-		  raw_(nullptr)
+		: Camera::Private(pipe), media_(media)
 	{
-	}
-
-	~VimcCameraData()
-	{
-		delete sensor_;
-		delete debayer_;
-		delete scaler_;
-		delete video_;
-		delete raw_;
 	}
 
 	int init();
+	int allocateMockIPABuffers();
 	void bufferReady(FrameBuffer *buffer);
+	void paramsFilled(unsigned int id);
 
 	MediaDevice *media_;
-	CameraSensor *sensor_;
-	V4L2Subdevice *debayer_;
-	V4L2Subdevice *scaler_;
-	V4L2VideoDevice *video_;
-	V4L2VideoDevice *raw_;
+	std::unique_ptr<CameraSensor> sensor_;
+	std::unique_ptr<V4L2Subdevice> debayer_;
+	std::unique_ptr<V4L2Subdevice> scaler_;
+	std::unique_ptr<V4L2VideoDevice> video_;
+	std::unique_ptr<V4L2VideoDevice> raw_;
 	Stream stream_;
+
+	std::unique_ptr<ipa::vimc::IPAProxyVimc> ipa_;
+	std::vector<std::unique_ptr<FrameBuffer>> mockIPABufs_;
 };
 
 class VimcCameraConfiguration : public CameraConfiguration
@@ -92,7 +90,7 @@ public:
 	int exportFrameBuffers(Camera *camera, Stream *stream,
 			       std::vector<std::unique_ptr<FrameBuffer>> *buffers) override;
 
-	int start(Camera *camera) override;
+	int start(Camera *camera, const ControlList *controls) override;
 	void stop(Camera *camera) override;
 
 	int queueRequestDevice(Camera *camera, Request *request) override;
@@ -102,10 +100,9 @@ public:
 private:
 	int processControls(VimcCameraData *data, Request *request);
 
-	VimcCameraData *cameraData(const Camera *camera)
+	VimcCameraData *cameraData(Camera *camera)
 	{
-		return static_cast<VimcCameraData *>(
-			PipelineHandler::cameraData(camera));
+		return static_cast<VimcCameraData *>(camera->_d());
 	}
 };
 
@@ -172,8 +169,8 @@ CameraConfiguration::Status VimcCameraConfiguration::validate()
 
 	cfg.bufferCount = 4;
 
-	V4L2DeviceFormat format = {};
-	format.fourcc = data_->video_->toV4L2PixelFormat(cfg.pixelFormat);
+	V4L2DeviceFormat format;
+	format.fourcc = V4L2PixelFormat::fromPixelFormat(cfg.pixelFormat);
 	format.size = cfg.size;
 
 	int ret = data_->video_->tryFormat(&format);
@@ -276,8 +273,8 @@ int PipelineHandlerVimc::configure(Camera *camera, CameraConfiguration *config)
 	if (ret)
 		return ret;
 
-	V4L2DeviceFormat format = {};
-	format.fourcc = data->video_->toV4L2PixelFormat(cfg.pixelFormat);
+	V4L2DeviceFormat format;
+	format.fourcc = V4L2PixelFormat::fromPixelFormat(cfg.pixelFormat);
 	format.size = cfg.size;
 
 	ret = data->video_->setFormat(&format);
@@ -285,7 +282,7 @@ int PipelineHandlerVimc::configure(Camera *camera, CameraConfiguration *config)
 		return ret;
 
 	if (format.size != cfg.size ||
-	    format.fourcc != data->video_->toV4L2PixelFormat(cfg.pixelFormat))
+	    format.fourcc != V4L2PixelFormat::fromPixelFormat(cfg.pixelFormat))
 		return -EINVAL;
 
 	/*
@@ -301,6 +298,22 @@ int PipelineHandlerVimc::configure(Camera *camera, CameraConfiguration *config)
 
 	cfg.setStream(&data->stream_);
 
+	if (data->ipa_) {
+		/* Inform IPA of stream configuration and sensor controls. */
+		std::map<unsigned int, IPAStream> streamConfig;
+		streamConfig.emplace(std::piecewise_construct,
+				     std::forward_as_tuple(0),
+				     std::forward_as_tuple(cfg.pixelFormat, cfg.size));
+
+		std::map<unsigned int, ControlInfoMap> entityControls;
+		entityControls.emplace(0, data->sensor_->controls());
+
+		IPACameraSensorInfo sensorInfo;
+		data->sensor_->sensorInfo(&sensorInfo);
+
+		data->ipa_->configure(sensorInfo, streamConfig, entityControls);
+	}
+
 	return 0;
 }
 
@@ -313,7 +326,7 @@ int PipelineHandlerVimc::exportFrameBuffers(Camera *camera, Stream *stream,
 	return data->video_->exportBuffers(count, buffers);
 }
 
-int PipelineHandlerVimc::start(Camera *camera)
+int PipelineHandlerVimc::start(Camera *camera, [[maybe_unused]] const ControlList *controls)
 {
 	VimcCameraData *data = cameraData(camera);
 	unsigned int count = data->stream_.configuration().bufferCount;
@@ -321,6 +334,14 @@ int PipelineHandlerVimc::start(Camera *camera)
 	int ret = data->video_->importBuffers(count);
 	if (ret < 0)
 		return ret;
+
+	/* Map the mock IPA buffers to VIMC IPA to exercise IPC code paths. */
+	std::vector<IPABuffer> ipaBuffers;
+	for (auto [i, buffer] : utils::enumerate(data->mockIPABufs_)) {
+		buffer->setCookie(i + 1);
+		ipaBuffers.emplace_back(buffer->cookie(), buffer->planes());
+	}
+	data->ipa_->mapBuffers(ipaBuffers);
 
 	ret = data->ipa_->start();
 	if (ret) {
@@ -342,7 +363,13 @@ void PipelineHandlerVimc::stop(Camera *camera)
 {
 	VimcCameraData *data = cameraData(camera);
 	data->video_->streamOff();
+
+	std::vector<unsigned int> ids;
+	for (const std::unique_ptr<FrameBuffer> &buffer : data->mockIPABufs_)
+		ids.push_back(buffer->cookie());
+	data->ipa_->unmapBuffers(ids);
 	data->ipa_->stop();
+
 	data->video_->releaseBuffers();
 }
 
@@ -405,6 +432,8 @@ int PipelineHandlerVimc::queueRequestDevice(Camera *camera, Request *request)
 	if (ret < 0)
 		return ret;
 
+	data->ipa_->processControls(request->sequence(), request->controls());
+
 	return 0;
 }
 
@@ -428,23 +457,27 @@ bool PipelineHandlerVimc::match(DeviceEnumerator *enumerator)
 
 	std::unique_ptr<VimcCameraData> data = std::make_unique<VimcCameraData>(this, media);
 
-	data->ipa_ = IPAManager::createIPA(this, 0, 0);
-	if (data->ipa_ != nullptr) {
-		std::string conf = data->ipa_->configurationFile("vimc.conf");
-		data->ipa_->init(IPASettings{ conf });
-	} else {
-		LOG(VIMC, Warning) << "no matching IPA found";
-	}
-
 	/* Locate and open the capture video node. */
 	if (data->init())
 		return false;
 
+	data->ipa_ = IPAManager::createIPA<ipa::vimc::IPAProxyVimc>(this, 0, 0);
+	if (!data->ipa_) {
+		LOG(VIMC, Error) << "no matching IPA found";
+		return false;
+	}
+
+	data->ipa_->paramsFilled.connect(data.get(), &VimcCameraData::paramsFilled);
+
+	std::string conf = data->ipa_->configurationFile("vimc.conf");
+	data->ipa_->init(IPASettings{ conf, data->sensor_->model() });
+
 	/* Create and register the camera. */
 	std::set<Stream *> streams{ &data->stream_ };
+	const std::string &id = data->sensor_->id();
 	std::shared_ptr<Camera> camera =
-		Camera::create(this, data->sensor_->id(), streams);
-	registerCamera(std::move(camera), std::move(data));
+		Camera::create(std::move(data), id, streams);
+	registerCamera(std::move(camera));
 
 	return true;
 }
@@ -466,28 +499,34 @@ int VimcCameraData::init()
 		return ret;
 
 	/* Create and open the camera sensor, debayer, scaler and video device. */
-	sensor_ = new CameraSensor(media_->getEntityByName("Sensor B"));
+	sensor_ = std::make_unique<CameraSensor>(media_->getEntityByName("Sensor B"));
 	ret = sensor_->init();
 	if (ret)
 		return ret;
 
-	debayer_ = new V4L2Subdevice(media_->getEntityByName("Debayer B"));
+	debayer_ = V4L2Subdevice::fromEntityName(media_, "Debayer B");
 	if (debayer_->open())
 		return -ENODEV;
 
-	scaler_ = new V4L2Subdevice(media_->getEntityByName("Scaler"));
+	scaler_ = V4L2Subdevice::fromEntityName(media_, "Scaler");
 	if (scaler_->open())
 		return -ENODEV;
 
-	video_ = new V4L2VideoDevice(media_->getEntityByName("RGB/YUV Capture"));
+	video_ = V4L2VideoDevice::fromEntityName(media_, "RGB/YUV Capture");
 	if (video_->open())
 		return -ENODEV;
 
 	video_->bufferReady.connect(this, &VimcCameraData::bufferReady);
 
-	raw_ = new V4L2VideoDevice(media_->getEntityByName("Raw Capture 1"));
+	raw_ = V4L2VideoDevice::fromEntityName(media_, "Raw Capture 1");
 	if (raw_->open())
 		return -ENODEV;
+
+	ret = allocateMockIPABuffers();
+	if (ret < 0) {
+		LOG(VIMC, Warning) << "Cannot allocate mock IPA buffers";
+		return ret;
+	}
 
 	/* Initialise the supported controls. */
 	const ControlInfoMap &controls = sensor_->controls();
@@ -517,7 +556,7 @@ int VimcCameraData::init()
 		ctrls.emplace(id, info);
 	}
 
-	controlInfo_ = std::move(ctrls);
+	controlInfo_ = ControlInfoMap(std::move(ctrls), controls::controls);
 
 	/* Initialize the camera properties. */
 	properties_ = sensor_->properties();
@@ -527,12 +566,51 @@ int VimcCameraData::init()
 
 void VimcCameraData::bufferReady(FrameBuffer *buffer)
 {
+	PipelineHandlerVimc *pipe =
+		static_cast<PipelineHandlerVimc *>(this->pipe());
 	Request *request = buffer->request();
 
-	pipe_->completeBuffer(camera_, request, buffer);
-	pipe_->completeRequest(camera_, request);
+	/* If the buffer is cancelled force a complete of the whole request. */
+	if (buffer->metadata().status == FrameMetadata::FrameCancelled) {
+		for (auto it : request->buffers()) {
+			FrameBuffer *b = it.second;
+			b->cancel();
+			pipe->completeBuffer(request, b);
+		}
+
+		pipe->completeRequest(request);
+		return;
+	}
+
+	/* Record the sensor's timestamp in the request metadata. */
+	request->metadata().set(controls::SensorTimestamp,
+				buffer->metadata().timestamp);
+
+	pipe->completeBuffer(request, buffer);
+	pipe->completeRequest(request);
+
+	ipa_->fillParams(request->sequence(), mockIPABufs_[0]->cookie());
 }
 
-REGISTER_PIPELINE_HANDLER(PipelineHandlerVimc);
+int VimcCameraData::allocateMockIPABuffers()
+{
+	constexpr unsigned int kBufCount = 2;
+
+	V4L2DeviceFormat format;
+	format.fourcc = V4L2PixelFormat::fromPixelFormat(formats::BGR888);
+	format.size = Size (160, 120);
+
+	int ret = video_->setFormat(&format);
+	if (ret < 0)
+		return ret;
+
+	return video_->exportBuffers(kBufCount, &mockIPABufs_);
+}
+
+void VimcCameraData::paramsFilled([[maybe_unused]] unsigned int id)
+{
+}
+
+REGISTER_PIPELINE_HANDLER(PipelineHandlerVimc)
 
 } /* namespace libcamera */

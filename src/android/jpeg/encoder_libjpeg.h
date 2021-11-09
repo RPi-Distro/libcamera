@@ -9,7 +9,8 @@
 
 #include "encoder.h"
 
-#include "libcamera/internal/buffer.h"
+#include <vector>
+
 #include "libcamera/internal/formats.h"
 
 #include <jpeglib.h>
@@ -21,18 +22,21 @@ public:
 	~EncoderLibJpeg();
 
 	int configure(const libcamera::StreamConfiguration &cfg) override;
-	int encode(const libcamera::FrameBuffer *source,
-		   const libcamera::Span<uint8_t> &destination,
-		   const libcamera::Span<const uint8_t> &exifData) override;
+	int encode(const libcamera::FrameBuffer &source,
+		   libcamera::Span<uint8_t> destination,
+		   libcamera::Span<const uint8_t> exifData,
+		   unsigned int quality) override;
+	int encode(const std::vector<libcamera::Span<uint8_t>> &planes,
+		   libcamera::Span<uint8_t> destination,
+		   libcamera::Span<const uint8_t> exifData,
+		   unsigned int quality);
 
 private:
-	void compressRGB(const libcamera::MappedBuffer *frame);
-	void compressNV(const libcamera::MappedBuffer *frame);
+	void compressRGB(const std::vector<libcamera::Span<uint8_t>> &planes);
+	void compressNV(const std::vector<libcamera::Span<uint8_t>> &planes);
 
 	struct jpeg_compress_struct compress_;
 	struct jpeg_error_mgr jerr_;
-
-	unsigned int quality_;
 
 	const libcamera::PixelFormatInfo *pixelFormatInfo_;
 

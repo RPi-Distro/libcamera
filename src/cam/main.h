@@ -10,6 +10,7 @@
 enum {
 	OptCamera = 'c',
 	OptCapture = 'C',
+	OptDisplay = 'D',
 	OptFile = 'F',
 	OptHelp = 'h',
 	OptInfo = 'I',
@@ -19,6 +20,7 @@ enum {
 	OptStream = 's',
 	OptListControls = 256,
 	OptStrictFormats = 257,
+	OptMetadata = 258,
 };
 
 #endif /* __CAM_MAIN_H__ */

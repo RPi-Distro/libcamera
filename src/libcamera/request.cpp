@@ -8,14 +8,19 @@
 #include <libcamera/request.h>
 
 #include <map>
+#include <sstream>
 
-#include <libcamera/buffer.h>
+#include <libcamera/base/log.h>
+
 #include <libcamera/camera.h>
 #include <libcamera/control_ids.h>
+#include <libcamera/framebuffer.h>
 #include <libcamera/stream.h>
 
+#include "libcamera/internal/camera.h"
 #include "libcamera/internal/camera_controls.h"
-#include "libcamera/internal/log.h"
+#include "libcamera/internal/framebuffer.h"
+#include "libcamera/internal/tracepoints.h"
 
 /**
  * \file request.h
@@ -65,33 +70,33 @@ LOG_DEFINE_CATEGORY(Request)
  * \param[in] cookie Opaque cookie for application use
  *
  * The \a cookie is stored in the request and is accessible through the
- * cookie() method at any time. It is typically used by applications to map the
- * request to an external resource in the request completion handler, and is
+ * cookie() function at any time. It is typically used by applications to map
+ * the request to an external resource in the request completion handler, and is
  * completely opaque to libcamera.
- *
  */
 Request::Request(Camera *camera, uint64_t cookie)
-	: camera_(camera), cookie_(cookie), status_(RequestPending),
-	  cancelled_(false)
+	: camera_(camera), sequence_(0), cookie_(cookie),
+	  status_(RequestPending), cancelled_(false)
 {
-	/**
-	 * \todo Should the Camera expose a validator instance, to avoid
-	 * creating a new instance for each request?
-	 */
-	validator_ = new CameraControlValidator(camera);
-	controls_ = new ControlList(controls::controls, validator_);
+	controls_ = new ControlList(controls::controls,
+				    camera->_d()->validator());
 
 	/**
 	 * \todo: Add a validator for metadata controls.
 	 */
 	metadata_ = new ControlList(controls::controls);
+
+	LIBCAMERA_TRACEPOINT(request_construct, this);
+
+	LOG(Request, Debug) << "Created request - cookie: " << cookie_;
 }
 
 Request::~Request()
 {
+	LIBCAMERA_TRACEPOINT(request_destroy, this);
+
 	delete metadata_;
 	delete controls_;
-	delete validator_;
 }
 
 /**
@@ -106,16 +111,20 @@ Request::~Request()
  */
 void Request::reuse(ReuseFlag flags)
 {
+	LIBCAMERA_TRACEPOINT(request_reuse, this);
+
 	pending_.clear();
 	if (flags & ReuseBuffers) {
 		for (auto pair : bufferMap_) {
-			pair.second->request_ = this;
-			pending_.insert(pair.second);
+			FrameBuffer *buffer = pair.second;
+			buffer->_d()->setRequest(this);
+			pending_.insert(buffer);
 		}
 	} else {
 		bufferMap_.clear();
 	}
 
+	sequence_ = 0;
 	status_ = RequestPending;
 	cancelled_ = false;
 
@@ -129,8 +138,8 @@ void Request::reuse(ReuseFlag flags)
  *
  * Requests store a list of controls to be applied to all frames captured for
  * the request. They are created with an empty list of controls that can be
- * accessed through this method and updated with ControlList::operator[]() or
- * ControlList::update().
+ * accessed through this function. Control values can be retrieved using
+ * ControlList::get() and updated using ControlList::set().
  *
  * Only controls supported by the camera to which this request will be
  * submitted shall be included in the controls list. Attempting to add an
@@ -159,7 +168,7 @@ void Request::reuse(ReuseFlag flags)
  * callback is called.
  *
  * A request can only contain one buffer per stream. If a buffer has already
- * been added to the request for the same stream, this method returns -EEXIST.
+ * been added to the request for the same stream, this function returns -EEXIST.
  *
  * \return 0 on success or a negative error code otherwise
  * \retval -EEXIST The request already contains a buffer for the stream
@@ -178,7 +187,7 @@ int Request::addBuffer(const Stream *stream, FrameBuffer *buffer)
 		return -EEXIST;
 	}
 
-	buffer->request_ = this;
+	buffer->_d()->setRequest(this);
 	pending_.insert(buffer);
 	bufferMap_[stream] = buffer;
 
@@ -218,6 +227,23 @@ FrameBuffer *Request::findBuffer(const Stream *stream) const
  */
 
 /**
+ * \fn Request::sequence()
+ * \brief Retrieve the sequence number for the request
+ *
+ * When requests are queued, they are given a sequential number to track the
+ * order in which requests are queued to a camera. This number counts all
+ * requests given to a camera through its lifetime, and is not reset to zero
+ * between camera stop/start sequences.
+ *
+ * It can be used to support debugging and identifying the flow of requests
+ * through a pipeline, but does not guarantee to represent the sequence number
+ * of any images in the stream. The sequence number is stored as an unsigned
+ * integer and will wrap when overflowed.
+ *
+ * \return The request sequence number
+ */
+
+/**
  * \fn Request::cookie()
  * \brief Retrieve the cookie set when the request was created
  * \return The request cookie
@@ -253,12 +279,37 @@ FrameBuffer *Request::findBuffer(const Stream *stream) const
  */
 void Request::complete()
 {
+	ASSERT(status_ == RequestPending);
 	ASSERT(!hasPendingBuffers());
+
 	status_ = cancelled_ ? RequestCancelled : RequestComplete;
 
-	LOG(Request, Debug)
-		<< "Request has completed - cookie: " << cookie_
-		<< (cancelled_ ? " [Cancelled]" : "");
+	LOG(Request, Debug) << toString();
+
+	LIBCAMERA_TRACEPOINT(request_complete, this);
+}
+
+/**
+ * \brief Cancel a queued request
+ *
+ * Mark the request and its associated buffers as cancelled and complete it.
+ *
+ * Set each pending buffer in error state and emit the buffer completion signal
+ * before completing the Request.
+ */
+void Request::cancel()
+{
+	LIBCAMERA_TRACEPOINT(request_cancel, this);
+
+	ASSERT(status_ == RequestPending);
+
+	for (FrameBuffer *buffer : pending_) {
+		buffer->cancel();
+		camera_->bufferCompleted.emit(this, buffer);
+	}
+
+	pending_.clear();
+	cancelled_ = true;
 }
 
 /**
@@ -269,22 +320,47 @@ void Request::complete()
  * pending buffers. This function removes the \a buffer from the set to mark it
  * as complete. All buffers associate with the request shall be marked as
  * complete by calling this function once and once only before reporting the
- * request as complete with the complete() method.
+ * request as complete with the complete() function.
  *
  * \return True if all buffers contained in the request have completed, false
  * otherwise
  */
 bool Request::completeBuffer(FrameBuffer *buffer)
 {
+	LIBCAMERA_TRACEPOINT(request_complete_buffer, this, buffer);
+
 	int ret = pending_.erase(buffer);
 	ASSERT(ret == 1);
 
-	buffer->request_ = nullptr;
+	buffer->_d()->setRequest(nullptr);
 
 	if (buffer->metadata().status == FrameMetadata::FrameCancelled)
 		cancelled_ = true;
 
 	return !hasPendingBuffers();
+}
+
+/**
+ * \brief Generate a string representation of the Request internals
+ *
+ * This function facilitates debugging of Request state while it is used
+ * internally within libcamera.
+ *
+ * \return A string representing the current state of the request
+ */
+std::string Request::toString() const
+{
+	std::stringstream ss;
+
+	/* Pending, Completed, Cancelled(X). */
+	static const char *statuses = "PCX";
+
+	/* Example Output: Request(55:P:1/2:6523524) */
+	ss << "Request(" << sequence_ << ":" << statuses[status_] << ":"
+	   << pending_.size() << "/" << bufferMap_.size() << ":"
+	   << cookie_ << ")";
+
+	return ss.str();
 }
 
 } /* namespace libcamera */

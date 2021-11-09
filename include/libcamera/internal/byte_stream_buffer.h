@@ -11,7 +11,8 @@
 #include <stdint.h>
 #include <type_traits>
 
-#include <libcamera/span.h>
+#include <libcamera/base/class.h>
+#include <libcamera/base/span.h>
 
 namespace libcamera {
 
@@ -65,8 +66,7 @@ public:
 	}
 
 private:
-	ByteStreamBuffer(const ByteStreamBuffer &other) = delete;
-	ByteStreamBuffer &operator=(const ByteStreamBuffer &other) = delete;
+	LIBCAMERA_DISABLE_COPY(ByteStreamBuffer)
 
 	void setOverflow();
 

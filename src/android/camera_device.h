@@ -9,56 +9,56 @@
 
 #include <map>
 #include <memory>
-#include <tuple>
+#include <mutex>
+#include <queue>
 #include <vector>
 
 #include <hardware/camera3.h>
 
-#include <libcamera/buffer.h>
+#include <libcamera/base/class.h>
+#include <libcamera/base/log.h>
+#include <libcamera/base/message.h>
+#include <libcamera/base/thread.h>
+
 #include <libcamera/camera.h>
+#include <libcamera/framebuffer.h>
 #include <libcamera/geometry.h>
+#include <libcamera/pixel_format.h>
 #include <libcamera/request.h>
 #include <libcamera/stream.h>
 
-#include "libcamera/internal/buffer.h"
-#include "libcamera/internal/log.h"
-#include "libcamera/internal/message.h"
-
+#include "camera_capabilities.h"
+#include "camera_metadata.h"
 #include "camera_stream.h"
 #include "camera_worker.h"
 #include "jpeg/encoder.h"
 
-class CameraMetadata;
-
-class MappedCamera3Buffer : public libcamera::MappedBuffer
-{
-public:
-	MappedCamera3Buffer(const buffer_handle_t camera3buffer, int flags);
-};
+class Camera3RequestDescriptor;
+struct CameraConfigData;
 
 class CameraDevice : protected libcamera::Loggable
 {
 public:
-	static std::shared_ptr<CameraDevice> create(unsigned int id,
-						    const std::shared_ptr<libcamera::Camera> &cam);
+	static std::unique_ptr<CameraDevice> create(unsigned int id,
+						    std::shared_ptr<libcamera::Camera> cam);
 	~CameraDevice();
 
-	int initialize();
+	int initialize(const CameraConfigData *cameraConfigData);
 
 	int open(const hw_module_t *hardwareModule);
 	void close();
+	void flush();
 
 	unsigned int id() const { return id_; }
 	camera3_device_t *camera3Device() { return &camera3Device_; }
-	std::shared_ptr<libcamera::Camera> camera() const { return camera_; }
-	libcamera::CameraConfiguration *cameraConfiguration() const
-	{
-		return config_.get();
-	}
+	const CameraCapabilities *capabilities() const { return &capabilities_; }
+	const std::shared_ptr<libcamera::Camera> &camera() const { return camera_; }
 
+	const std::string &maker() const { return maker_; }
+	const std::string &model() const { return model_; }
 	int facing() const { return facing_; }
 	int orientation() const { return orientation_; }
-	unsigned int maxJpegBufferSize() const { return maxJpegBufferSize_; }
+	unsigned int maxJpegBufferSize() const;
 
 	void setCallbacks(const camera3_callback_ops_t *callbacks);
 	const camera_metadata_t *getStaticMetadata();
@@ -66,69 +66,69 @@ public:
 	int configureStreams(camera3_stream_configuration_t *stream_list);
 	int processCaptureRequest(camera3_capture_request_t *request);
 	void requestComplete(libcamera::Request *request);
+	void streamProcessingComplete(Camera3RequestDescriptor::StreamBuffer *bufferStream,
+				      Camera3RequestDescriptor::Status status);
 
 protected:
 	std::string logPrefix() const override;
 
 private:
-	CameraDevice(unsigned int id, const std::shared_ptr<libcamera::Camera> &camera);
+	LIBCAMERA_DISABLE_COPY_AND_MOVE(CameraDevice)
 
-	struct Camera3RequestDescriptor {
-		Camera3RequestDescriptor(libcamera::Camera *camera,
-					 unsigned int frameNumber,
-					 unsigned int numBuffers);
-		~Camera3RequestDescriptor();
+	CameraDevice(unsigned int id, std::shared_ptr<libcamera::Camera> camera);
 
-		uint32_t frameNumber;
-		uint32_t numBuffers;
-		camera3_stream_buffer_t *buffers;
-		std::vector<std::unique_ptr<libcamera::FrameBuffer>> frameBuffers;
-		std::unique_ptr<CaptureRequest> request;
+	enum class State {
+		Stopped,
+		Flushing,
+		Running,
 	};
 
-	struct Camera3StreamConfiguration {
-		libcamera::Size resolution;
-		int androidFormat;
-	};
+	void stop();
 
-	int initializeStreamConfigurations();
-	std::vector<libcamera::Size>
-	getYUVResolutions(libcamera::CameraConfiguration *cameraConfig,
-			  const libcamera::PixelFormat &pixelFormat,
-			  const std::vector<libcamera::Size> &resolutions);
-	std::vector<libcamera::Size>
-	getRawResolutions(const libcamera::PixelFormat &pixelFormat);
-
-	std::tuple<uint32_t, uint32_t> calculateStaticMetadataSize();
-	libcamera::FrameBuffer *createFrameBuffer(const buffer_handle_t camera3buffer);
+	std::unique_ptr<libcamera::FrameBuffer>
+	createFrameBuffer(const buffer_handle_t camera3buffer,
+			  libcamera::PixelFormat pixelFormat,
+			  const libcamera::Size &size);
+	void abortRequest(Camera3RequestDescriptor *descriptor) const;
+	bool isValidRequest(camera3_capture_request_t *request) const;
 	void notifyShutter(uint32_t frameNumber, uint64_t timestamp);
-	void notifyError(uint32_t frameNumber, camera3_stream_t *stream);
-	CameraMetadata *requestTemplatePreview();
-	libcamera::PixelFormat toPixelFormat(int format);
-	std::unique_ptr<CameraMetadata> getResultMetadata(int frame_number,
-							  int64_t timestamp);
+	void notifyError(uint32_t frameNumber, camera3_stream_t *stream,
+			 camera3_error_msg_code code) const;
+	int processControls(Camera3RequestDescriptor *descriptor);
+	void completeDescriptor(Camera3RequestDescriptor *descriptor);
+	void sendCaptureResults();
+	void setBufferStatus(Camera3RequestDescriptor::StreamBuffer &buffer,
+			     Camera3RequestDescriptor::Status status);
+	std::unique_ptr<CameraMetadata> getResultMetadata(
+		const Camera3RequestDescriptor &descriptor) const;
 
 	unsigned int id_;
 	camera3_device_t camera3Device_;
 
 	CameraWorker worker_;
 
-	bool running_;
+	libcamera::Mutex stateMutex_; /* Protects access to the camera state. */
+	State state_;
+
 	std::shared_ptr<libcamera::Camera> camera_;
 	std::unique_ptr<libcamera::CameraConfiguration> config_;
+	CameraCapabilities capabilities_;
 
-	CameraMetadata *staticMetadata_;
-	std::map<unsigned int, const CameraMetadata *> requestTemplates_;
+	std::map<unsigned int, std::unique_ptr<CameraMetadata>> requestTemplates_;
 	const camera3_callback_ops_t *callbacks_;
 
-	std::vector<Camera3StreamConfiguration> streamConfigurations_;
-	std::map<int, libcamera::PixelFormat> formatsMap_;
 	std::vector<CameraStream> streams_;
+
+	libcamera::Mutex descriptorsMutex_; /* Protects descriptors_. */
+	std::queue<std::unique_ptr<Camera3RequestDescriptor>> descriptors_;
+
+	std::string maker_;
+	std::string model_;
 
 	int facing_;
 	int orientation_;
 
-	unsigned int maxJpegBufferSize_;
+	CameraMetadata lastSettings_;
 };
 
 #endif /* __ANDROID_CAMERA_DEVICE_H__ */

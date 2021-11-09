@@ -14,8 +14,8 @@
 #include <QSize>
 #include <QWidget>
 
-#include <libcamera/buffer.h>
 #include <libcamera/formats.h>
+#include <libcamera/framebuffer.h>
 #include <libcamera/pixel_format.h>
 
 #include "format_converter.h"
@@ -31,8 +31,9 @@ public:
 
 	const QList<libcamera::PixelFormat> &nativeFormats() const override;
 
-	int setFormat(const libcamera::PixelFormat &format, const QSize &size) override;
-	void render(libcamera::FrameBuffer *buffer, MappedBuffer *map) override;
+	int setFormat(const libcamera::PixelFormat &format, const QSize &size,
+		      unsigned int stride) override;
+	void render(libcamera::FrameBuffer *buffer, Image *image) override;
 	void stop() override;
 
 	QImage getCurrentImage() override;

@@ -6,12 +6,17 @@
  */
 #include <math.h>
 
+#include <libcamera/base/log.h>
+
 #include "../awb_status.h"
 #include "alsc.hpp"
 
 // Raspberry Pi ALSC (Auto Lens Shading Correction) algorithm.
 
 using namespace RPiController;
+using namespace libcamera;
+
+LOG_DEFINE_CATEGORY(RPiAlsc)
 
 #define NAME "rpi.alsc"
 
@@ -110,15 +115,14 @@ static void read_calibrations(std::vector<AlscCalibration> &calibrations,
 					"Alsc: too few values for ct " +
 					std::to_string(ct) + " in " + name);
 			calibrations.push_back(calibration);
-			RPI_LOG("Read " << name << " calibration for ct "
-					<< ct);
+			LOG(RPiAlsc, Debug)
+				<< "Read " << name << " calibration for ct " << ct;
 		}
 	}
 }
 
 void Alsc::Read(boost::property_tree::ptree const &params)
 {
-	RPI_LOG("Alsc");
 	config_.frame_period = params.get<uint16_t>("frame_period", 12);
 	config_.startup_frames = params.get<uint16_t>("startup_frames", 10);
 	config_.speed = params.get<double>("speed", 0.05);
@@ -139,13 +143,15 @@ void Alsc::Read(boost::property_tree::ptree const &params)
 		read_lut(config_.luminance_lut,
 			 params.get_child("luminance_lut"));
 	else
-		RPI_WARN("Alsc: no luminance table - assume unity everywhere");
+		LOG(RPiAlsc, Warning)
+			<< "no luminance table - assume unity everywhere";
 	read_calibrations(config_.calibrations_Cr, params, "calibrations_Cr");
 	read_calibrations(config_.calibrations_Cb, params, "calibrations_Cb");
 	config_.default_ct = params.get<double>("default_ct", 4500.0);
 	config_.threshold = params.get<double>("threshold", 1e-3);
 }
 
+static double get_ct(Metadata *metadata, double default_ct);
 static void get_cal_table(double ct,
 			  std::vector<AlscCalibration> const &calibrations,
 			  double cal_table[XY]);
@@ -163,7 +169,6 @@ static void add_luminance_to_tables(double results[3][Y][X],
 
 void Alsc::Initialise()
 {
-	RPI_LOG("Alsc");
 	frame_count2_ = frame_count_ = frame_phase_ = 0;
 	first_time_ = true;
 	ct_ = config_.default_ct;
@@ -210,6 +215,9 @@ void Alsc::SwitchMode(CameraMode const &camera_mode,
 	// change.
 	bool reset_tables = first_time_ || compare_modes(camera_mode_, camera_mode);
 
+	// Believe the colour temperature from the AWB, if there is one.
+	ct_ = get_ct(metadata, ct_);
+
 	// Ensure the other thread isn't running while we do this.
 	waitForAysncThread();
 
@@ -248,22 +256,22 @@ void Alsc::SwitchMode(CameraMode const &camera_mode,
 
 void Alsc::fetchAsyncResults()
 {
-	RPI_LOG("Fetch ALSC results");
+	LOG(RPiAlsc, Debug) << "Fetch ALSC results";
 	async_finished_ = false;
 	async_started_ = false;
 	memcpy(sync_results_, async_results_, sizeof(sync_results_));
 }
 
-static double get_ct(Metadata *metadata, double default_ct)
+double get_ct(Metadata *metadata, double default_ct)
 {
 	AwbStatus awb_status;
 	awb_status.temperature_K = default_ct; // in case nothing found
 	if (metadata->Get("awb.status", awb_status) != 0)
-		RPI_WARN("Alsc: no AWB results found, using "
-			 << awb_status.temperature_K);
+		LOG(RPiAlsc, Debug) << "no AWB results found, using "
+				    << awb_status.temperature_K;
 	else
-		RPI_LOG("Alsc: AWB results found, using "
-			<< awb_status.temperature_K);
+		LOG(RPiAlsc, Debug) << "AWB results found, using "
+				    << awb_status.temperature_K;
 	return awb_status.temperature_K;
 }
 
@@ -285,7 +293,7 @@ static void copy_stats(bcm2835_isp_stats_region regions[XY], StatisticsPtr &stat
 
 void Alsc::restartAsync(StatisticsPtr &stats, Metadata *image_metadata)
 {
-	RPI_LOG("Starting ALSC thread");
+	LOG(RPiAlsc, Debug) << "Starting ALSC calculation";
 	// Get the current colour temperature. It's all we need from the
 	// metadata. Default to the last CT value (which could be the default).
 	ct_ = get_ct(image_metadata, ct_);
@@ -293,7 +301,8 @@ void Alsc::restartAsync(StatisticsPtr &stats, Metadata *image_metadata)
 	// the LSC table that the pipeline applied to them.
 	AlscStatus alsc_status;
 	if (image_metadata->Get("alsc.status", alsc_status) != 0) {
-		RPI_WARN("No ALSC status found for applied gains!");
+		LOG(RPiAlsc, Warning)
+			<< "No ALSC status found for applied gains!";
 		for (int y = 0; y < Y; y++)
 			for (int x = 0; x < X; x++) {
 				alsc_status.r[y][x] = 1.0;
@@ -320,13 +329,12 @@ void Alsc::Prepare(Metadata *image_metadata)
 	double speed = frame_count_ < (int)config_.startup_frames
 			       ? 1.0
 			       : config_.speed;
-	RPI_LOG("Alsc: frame_count " << frame_count_ << " speed " << speed);
+	LOG(RPiAlsc, Debug)
+		<< "frame_count " << frame_count_ << " speed " << speed;
 	{
 		std::unique_lock<std::mutex> lock(mutex_);
-		if (async_started_ && async_finished_) {
-			RPI_LOG("ALSC thread finished");
+		if (async_started_ && async_finished_)
 			fetchAsyncResults();
-		}
 	}
 	// Apply IIR filter to results and program into the pipeline.
 	double *ptr = (double *)sync_results_,
@@ -350,13 +358,11 @@ void Alsc::Process(StatisticsPtr &stats, Metadata *image_metadata)
 		frame_phase_++;
 	if (frame_count2_ < (int)config_.startup_frames)
 		frame_count2_++;
-	RPI_LOG("Alsc: frame_phase " << frame_phase_);
+	LOG(RPiAlsc, Debug) << "frame_phase " << frame_phase_;
 	if (frame_phase_ >= (int)config_.frame_period ||
 	    frame_count2_ < (int)config_.startup_frames) {
-		if (async_started_ == false) {
-			RPI_LOG("ALSC thread starting");
+		if (async_started_ == false)
 			restartAsync(stats, image_metadata);
-		}
 	}
 }
 
@@ -387,25 +393,26 @@ void get_cal_table(double ct, std::vector<AlscCalibration> const &calibrations,
 	if (calibrations.empty()) {
 		for (int i = 0; i < XY; i++)
 			cal_table[i] = 1.0;
-		RPI_LOG("Alsc: no calibrations found");
+		LOG(RPiAlsc, Debug) << "no calibrations found";
 	} else if (ct <= calibrations.front().ct) {
 		memcpy(cal_table, calibrations.front().table,
 		       XY * sizeof(double));
-		RPI_LOG("Alsc: using calibration for "
-			<< calibrations.front().ct);
+		LOG(RPiAlsc, Debug) << "using calibration for "
+				    << calibrations.front().ct;
 	} else if (ct >= calibrations.back().ct) {
 		memcpy(cal_table, calibrations.back().table,
 		       XY * sizeof(double));
-		RPI_LOG("Alsc: using calibration for "
-			<< calibrations.front().ct);
+		LOG(RPiAlsc, Debug) << "using calibration for "
+				    << calibrations.back().ct;
 	} else {
 		int idx = 0;
 		while (ct > calibrations[idx + 1].ct)
 			idx++;
 		double ct0 = calibrations[idx].ct,
 		       ct1 = calibrations[idx + 1].ct;
-		RPI_LOG("Alsc: ct is " << ct << ", interpolating between "
-				       << ct0 << " and " << ct1);
+		LOG(RPiAlsc, Debug)
+			<< "ct is " << ct << ", interpolating between "
+			<< ct0 << " and " << ct1;
 		for (int i = 0; i < XY; i++)
 			cal_table[i] =
 				(calibrations[idx].table[i] * (ct1 - ct) +
@@ -606,9 +613,9 @@ static double gauss_seidel2_SOR(double const M[XY][4], double omega,
 				double lambda[XY])
 {
 	double old_lambda[XY];
-	for (int i = 0; i < XY; i++)
-		old_lambda[i] = lambda[i];
 	int i;
+	for (i = 0; i < XY; i++)
+		old_lambda[i] = lambda[i];
 	lambda[0] = compute_lambda_bottom_start(0, M, lambda);
 	for (i = 1; i < X; i++)
 		lambda[i] = compute_lambda_bottom(i, M, lambda);
@@ -628,7 +635,7 @@ static double gauss_seidel2_SOR(double const M[XY][4], double omega,
 		lambda[i] = compute_lambda_bottom(i, M, lambda);
 	lambda[0] = compute_lambda_bottom_start(0, M, lambda);
 	double max_diff = 0;
-	for (int i = 0; i < XY; i++) {
+	for (i = 0; i < XY; i++) {
 		lambda[i] = old_lambda[i] + (lambda[i] - old_lambda[i]) * omega;
 		if (fabs(lambda[i] - old_lambda[i]) > fabs(max_diff))
 			max_diff = lambda[i] - old_lambda[i];
@@ -656,15 +663,16 @@ static void run_matrix_iterations(double const C[XY], double lambda[XY],
 	for (int i = 0; i < n_iter; i++) {
 		double max_diff = fabs(gauss_seidel2_SOR(M, omega, lambda));
 		if (max_diff < threshold) {
-			RPI_LOG("Stop after " << i + 1 << " iterations");
+			LOG(RPiAlsc, Debug)
+				<< "Stop after " << i + 1 << " iterations";
 			break;
 		}
 		// this happens very occasionally (so make a note), though
 		// doesn't seem to matter
 		if (max_diff > last_max_diff)
-			RPI_LOG("Iteration " << i << ": max_diff gone up "
-					     << last_max_diff << " to "
-					     << max_diff);
+			LOG(RPiAlsc, Debug)
+				<< "Iteration " << i << ": max_diff gone up "
+				<< last_max_diff << " to " << max_diff;
 		last_max_diff = max_diff;
 	}
 	// We're going to normalise the lambdas so the smallest is 1. Not sure

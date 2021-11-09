@@ -7,13 +7,15 @@
 #ifndef __LIBCAMERA_PIPELINE_RKISP1_PATH_H__
 #define __LIBCAMERA_PIPELINE_RKISP1_PATH_H__
 
+#include <memory>
 #include <vector>
+
+#include <libcamera/base/signal.h>
+#include <libcamera/base/span.h>
 
 #include <libcamera/camera.h>
 #include <libcamera/geometry.h>
 #include <libcamera/pixel_format.h>
-#include <libcamera/signal.h>
-#include <libcamera/span.h>
 
 #include "libcamera/internal/media_object.h"
 #include "libcamera/internal/v4l2_videodevice.h"
@@ -30,7 +32,6 @@ class RkISP1Path
 public:
 	RkISP1Path(const char *name, const Span<const PixelFormat> &formats,
 		   const Size &minResolution, const Size &maxResolution);
-	~RkISP1Path();
 
 	bool init(MediaDevice *media);
 
@@ -65,8 +66,8 @@ private:
 	const Size minResolution_;
 	const Size maxResolution_;
 
-	V4L2Subdevice *resizer_;
-	V4L2VideoDevice *video_;
+	std::unique_ptr<V4L2Subdevice> resizer_;
+	std::unique_ptr<V4L2VideoDevice> video_;
 	MediaLink *link_;
 };
 

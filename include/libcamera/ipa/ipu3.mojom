@@ -1,0 +1,59 @@
+/* SPDX-License-Identifier: LGPL-2.1-or-later */
+
+/*
+ * \todo Document the interface and remove the related EXCLUDE_PATTERNS entry.
+ */
+
+module ipa.ipu3;
+
+import "include/libcamera/ipa/core.mojom";
+
+enum IPU3Operations {
+	ActionSetSensorControls = 1,
+	ActionParamFilled = 2,
+	ActionMetadataReady = 3,
+	EventProcessControls = 4,
+	EventStatReady = 5,
+	EventFillParams = 6,
+};
+
+struct IPU3Event {
+	IPU3Operations op;
+	uint32 frame;
+	int64 frameTimestamp;
+	uint32 bufferId;
+	libcamera.ControlList controls;
+};
+
+struct IPU3Action {
+	IPU3Operations op;
+	libcamera.ControlList controls;
+};
+
+struct IPAConfigInfo {
+	libcamera.IPACameraSensorInfo sensorInfo;
+	libcamera.ControlInfoMap sensorControls;
+	libcamera.Size bdsOutputSize;
+	libcamera.Size iif;
+};
+
+interface IPAIPU3Interface {
+	init(libcamera.IPASettings settings,
+	     libcamera.IPACameraSensorInfo sensorInfo,
+	     libcamera.ControlInfoMap sensorControls)
+		=> (int32 ret, libcamera.ControlInfoMap ipaControls);
+	start() => (int32 ret);
+	stop();
+
+	configure(IPAConfigInfo configInfo)
+		=> (int32 ret, libcamera.ControlInfoMap ipaControls);
+
+	mapBuffers(array<libcamera.IPABuffer> buffers);
+	unmapBuffers(array<uint32> ids);
+
+	[async] processEvent(IPU3Event ev);
+};
+
+interface IPAIPU3EventInterface {
+	queueFrameAction(uint32 frame, IPU3Action action);
+};

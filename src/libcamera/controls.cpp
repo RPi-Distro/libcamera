@@ -12,9 +12,10 @@
 #include <string>
 #include <string.h>
 
+#include <libcamera/base/log.h>
+#include <libcamera/base/utils.h>
+
 #include "libcamera/internal/control_validator.h"
-#include "libcamera/internal/log.h"
-#include "libcamera/internal/utils.h"
 
 /**
  * \file controls.h
@@ -40,7 +41,7 @@
  * int32_t exposure = controls->get(controls::ManualExposure);
  * \endcode
  *
- * The ControlList::get() and ControlList::set() methods automatically deduce
+ * The ControlList::get() and ControlList::set() functions automatically deduce
  * the data type based on the control.
  */
 
@@ -432,13 +433,13 @@ void ControlValue::reserve(ControlType type, bool isArray, std::size_t numElemen
  * \brief Describe a control and its intrinsic properties
  *
  * The Control class models a control exposed by an object. Its template type
- * name T refers to the control data type, and allows methods that operate on
- * control values to be defined as template methods using the same type T for
- * the control value. See for instance how the ControlList::get() method
+ * name T refers to the control data type, and allows functions that operate on
+ * control values to be defined as template functions using the same type T for
+ * the control value. See for instance how the ControlList::get() function
  * returns a value corresponding to the type of the requested control.
  *
- * While this class is the main mean to refer to a control, the control
- * identifying information are stored in the non-template base ControlId class.
+ * While this class is the main means to refer to a control, the control
+ * identifying information is stored in the non-template base ControlId class.
  * This allows code that operates on a set of controls of different types to
  * reference those controls through a ControlId instead of a Control. For
  * instance, the list of controls supported by a camera is exposed as ControlId
@@ -492,6 +493,57 @@ ControlInfo::ControlInfo(const ControlValue &min,
 }
 
 /**
+ * \brief Construct a ControlInfo from the list of valid values
+ * \param[in] values The control valid values
+ * \param[in] def The control default value
+ *
+ * Construct a ControlInfo from a list of valid values. The ControlInfo
+ * minimum and maximum values are set to the first and last members of the
+ * values list respectively. The default value is set to \a def if provided, or
+ * to the minimum value otherwise.
+ */
+ControlInfo::ControlInfo(Span<const ControlValue> values,
+			 const ControlValue &def)
+{
+	min_ = values.front();
+	max_ = values.back();
+	def_ = !def.isNone() ? def : values.front();
+
+	values_.reserve(values.size());
+	for (const ControlValue &value : values)
+		values_.push_back(value);
+}
+
+/**
+ * \brief Construct a boolean ControlInfo with both boolean values
+ * \param[in] values The control valid boolean values (both true and false)
+ * \param[in] def The control default boolean value
+ *
+ * Construct a ControlInfo for a boolean control, where both true and false are
+ * valid values. \a values must be { false, true } (the order is irrelevant).
+ * The minimum value will always be false, and the maximum always true. The
+ * default value is \a def.
+ */
+ControlInfo::ControlInfo(std::set<bool> values, bool def)
+	: min_(false), max_(true), def_(def), values_({ false, true })
+{
+	assert(values.count(def) && values.size() == 2);
+}
+
+/**
+ * \brief Construct a boolean ControlInfo with only one valid value
+ * \param[in] value The control valid boolean value
+ *
+ * Construct a ControlInfo for a boolean control, where there is only valid
+ * value. The minimum, maximum, and default values will all be \a value.
+ */
+ControlInfo::ControlInfo(bool value)
+	: min_(value), max_(value), def_(value)
+{
+	values_ = { value };
+}
+
+/**
  * \fn ControlInfo::min()
  * \brief Retrieve the minimum value of the control
  *
@@ -517,6 +569,17 @@ ControlInfo::ControlInfo(const ControlValue &min,
  * \fn ControlInfo::def()
  * \brief Retrieve the default value of the control
  * \return A ControlValue with the default value for the control
+ */
+
+/**
+ * \fn ControlInfo::values()
+ * \brief Retrieve the list of valid values
+ *
+ * For controls that support a pre-defined number of values, the enumeration of
+ * those is reported through a vector of ControlValue instances accessible with
+ * this function.
+ *
+ * \return A vector of ControlValue representing the control valid values
  */
 
 /**
@@ -558,14 +621,14 @@ std::string ControlInfo::toString() const
  *
  * The ControlInfoMap class describes controls supported by an object as an
  * unsorted map of ControlId pointers to ControlInfo instances. Unlike the
- * standard std::unsorted_map<> class, it is designed the be immutable once
+ * standard std::unsorted_map<> class, it is designed to be immutable once
  * constructed, and thus only exposes the read accessors of the
  * std::unsorted_map<> base class.
  *
- * In addition to the features of the standard unsorted map, this class also
- * provides access to the mapped elements using numerical ID keys. It maintains
- * an internal map of numerical ID to ControlId for this purpose, and exposes it
- * through the idmap() method to help construction of ControlList instances.
+ * The class is constructed with a reference to a ControlIdMap. This allows
+ * providing access to the mapped elements using numerical ID keys, in addition
+ * to the features of the standard unsorted map. All ControlId keys in the map
+ * must appear in the ControlIdMap.
  */
 
 /**
@@ -582,24 +645,27 @@ std::string ControlInfo::toString() const
 /**
  * \brief Construct a ControlInfoMap from an initializer list
  * \param[in] init The initializer list
+ * \param[in] idmap The idmap used by the ControlInfoMap
  */
-ControlInfoMap::ControlInfoMap(std::initializer_list<Map::value_type> init)
-	: Map(init)
+ControlInfoMap::ControlInfoMap(std::initializer_list<Map::value_type> init,
+			       const ControlIdMap &idmap)
+	: Map(init), idmap_(&idmap)
 {
-	generateIdmap();
+	ASSERT(validate());
 }
 
 /**
  * \brief Construct a ControlInfoMap from a plain map
  * \param[in] info The control info plain map
+ * \param[in] idmap The idmap used by the ControlInfoMap
  *
  * Construct a new ControlInfoMap and populate its contents with those of
  * \a info using move semantics. Upon return the \a info map will be empty.
  */
-ControlInfoMap::ControlInfoMap(Map &&info)
-	: Map(std::move(info))
+ControlInfoMap::ControlInfoMap(Map &&info, const ControlIdMap &idmap)
+	: Map(std::move(info)), idmap_(&idmap)
 {
-	generateIdmap();
+	ASSERT(validate());
 }
 
 /**
@@ -609,32 +675,41 @@ ControlInfoMap::ControlInfoMap(Map &&info)
  * \return A reference to the ControlInfoMap
  */
 
-/**
- * \brief Replace the contents with those from the initializer list
- * \param[in] init The initializer list
- * \return A reference to the ControlInfoMap
- */
-ControlInfoMap &ControlInfoMap::operator=(std::initializer_list<Map::value_type> init)
+bool ControlInfoMap::validate()
 {
-	Map::operator=(init);
-	generateIdmap();
-	return *this;
-}
+	for (const auto &ctrl : *this) {
+		const ControlId *id = ctrl.first;
+		auto it = idmap_->find(id->id());
 
-/**
- * \brief Move assignment operator from a plain map
- * \param[in] info The control info plain map
- *
- * Populate the map by replacing its contents with those of \a info using move
- * semantics. Upon return the \a info map will be empty.
- *
- * \return A reference to the populated ControlInfoMap
- */
-ControlInfoMap &ControlInfoMap::operator=(Map &&info)
-{
-	Map::operator=(std::move(info));
-	generateIdmap();
-	return *this;
+		/*
+		 * Make sure all control ids are part of the idmap and verify
+		 * the control info matches the expected type.
+		 */
+		if (it == idmap_->end() || it->second != id) {
+			LOG(Controls, Error)
+				<< "Control " << utils::hex(id->id())
+				<< " not in the idmap";
+			return false;
+		}
+
+		/*
+		 * For string controls, min and max define the valid
+		 * range for the string size, not for the individual
+		 * values.
+		 */
+		ControlType rangeType = id->type() == ControlTypeString
+				      ? ControlTypeInteger32 : id->type();
+		const ControlInfo &info = ctrl.second;
+
+		if (info.min().type() != rangeType) {
+			LOG(Controls, Error)
+				<< "Control " << utils::hex(id->id())
+				<< " type and info type mismatch";
+			return false;
+		}
+	}
+
+	return true;
 }
 
 /**
@@ -644,7 +719,7 @@ ControlInfoMap &ControlInfoMap::operator=(Map &&info)
  */
 ControlInfoMap::mapped_type &ControlInfoMap::at(unsigned int id)
 {
-	return at(idmap_.at(id));
+	return at(idmap_->at(id));
 }
 
 /**
@@ -654,7 +729,7 @@ ControlInfoMap::mapped_type &ControlInfoMap::at(unsigned int id)
  */
 const ControlInfoMap::mapped_type &ControlInfoMap::at(unsigned int id) const
 {
-	return at(idmap_.at(id));
+	return at(idmap_->at(id));
 }
 
 /**
@@ -669,7 +744,7 @@ ControlInfoMap::size_type ControlInfoMap::count(unsigned int id) const
 	 * entries, we can thus just count the matching entries in idmap to
 	 * avoid an additional lookup.
 	 */
-	return idmap_.count(id);
+	return idmap_->count(id);
 }
 
 /**
@@ -680,8 +755,8 @@ ControlInfoMap::size_type ControlInfoMap::count(unsigned int id) const
  */
 ControlInfoMap::iterator ControlInfoMap::find(unsigned int id)
 {
-	auto iter = idmap_.find(id);
-	if (iter == idmap_.end())
+	auto iter = idmap_->find(id);
+	if (iter == idmap_->end())
 		return end();
 
 	return find(iter->second);
@@ -695,8 +770,8 @@ ControlInfoMap::iterator ControlInfoMap::find(unsigned int id)
  */
 ControlInfoMap::const_iterator ControlInfoMap::find(unsigned int id) const
 {
-	auto iter = idmap_.find(id);
-	if (iter == idmap_.end())
+	auto iter = idmap_->find(id);
+	if (iter == idmap_->end())
 		return end();
 
 	return find(iter->second);
@@ -707,45 +782,18 @@ ControlInfoMap::const_iterator ControlInfoMap::find(unsigned int id) const
  * \brief Retrieve the ControlId map
  *
  * Constructing ControlList instances for V4L2 controls requires a ControlIdMap
- * for the V4L2 device that the control list targets. This helper method
+ * for the V4L2 device that the control list targets. This helper function
  * returns a suitable idmap for that purpose.
  *
  * \return The ControlId map
  */
-
-void ControlInfoMap::generateIdmap()
-{
-	idmap_.clear();
-
-	for (const auto &ctrl : *this) {
-		/*
-		 * For string controls, min and max define the valid
-		 * range for the string size, not for the individual
-		 * values.
-		 */
-		ControlType rangeType = ctrl.first->type() == ControlTypeString
-				      ? ControlTypeInteger32 : ctrl.first->type();
-		const ControlInfo &info = ctrl.second;
-
-		if (info.min().type() != rangeType) {
-			LOG(Controls, Error)
-				<< "Control " << utils::hex(ctrl.first->id())
-				<< " type and info type mismatch";
-			idmap_.clear();
-			clear();
-			return;
-		}
-
-		idmap_[ctrl.first->id()] = ctrl.first;
-	}
-}
 
 /**
  * \class ControlList
  * \brief Associate a list of ControlId with their values for an object
  *
  * The ControlList class stores values of controls exposed by an object. The
- * lists returned by the Request::controls() and Request::metadata() methods
+ * lists returned by the Request::controls() and Request::metadata() functions
  * refer to the camera that the request belongs to.
  *
  * Control lists are constructed with a map of all the controls supported by
@@ -773,7 +821,8 @@ ControlList::ControlList()
  * controls is provided by controls::controls and can be used as the \a idmap
  * argument.
  */
-ControlList::ControlList(const ControlIdMap &idmap, ControlValidator *validator)
+ControlList::ControlList(const ControlIdMap &idmap,
+			 const ControlValidator *validator)
 	: validator_(validator), idmap_(&idmap), infoMap_(nullptr)
 {
 }
@@ -783,7 +832,8 @@ ControlList::ControlList(const ControlIdMap &idmap, ControlValidator *validator)
  * \param[in] infoMap The ControlInfoMap for the control list target object
  * \param[in] validator The validator (may be null)
  */
-ControlList::ControlList(const ControlInfoMap &infoMap, ControlValidator *validator)
+ControlList::ControlList(const ControlInfoMap &infoMap,
+			 const ControlValidator *validator)
 	: validator_(validator), idmap_(&infoMap.idmap()), infoMap_(&infoMap)
 {
 }
@@ -842,6 +892,46 @@ ControlList::ControlList(const ControlInfoMap &infoMap, ControlValidator *valida
  */
 
 /**
+ * \brief Merge the \a source into the ControlList
+ * \param[in] source The ControlList to merge into this object
+ *
+ * Merging two control lists copies elements from the \a source and inserts
+ * them in *this. If the \a source contains elements whose key is already
+ * present in *this, then those elements are not overwritten.
+ *
+ * Only control lists created from the same ControlIdMap or ControlInfoMap may
+ * be merged. Attempting to do otherwise results in undefined behaviour.
+ *
+ * \todo Reimplement or implement an overloaded version which internally uses
+ * std::unordered_map::merge() and accepts a non-const argument.
+ */
+void ControlList::merge(const ControlList &source)
+{
+	/**
+	 * \todo: ASSERT that the current and source ControlList are derived
+	 * from a compatible ControlIdMap, to prevent undefined behaviour due to
+	 * id collisions.
+	 *
+	 * This can not currently be a direct pointer comparison due to the
+	 * duplication of the ControlIdMaps in the isolated IPA use cases.
+	 * Furthermore, manually checking each entry of the id map is identical
+	 * is expensive.
+	 * See https://bugs.libcamera.org/show_bug.cgi?id=31 for further details
+	 */
+
+	for (const auto &ctrl : source) {
+		if (contains(ctrl.first)) {
+			const ControlId *id = idmap_->at(ctrl.first);
+			LOG(Controls, Warning)
+				<< "Control " << id->name() << " not overwritten";
+			continue;
+		}
+
+		set(ctrl.first, ctrl.second);
+	}
+}
+
+/**
  * \brief Check if the list contains a control with the specified \a id
  * \param[in] id The control ID
  *
@@ -884,7 +974,7 @@ bool ControlList::contains(unsigned int id) const
  * \param[in] ctrl The control
  * \param[in] value The control value
  *
- * This method sets the value of a control in the control list. If the control
+ * This function sets the value of a control in the control list. If the control
  * is already present in the list, its value is updated, otherwise it is added
  * to the list.
  *
@@ -924,7 +1014,7 @@ const ControlValue &ControlList::get(unsigned int id) const
  * \param[in] id The control ID
  * \param[in] value The control value
  *
- * This method sets the value of a control in the control list. If the control
+ * This function sets the value of a control in the control list. If the control
  * is already present in the list, its value is updated, otherwise it is added
  * to the list.
  *
@@ -948,6 +1038,14 @@ void ControlList::set(unsigned int id, const ControlValue &value)
  * instances constructed with ControlList() or
  * ControlList(const ControlIdMap &idmap, ControlValidator *validator) have no
  * associated ControlInfoMap, nullptr is returned in that case.
+ */
+
+/**
+ * \fn ControlList::idMap()
+ * \brief Retrieve the ControlId map used to construct the ControlList
+ * \return The ControlId map used to construct the ControlList. ControlList
+ * instances constructed with the default contructor have no associated idmap,
+ * nullptr is returned in that case.
  */
 
 const ControlValue *ControlList::find(unsigned int id) const

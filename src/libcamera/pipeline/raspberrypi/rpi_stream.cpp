@@ -6,7 +6,9 @@
  */
 #include "rpi_stream.h"
 
-#include "libcamera/internal/log.h"
+#include <libcamera/base/log.h>
+
+#include <libcamera/ipa/raspberrypi_ipa_interface.h>
 
 namespace libcamera {
 
@@ -70,7 +72,7 @@ int Stream::getBufferId(FrameBuffer *buffer) const
 
 void Stream::setExternalBuffer(FrameBuffer *buffer)
 {
-	bufferMap_.emplace(RPi::BufferMask::EXTERNAL_BUFFER | id_.get(), buffer);
+	bufferMap_.emplace(ipa::RPi::MaskExternalBuffer | id_.get(), buffer);
 }
 
 void Stream::removeExternalBuffer(FrameBuffer *buffer)
@@ -78,7 +80,7 @@ void Stream::removeExternalBuffer(FrameBuffer *buffer)
 	int id = getBufferId(buffer);
 
 	/* Ensure we have this buffer in the stream, and it is marked external. */
-	ASSERT(id != -1 && (id & RPi::BufferMask::EXTERNAL_BUFFER));
+	ASSERT(id != -1 && (id & ipa::RPi::MaskExternalBuffer));
 	bufferMap_.erase(id);
 }
 
@@ -163,9 +165,9 @@ void Stream::returnBuffer(FrameBuffer *buffer)
 	 * If so, do it now as availableBuffers_ will not be empty.
 	 */
 	while (!requestBuffers_.empty()) {
-		FrameBuffer *buffer = requestBuffers_.front();
+		FrameBuffer *requestBuffer = requestBuffers_.front();
 
-		if (!buffer) {
+		if (!requestBuffer) {
 			/*
 			 * We want to queue an internal buffer, but none
 			 * are available. Can't do anything, quit the loop.
@@ -177,12 +179,12 @@ void Stream::returnBuffer(FrameBuffer *buffer)
 			 * We want to queue an internal buffer, and at least one
 			 * is available.
 			 */
-			buffer = availableBuffers_.front();
+			requestBuffer = availableBuffers_.front();
 			availableBuffers_.pop();
 		}
 
 		requestBuffers_.pop();
-		queueToDevice(buffer);
+		queueToDevice(requestBuffer);
 	}
 }
 

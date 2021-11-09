@@ -19,12 +19,6 @@
 
 namespace libcamera {
 
-struct PixelFormatPlaneInfo
-{
-	unsigned int bytesPerGroup;
-	unsigned int verticalSubSampling;
-};
-
 class PixelFormatInfo
 {
 public:
@@ -32,6 +26,11 @@ public:
 		ColourEncodingRGB,
 		ColourEncodingYUV,
 		ColourEncodingRAW,
+	};
+
+	struct Plane {
+		unsigned int bytesPerGroup;
+		unsigned int verticalSubSampling;
 	};
 
 	bool isValid() const { return format.isValid(); }
@@ -42,6 +41,10 @@ public:
 
 	unsigned int stride(unsigned int width, unsigned int plane,
 			    unsigned int align = 1) const;
+	unsigned int planeSize(const Size &size, unsigned int plane,
+			       unsigned int align = 1) const;
+	unsigned int planeSize(unsigned int height, unsigned int plane,
+			       unsigned int stride) const;
 	unsigned int frameSize(const Size &size, unsigned int align = 1) const;
 	unsigned int frameSize(const Size &size,
 			       const std::array<unsigned int, 3> &strides) const;
@@ -51,14 +54,17 @@ public:
 	/* \todo Add support for non-contiguous memory planes */
 	const char *name;
 	PixelFormat format;
-	V4L2PixelFormat v4l2Format;
+	struct {
+		V4L2PixelFormat single;
+		V4L2PixelFormat multi;
+	} v4l2Formats;
 	unsigned int bitsPerPixel;
 	enum ColourEncoding colourEncoding;
 	bool packed;
 
 	unsigned int pixelsPerGroup;
 
-	std::array<PixelFormatPlaneInfo, 3> planes;
+	std::array<Plane, 3> planes;
 };
 
 } /* namespace libcamera */

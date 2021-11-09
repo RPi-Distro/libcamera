@@ -18,7 +18,7 @@
 
 #include <linux/media.h>
 
-#include "libcamera/internal/log.h"
+#include <libcamera/base/log.h>
 
 /**
  * \file media_device.h
@@ -44,13 +44,13 @@ LOG_DEFINE_CATEGORY(MediaDevice)
  * MediaEntity, MediaPad and MediaLink are created to model the media graph,
  * and stored in a map indexed by object id.
  *
- * The graph is valid once successfully populated, as reported by the valid()
+ * The graph is valid once successfully populated, as reported by the isValid()
  * function. It can be queried to list all entities(), or entities can be
  * looked up by name with getEntityByName(). The graph can be traversed from
  * entity to entity through pads and links as exposed by the corresponding
  * classes.
  *
- * Media device can be claimed for exclusive use with acquire(), released with
+ * Media devices can be claimed for exclusive use with acquire(), released with
  * release() and tested with busy(). This mechanism is aimed at pipeline
  * managers to claim media devices they support during enumeration.
  */
@@ -134,7 +134,7 @@ void MediaDevice::release()
  * they provide at all times, while still allowing an instance to lock a
  * resource while it prepares to actively use a camera from the resource.
  *
- * This method shall not be called from a pipeline handler implementation
+ * This function shall not be called from a pipeline handler implementation
  * directly, as the base PipelineHandler implementation handles this on the
  * behalf of the specified implementation.
  *
@@ -161,7 +161,7 @@ bool MediaDevice::lock()
 /**
  * \brief Unlock the device and free it for use for libcamera instances
  *
- * This method shall not be called from a pipeline handler implementation
+ * This function shall not be called from a pipeline handler implementation
  * directly, as the base PipelineHandler implementation handles this on the
  * behalf of the specified implementation.
  *
@@ -231,6 +231,7 @@ int MediaDevice::populate()
 	driver_ = info.driver;
 	model_ = info.model;
 	version_ = info.media_version;
+	hwRevision_ = info.hw_revision;
 
 	/*
 	 * Keep calling G_TOPOLOGY until the version number stays stable.
@@ -291,7 +292,7 @@ done:
 }
 
 /**
- * \fn MediaDevice::valid()
+ * \fn MediaDevice::isValid()
  * \brief Query whether the media graph has been populated and is valid
  * \return true if the media graph is valid, false otherwise
  */
@@ -321,6 +322,15 @@ done:
  * The version is formatted with the KERNEL_VERSION() macro.
  *
  * \return The MediaDevice API version
+ */
+
+/**
+ * \fn MediaDevice::hwRevision()
+ * \brief Retrieve the media device hardware revision
+ *
+ * The hardware revision is in a driver-specific format.
+ *
+ * \return The MediaDevice hardware revision
  */
 
 /**
@@ -561,7 +571,7 @@ bool MediaDevice::addObject(MediaObject *object)
  *
  * The media device graph state is reset to invalid when the graph is cleared.
  *
- * \sa valid()
+ * \sa isValid()
  */
 void MediaDevice::clear()
 {
@@ -642,14 +652,7 @@ bool MediaDevice::populateEntities(const struct media_v2_topology &topology)
 		 */
 		struct media_v2_interface *iface =
 			findInterface(topology, ent->id);
-
-		MediaEntity *entity;
-		if (iface)
-			entity = new MediaEntity(this, ent,
-						 iface->devnode.major,
-						 iface->devnode.minor);
-		else
-			entity = new MediaEntity(this, ent);
+		MediaEntity *entity = new MediaEntity(this, ent, iface);
 
 		if (!addObject(entity)) {
 			delete entity;
@@ -800,7 +803,11 @@ int MediaDevice::setupLink(const MediaLink *link, unsigned int flags)
 	if (ret) {
 		ret = -errno;
 		LOG(MediaDevice, Error)
-			<< "Failed to setup link: "
+			<< "Failed to setup link "
+			<< source->entity()->name() << "["
+			<< source->index() << "] -> "
+			<< sink->entity()->name() << "["
+			<< sink->index() << "]: "
 			<< strerror(-ret);
 		return ret;
 	}

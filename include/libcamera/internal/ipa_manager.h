@@ -10,6 +10,8 @@
 #include <stdint.h>
 #include <vector>
 
+#include <libcamera/base/log.h>
+
 #include <libcamera/ipa/ipa_interface.h>
 #include <libcamera/ipa/ipa_module_info.h>
 
@@ -19,15 +21,31 @@
 
 namespace libcamera {
 
+LOG_DECLARE_CATEGORY(IPAManager)
+
 class IPAManager
 {
 public:
 	IPAManager();
 	~IPAManager();
 
-	static std::unique_ptr<IPAProxy> createIPA(PipelineHandler *pipe,
-						   uint32_t maxVersion,
-						   uint32_t minVersion);
+	template<typename T>
+	static std::unique_ptr<T> createIPA(PipelineHandler *pipe,
+					    uint32_t minVersion,
+					    uint32_t maxVersion)
+	{
+		IPAModule *m = self_->module(pipe, minVersion, maxVersion);
+		if (!m)
+			return nullptr;
+
+		std::unique_ptr<T> proxy = std::make_unique<T>(m, !self_->isSignatureValid(m));
+		if (!proxy->isValid()) {
+			LOG(IPAManager, Error) << "Failed to load proxy";
+			return nullptr;
+		}
+
+		return proxy;
+	}
 
 private:
 	static IPAManager *self_;
@@ -35,6 +53,9 @@ private:
 	void parseDir(const char *libDir, unsigned int maxDepth,
 		      std::vector<std::string> &files);
 	unsigned int addDir(const char *libDir, unsigned int maxDepth = 0);
+
+	IPAModule *module(PipelineHandler *pipe, uint32_t minVersion,
+			  uint32_t maxVersion);
 
 	bool isSignatureValid(IPAModule *ipa) const;
 

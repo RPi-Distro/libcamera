@@ -24,14 +24,8 @@ RkISP1Path::RkISP1Path(const char *name, const Span<const PixelFormat> &formats,
 		       const Size &minResolution, const Size &maxResolution)
 	: name_(name), running_(false), formats_(formats),
 	  minResolution_(minResolution), maxResolution_(maxResolution),
-	  resizer_(nullptr), video_(nullptr), link_(nullptr)
+	  link_(nullptr)
 {
-}
-
-RkISP1Path::~RkISP1Path()
-{
-	delete video_;
-	delete resizer_;
 }
 
 bool RkISP1Path::init(MediaDevice *media)
@@ -85,8 +79,8 @@ CameraConfiguration::Status RkISP1Path::validate(StreamConfiguration *cfg)
 	cfg->size.expandTo(minResolution_);
 	cfg->bufferCount = RKISP1_BUFFER_COUNT;
 
-	V4L2DeviceFormat format = {};
-	format.fourcc = video_->toV4L2PixelFormat(cfg->pixelFormat);
+	V4L2DeviceFormat format;
+	format.fourcc = V4L2PixelFormat::fromPixelFormat(cfg->pixelFormat);
 	format.size = cfg->size;
 
 	int ret = video_->tryFormat(&format);
@@ -117,9 +111,14 @@ int RkISP1Path::configure(const StreamConfiguration &config,
 	if (ret < 0)
 		return ret;
 
+	Rectangle rect(0, 0, ispFormat.size);
+	ret = resizer_->setSelection(0, V4L2_SEL_TGT_CROP, &rect);
+	if (ret < 0)
+		return ret;
+
 	LOG(RkISP1, Debug)
 		<< "Configured " << name_ << " resizer input pad with "
-		<< ispFormat.toString();
+		<< ispFormat.toString() << " crop " << rect.toString();
 
 	ispFormat.size = config.size;
 
@@ -146,8 +145,8 @@ int RkISP1Path::configure(const StreamConfiguration &config,
 		<< ispFormat.toString();
 
 	const PixelFormatInfo &info = PixelFormatInfo::info(config.pixelFormat);
-	V4L2DeviceFormat outputFormat = {};
-	outputFormat.fourcc = video_->toV4L2PixelFormat(config.pixelFormat);
+	V4L2DeviceFormat outputFormat;
+	outputFormat.fourcc = V4L2PixelFormat::fromPixelFormat(config.pixelFormat);
 	outputFormat.size = config.size;
 	outputFormat.planesCount = info.numPlanes();
 
@@ -156,7 +155,7 @@ int RkISP1Path::configure(const StreamConfiguration &config,
 		return ret;
 
 	if (outputFormat.size != config.size ||
-	    outputFormat.fourcc != video_->toV4L2PixelFormat(config.pixelFormat)) {
+	    outputFormat.fourcc != V4L2PixelFormat::fromPixelFormat(config.pixelFormat)) {
 		LOG(RkISP1, Error)
 			<< "Unable to configure capture in " << config.toString();
 		return -EINVAL;

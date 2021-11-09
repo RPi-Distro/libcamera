@@ -12,8 +12,9 @@
 #include <numeric>
 #include <vector>
 
-#include <libcamera/event_dispatcher.h>
-#include <libcamera/timer.h>
+#include <libcamera/base/event_dispatcher.h>
+#include <libcamera/base/thread.h>
+#include <libcamera/base/timer.h>
 
 #include "libcamera/internal/device_enumerator.h"
 #include "libcamera/internal/media_device.h"
@@ -131,14 +132,14 @@ protected:
 			}
 		}
 
-		EventDispatcher *dispatcher = cm_->eventDispatcher();
+		EventDispatcher *dispatcher = Thread::current()->eventDispatcher();
 
 		Timer timer;
 		timer.start(1000);
 		while (timer.isRunning())
 			dispatcher->processEvents();
 
-		if (completeRequestsCount_ <= cfg.bufferCount * 2) {
+		if (completeRequestsCount_ < cfg.bufferCount * 2) {
 			std::cout << "Failed to capture enough frames (got "
 				  << completeRequestsCount_ << " expected at least "
 				  << cfg.bufferCount * 2 << ")" << std::endl;
@@ -168,4 +169,4 @@ private:
 
 } /* namespace */
 
-TEST_REGISTER(BufferImportTest);
+TEST_REGISTER(BufferImportTest)

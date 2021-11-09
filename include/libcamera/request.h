@@ -10,10 +10,13 @@
 #include <map>
 #include <memory>
 #include <stdint.h>
+#include <string>
 #include <unordered_set>
 
+#include <libcamera/base/class.h>
+#include <libcamera/base/signal.h>
+
 #include <libcamera/controls.h>
-#include <libcamera/signal.h>
 
 namespace libcamera {
 
@@ -39,8 +42,6 @@ public:
 	using BufferMap = std::map<const Stream *, FrameBuffer *>;
 
 	Request(Camera *camera, uint64_t cookie = 0);
-	Request(const Request &) = delete;
-	Request &operator=(const Request &) = delete;
 	~Request();
 
 	void reuse(ReuseFlag flags = Default);
@@ -51,25 +52,31 @@ public:
 	int addBuffer(const Stream *stream, FrameBuffer *buffer);
 	FrameBuffer *findBuffer(const Stream *stream) const;
 
+	uint32_t sequence() const { return sequence_; }
 	uint64_t cookie() const { return cookie_; }
 	Status status() const { return status_; }
 
 	bool hasPendingBuffers() const { return !pending_.empty(); }
 
+	std::string toString() const;
+
 private:
+	LIBCAMERA_DISABLE_COPY(Request)
+
 	friend class PipelineHandler;
 
 	void complete();
+	void cancel();
 
 	bool completeBuffer(FrameBuffer *buffer);
 
 	Camera *camera_;
-	CameraControlValidator *validator_;
 	ControlList *controls_;
 	ControlList *metadata_;
 	BufferMap bufferMap_;
 	std::unordered_set<FrameBuffer *> pending_;
 
+	uint32_t sequence_;
 	const uint64_t cookie_;
 	Status status_;
 	bool cancelled_;

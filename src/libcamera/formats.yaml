@@ -7,9 +7,16 @@
 formats:
   - R8:
       fourcc: DRM_FORMAT_R8
+  - R10:
+      fourcc: DRM_FORMAT_R10
+  - R12:
+      fourcc: DRM_FORMAT_R12
 
   - RGB565:
       fourcc: DRM_FORMAT_RGB565
+  - RGB565_BE:
+      fourcc: DRM_FORMAT_RGB565
+      big_endian: true
 
   - RGB888:
       fourcc: DRM_FORMAT_RGB888
@@ -101,6 +108,10 @@ formats:
       fourcc: DRM_FORMAT_SGBRG16
   - SBGGR16:
       fourcc: DRM_FORMAT_SBGGR16
+
+  - R10_CSI2P:
+      fourcc: DRM_FORMAT_R10
+      mod: MIPI_FORMAT_MOD_CSI2_PACKED
 
   - SRGGB10_CSI2P:
       fourcc: DRM_FORMAT_SRGGB10

@@ -19,10 +19,11 @@
 
 #include <libcamera/geometry.h>
 
-#include "libcamera/internal/log.h"
+#include <libcamera/base/log.h>
+#include <libcamera/base/utils.h>
+
 #include "libcamera/internal/media_device.h"
 #include "libcamera/internal/media_object.h"
-#include "libcamera/internal/utils.h"
 
 /**
  * \file v4l2_subdevice.h
@@ -424,6 +425,7 @@ int V4L2Subdevice::setFormat(unsigned int pad, V4L2SubdeviceFormat *format,
 	subdevFmt.format.width = format->size.width;
 	subdevFmt.format.height = format->size.height;
 	subdevFmt.format.code = format->mbus_code;
+	subdevFmt.format.field = V4L2_FIELD_NONE;
 
 	int ret = ioctl(VIDIOC_SUBDEV_S_FMT, &subdevFmt);
 	if (ret) {
@@ -446,19 +448,17 @@ int V4L2Subdevice::setFormat(unsigned int pad, V4L2SubdeviceFormat *format,
  * \param[in] media The media device where the entity is registered
  * \param[in] entity The media entity name
  *
- * Releasing memory of the newly created instance is responsibility of the
- * caller of this function.
- *
  * \return A newly created V4L2Subdevice on success, nullptr otherwise
  */
-V4L2Subdevice *V4L2Subdevice::fromEntityName(const MediaDevice *media,
-					     const std::string &entity)
+std::unique_ptr<V4L2Subdevice>
+V4L2Subdevice::fromEntityName(const MediaDevice *media,
+			      const std::string &entity)
 {
 	MediaEntity *mediaEntity = media->getEntityByName(entity);
 	if (!mediaEntity)
 		return nullptr;
 
-	return new V4L2Subdevice(mediaEntity);
+	return std::make_unique<V4L2Subdevice>(mediaEntity);
 }
 
 std::string V4L2Subdevice::logPrefix() const

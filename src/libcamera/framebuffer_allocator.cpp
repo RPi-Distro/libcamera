@@ -9,11 +9,12 @@
 
 #include <errno.h>
 
-#include <libcamera/buffer.h>
+#include <libcamera/base/log.h>
+
 #include <libcamera/camera.h>
+#include <libcamera/framebuffer.h>
 #include <libcamera/stream.h>
 
-#include "libcamera/internal/log.h"
 #include "libcamera/internal/pipeline_handler.h"
 
 /**
@@ -76,7 +77,7 @@ FrameBufferAllocator::~FrameBufferAllocator()
  * stopped, and the stream shall be part of the active camera configuration.
  *
  * Upon successful allocation, the allocated buffers can be retrieved with the
- * buffers() method.
+ * buffers() function.
  *
  * \return The number of allocated buffers on success or a negative error code
  * otherwise
@@ -136,7 +137,7 @@ int FrameBufferAllocator::free(Stream *stream)
  * \brief Retrieve the buffers allocated for a \a stream
  * \param[in] stream The stream to retrieve buffers for
  *
- * This method shall only be called after successfully allocating buffers for
+ * This function shall only be called after successfully allocating buffers for
  * \a stream with allocate(). The returned buffers are valid until free() is
  * called for the same stream or the FrameBufferAllocator instance is destroyed.
  *

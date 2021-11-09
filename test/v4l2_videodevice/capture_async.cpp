@@ -7,13 +7,15 @@
 
 #include <iostream>
 
-#include <libcamera/buffer.h>
-#include <libcamera/event_dispatcher.h>
-#include <libcamera/timer.h>
+#include <libcamera/framebuffer.h>
 
-#include "libcamera/internal/thread.h"
+#include <libcamera/base/event_dispatcher.h>
+#include <libcamera/base/thread.h>
+#include <libcamera/base/timer.h>
 
 #include "v4l2_videodevice_test.h"
+
+using namespace libcamera;
 
 class CaptureAsyncTest : public V4L2VideoDeviceTest
 {
@@ -88,4 +90,4 @@ private:
 	unsigned int frames;
 };
 
-TEST_REGISTER(CaptureAsyncTest);
+TEST_REGISTER(CaptureAsyncTest)

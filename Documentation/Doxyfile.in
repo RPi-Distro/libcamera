@@ -39,7 +39,7 @@ PROJECT_NAME           = "libcamera"
 # could be handy for archiving the generated documentation or if some version
 # control system is used.
 
-PROJECT_NUMBER         = @VERSION@
+PROJECT_NUMBER         = "@VERSION@"
 
 # Using the PROJECT_BRIEF tag one can provide an optional one line description
 # for a project that appears at the top of each page and should give viewer a
@@ -789,6 +789,7 @@ WARN_LOGFILE           =
 # Note: If this tag is empty the current directory is searched.
 
 INPUT                  = "@TOP_SRCDIR@/include/libcamera" \
+                         "@TOP_SRCDIR@/src/ipa/ipu3" \
 			 "@TOP_SRCDIR@/src/ipa/libipa" \
 			 "@TOP_SRCDIR@/src/libcamera" \
 			 "@TOP_BUILDDIR@/include/libcamera" \
@@ -834,13 +835,17 @@ RECURSIVE              = YES
 # Note that relative paths are relative to the directory from which doxygen is
 # run.
 
-EXCLUDE                = @TOP_SRCDIR@/include/libcamera/span.h \
+EXCLUDE                = @TOP_SRCDIR@/include/libcamera/base/span.h \
 			 @TOP_SRCDIR@/include/libcamera/internal/device_enumerator_sysfs.h \
 			 @TOP_SRCDIR@/include/libcamera/internal/device_enumerator_udev.h \
+			 @TOP_SRCDIR@/include/libcamera/internal/ipc_pipe_unixsocket.h \
 			 @TOP_SRCDIR@/src/libcamera/device_enumerator_sysfs.cpp \
 			 @TOP_SRCDIR@/src/libcamera/device_enumerator_udev.cpp \
+			 @TOP_SRCDIR@/src/libcamera/ipc_pipe_unixsocket.cpp \
 			 @TOP_SRCDIR@/src/libcamera/pipeline/ \
-			 @TOP_SRCDIR@/src/libcamera/proxy/
+			 @TOP_SRCDIR@/src/libcamera/tracepoints.cpp \
+			 @TOP_BUILDDIR@/include/libcamera/internal/tracepoints.h \
+			 @TOP_BUILDDIR@/src/libcamera/proxy/
 
 # The EXCLUDE_SYMLINKS tag can be used to select whether or not files or
 # directories that are symbolic links (a Unix file system feature) are excluded
@@ -856,7 +861,12 @@ EXCLUDE_SYMLINKS       = NO
 # Note that the wildcards are matched against the file with absolute path, so to
 # exclude all test directories for example use the pattern */test/*
 
-EXCLUDE_PATTERNS       =
+EXCLUDE_PATTERNS       = @TOP_BUILDDIR@/include/libcamera/ipa/*_serializer.h \
+                         @TOP_BUILDDIR@/include/libcamera/ipa/*_proxy.h \
+                         @TOP_BUILDDIR@/include/libcamera/ipa/ipu3_*.h \
+                         @TOP_BUILDDIR@/include/libcamera/ipa/raspberrypi_*.h \
+                         @TOP_BUILDDIR@/include/libcamera/ipa/rkisp1_*.h \
+                         @TOP_BUILDDIR@/include/libcamera/ipa/vimc_*.h \
 
 # The EXCLUDE_SYMBOLS tag can be used to specify one or more symbol names
 # (namespaces, classes, functions, etc.) that should be excluded from the
@@ -869,13 +879,14 @@ EXCLUDE_PATTERNS       =
 
 EXCLUDE_SYMBOLS        = libcamera::BoundMethodArgs \
                          libcamera::BoundMethodBase \
+                         libcamera::BoundMethodFunctor \
                          libcamera::BoundMethodMember \
                          libcamera::BoundMethodPack \
                          libcamera::BoundMethodPackBase \
                          libcamera::BoundMethodStatic \
+                         libcamera::CameraManager::Private \
                          libcamera::SignalBase \
-                         libcamera::*::Private \
-                         *::details::* \
+                         *::details \
                          std::*
 
 # The EXAMPLE_PATH tag can be used to specify one or more files or directories
@@ -1056,13 +1067,6 @@ VERBATIM_HEADERS       = YES
 # The default value is: YES.
 
 ALPHABETICAL_INDEX     = YES
-
-# The COLS_IN_ALPHA_INDEX tag can be used to specify the number of columns in
-# which the alphabetical index list will be split.
-# Minimum value: 1, maximum value: 20, default value: 5.
-# This tag requires that the tag ALPHABETICAL_INDEX is set to YES.
-
-COLS_IN_ALPHA_INDEX    = 5
 
 # In case all classes in a project start with a common prefix, all classes will
 # be put under the same header in the alphabetical index. The IGNORE_PREFIX tag
@@ -1767,16 +1771,6 @@ LATEX_BATCHMODE        = NO
 
 LATEX_HIDE_INDICES     = NO
 
-# If the LATEX_SOURCE_CODE tag is set to YES then doxygen will include source
-# code with syntax highlighting in the LaTeX output.
-#
-# Note that which sources are shown also depends on other settings such as
-# SOURCE_BROWSER.
-# The default value is: NO.
-# This tag requires that the tag GENERATE_LATEX is set to YES.
-
-LATEX_SOURCE_CODE      = NO
-
 # The LATEX_BIB_STYLE tag can be used to specify the style to use for the
 # bibliography, e.g. plainnat, or ieeetr. See
 # https://en.wikipedia.org/wiki/BibTeX and \cite for more info.
@@ -1848,16 +1842,6 @@ RTF_STYLESHEET_FILE    =
 # This tag requires that the tag GENERATE_RTF is set to YES.
 
 RTF_EXTENSIONS_FILE    =
-
-# If the RTF_SOURCE_CODE tag is set to YES then doxygen will include source code
-# with syntax highlighting in the RTF output.
-#
-# Note that which sources are shown also depends on other settings such as
-# SOURCE_BROWSER.
-# The default value is: NO.
-# This tag requires that the tag GENERATE_RTF is set to YES.
-
-RTF_SOURCE_CODE        = NO
 
 #---------------------------------------------------------------------------
 # Configuration options related to the man page output
@@ -1947,15 +1931,6 @@ GENERATE_DOCBOOK       = NO
 # This tag requires that the tag GENERATE_DOCBOOK is set to YES.
 
 DOCBOOK_OUTPUT         = docbook
-
-# If the DOCBOOK_PROGRAMLISTING tag is set to YES, doxygen will include the
-# program listings (including syntax highlighting and cross-referencing
-# information) to the DOCBOOK output. Note that enabling this will significantly
-# increase the size of the DOCBOOK output.
-# The default value is: NO.
-# This tag requires that the tag GENERATE_DOCBOOK is set to YES.
-
-DOCBOOK_PROGRAMLISTING = NO
 
 #---------------------------------------------------------------------------
 # Configuration options for the AutoGen Definitions output
@@ -2137,15 +2112,6 @@ EXTERNAL_PAGES         = YES
 # Configuration options related to the dot tool
 #---------------------------------------------------------------------------
 
-# If the CLASS_DIAGRAMS tag is set to YES, doxygen will generate a class diagram
-# (in HTML and LaTeX) for classes with base or super classes. Setting the tag to
-# NO turns the diagrams off. Note that this option also works with HAVE_DOT
-# disabled, but it is recommended to install and use dot, since it yields more
-# powerful graphs.
-# The default value is: YES.
-
-CLASS_DIAGRAMS         = YES
-
 # You can include diagrams made with dia in doxygen documentation. Doxygen will
 # then run dia to produce the diagram and insert it in the documentation. The
 # DIA_PATH tag allows you to specify the directory where the dia binary resides.
@@ -2166,7 +2132,7 @@ HIDE_UNDOC_RELATIONS   = YES
 # set to NO
 # The default value is: NO.
 
-HAVE_DOT               = NO
+HAVE_DOT               = YES
 
 # The DOT_NUM_THREADS specifies the number of dot invocations doxygen is allowed
 # to run in parallel. When set to 0 doxygen will base this on the number of

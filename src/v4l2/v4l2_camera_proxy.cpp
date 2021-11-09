@@ -11,6 +11,7 @@
 #include <array>
 #include <errno.h>
 #include <linux/videodev2.h>
+#include <numeric>
 #include <set>
 #include <string.h>
 #include <sys/mman.h>
@@ -18,11 +19,12 @@
 
 #include <libcamera/camera.h>
 #include <libcamera/formats.h>
-#include <libcamera/object.h>
+
+#include <libcamera/base/log.h>
+#include <libcamera/base/object.h>
+#include <libcamera/base/utils.h>
 
 #include "libcamera/internal/formats.h"
-#include "libcamera/internal/log.h"
-#include "libcamera/internal/utils.h"
 
 #include "v4l2_camera.h"
 #include "v4l2_camera_file.h"
@@ -32,7 +34,7 @@
 
 using namespace libcamera;
 
-LOG_DECLARE_CATEGORY(V4L2Compat);
+LOG_DECLARE_CATEGORY(V4L2Compat)
 
 V4L2CameraProxy::V4L2CameraProxy(unsigned int index,
 				 std::shared_ptr<Camera> camera)
@@ -163,12 +165,11 @@ bool V4L2CameraProxy::validateMemoryType(uint32_t memory)
 
 void V4L2CameraProxy::setFmtFromConfig(const StreamConfiguration &streamConfig)
 {
-	const PixelFormatInfo &info = PixelFormatInfo::info(streamConfig.pixelFormat);
 	const Size &size = streamConfig.size;
 
 	v4l2PixFormat_.width        = size.width;
 	v4l2PixFormat_.height       = size.height;
-	v4l2PixFormat_.pixelformat  = info.v4l2Format;
+	v4l2PixFormat_.pixelformat  = V4L2PixelFormat::fromPixelFormat(streamConfig.pixelFormat);
 	v4l2PixFormat_.field        = V4L2_FIELD_NONE;
 	v4l2PixFormat_.bytesperline = streamConfig.stride;
 	v4l2PixFormat_.sizeimage    = streamConfig.frameSize;
@@ -206,12 +207,16 @@ void V4L2CameraProxy::updateBuffers()
 {
 	std::vector<V4L2Camera::Buffer> completedBuffers = vcam_->completedBuffers();
 	for (const V4L2Camera::Buffer &buffer : completedBuffers) {
-		const FrameMetadata &fmd = buffer.data;
-		struct v4l2_buffer &buf = buffers_[buffer.index];
+		const FrameMetadata &fmd = buffer.data_;
+		struct v4l2_buffer &buf = buffers_[buffer.index_];
 
 		switch (fmd.status) {
 		case FrameMetadata::FrameSuccess:
-			buf.bytesused = fmd.planes[0].bytesused;
+			buf.bytesused = std::accumulate(fmd.planes().begin(),
+							fmd.planes().end(), 0,
+							[](unsigned int total, const auto &plane) {
+								return total + plane.bytesused;
+							});
 			buf.field = V4L2_FIELD_NONE;
 			buf.timestamp.tv_sec = fmd.timestamp / 1000000000;
 			buf.timestamp.tv_usec = fmd.timestamp % 1000000;
@@ -242,7 +247,7 @@ int V4L2CameraProxy::vidioc_enum_framesizes(V4L2CameraFile *file, struct v4l2_fr
 	LOG(V4L2Compat, Debug) << "Servicing vidioc_enum_framesizes fd = " << file->efd();
 
 	V4L2PixelFormat v4l2Format = V4L2PixelFormat(arg->pixel_format);
-	PixelFormat format = PixelFormatInfo::info(v4l2Format).format;
+	PixelFormat format = v4l2Format.toPixelFormat();
 	/*
 	 * \todo This might need to be expanded as few pipeline handlers
 	 * report StreamFormats.
@@ -269,13 +274,12 @@ int V4L2CameraProxy::vidioc_enum_fmt(V4L2CameraFile *file, struct v4l2_fmtdesc *
 		return -EINVAL;
 
 	PixelFormat format = streamConfig_.formats().pixelformats()[arg->index];
+	V4L2PixelFormat v4l2Format = V4L2PixelFormat::fromPixelFormat(format);
 
-	/* \todo Set V4L2_FMT_FLAG_COMPRESSED for compressed formats. */
-	arg->flags = 0;
-	/* \todo Add map from format to description. */
+	arg->flags = format == formats::MJPEG ? V4L2_FMT_FLAG_COMPRESSED : 0;
 	utils::strlcpy(reinterpret_cast<char *>(arg->description),
-		       "Video Format Description", sizeof(arg->description));
-	arg->pixelformat = PixelFormatInfo::info(format).v4l2Format;
+		       v4l2Format.description(), sizeof(arg->description));
+	arg->pixelformat = v4l2Format;
 
 	memset(arg->reserved, 0, sizeof(arg->reserved));
 
@@ -298,7 +302,7 @@ int V4L2CameraProxy::vidioc_g_fmt(V4L2CameraFile *file, struct v4l2_format *arg)
 int V4L2CameraProxy::tryFormat(struct v4l2_format *arg)
 {
 	V4L2PixelFormat v4l2Format = V4L2PixelFormat(arg->fmt.pix.pixelformat);
-	PixelFormat format = PixelFormatInfo::info(v4l2Format).format;
+	PixelFormat format = v4l2Format.toPixelFormat();
 	Size size(arg->fmt.pix.width, arg->fmt.pix.height);
 
 	StreamConfiguration config;
@@ -310,11 +314,9 @@ int V4L2CameraProxy::tryFormat(struct v4l2_format *arg)
 		return -EINVAL;
 	}
 
-	const PixelFormatInfo &info = PixelFormatInfo::info(config.pixelFormat);
-
 	arg->fmt.pix.width        = config.size.width;
 	arg->fmt.pix.height       = config.size.height;
-	arg->fmt.pix.pixelformat  = info.v4l2Format;
+	arg->fmt.pix.pixelformat  = V4L2PixelFormat::fromPixelFormat(config.pixelFormat);
 	arg->fmt.pix.field        = V4L2_FIELD_NONE;
 	arg->fmt.pix.bytesperline = config.stride;
 	arg->fmt.pix.sizeimage    = config.frameSize;
@@ -347,8 +349,7 @@ int V4L2CameraProxy::vidioc_s_fmt(V4L2CameraFile *file, struct v4l2_format *arg)
 
 	Size size(arg->fmt.pix.width, arg->fmt.pix.height);
 	V4L2PixelFormat v4l2Format = V4L2PixelFormat(arg->fmt.pix.pixelformat);
-	ret = vcam_->configure(&streamConfig_, size,
-			       PixelFormatInfo::info(v4l2Format).format,
+	ret = vcam_->configure(&streamConfig_, size, v4l2Format.toPixelFormat(),
 			       bufferCount_);
 	if (ret < 0)
 		return -EINVAL;
@@ -490,8 +491,7 @@ int V4L2CameraProxy::vidioc_reqbufs(V4L2CameraFile *file, struct v4l2_requestbuf
 	Size size(v4l2PixFormat_.width, v4l2PixFormat_.height);
 	V4L2PixelFormat v4l2Format = V4L2PixelFormat(v4l2PixFormat_.pixelformat);
 	int ret = vcam_->configure(&streamConfig_, size,
-				   PixelFormatInfo::info(v4l2Format).format,
-				   arg->count);
+				   v4l2Format.toPixelFormat(), arg->count);
 	if (ret < 0)
 		return -EINVAL;
 

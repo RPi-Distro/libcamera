@@ -10,7 +10,8 @@
 
 #include <libcamera/geometry.h>
 
-#include "libcamera/internal/utils.h"
+#include <libcamera/base/utils.h>
+
 #include "libcamera/internal/v4l2_subdevice.h"
 
 #include "v4l2_subdevice_test.h"
@@ -79,4 +80,4 @@ int ListFormatsTest::run()
 	return TestPass;
 }
 
-TEST_REGISTER(ListFormatsTest);
+TEST_REGISTER(ListFormatsTest)

@@ -12,9 +12,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include <libcamera/event_notifier.h>
-
-#include "libcamera/internal/log.h"
+#include <libcamera/base/event_notifier.h>
+#include <libcamera/base/log.h>
 
 /**
  * \file ipc_unixsocket.h
@@ -59,7 +58,7 @@ LOG_DEFINE_CATEGORY(IPCUnixSocket)
  *
  * Establishment of an IPC channel is asymmetrical. The side that initiates
  * communication first instantiates a local side socket and creates the channel
- * with create(). The method returns a file descriptor for the remote side of
+ * with create(). The function returns a file descriptor for the remote side of
  * the channel, which is passed to the remote process through an out-of-band
  * communication method. The remote side then instantiates a socket, and binds
  * it to the other side by passing the file descriptor to bind(). At that point
@@ -81,11 +80,11 @@ IPCUnixSocket::~IPCUnixSocket()
 /**
  * \brief Create an new IPC channel
  *
- * This method creates a new IPC channel. The socket instance is bound to the
- * local side of the channel, and the method returns a file descriptor bound to
- * the remote side. The caller is responsible for passing the file descriptor to
- * the remote process, where it can be used with IPCUnixSocket::bind() to bind
- * the remote side socket.
+ * This function creates a new IPC channel. The socket instance is bound to the
+ * local side of the channel, and the function returns a file descriptor bound
+ * to the remote side. The caller is responsible for passing the file descriptor
+ * to the remote process, where it can be used with IPCUnixSocket::bind() to
+ * bind the remote side socket.
  *
  * \return A file descriptor on success, negative error code on failure
  */
@@ -113,9 +112,9 @@ int IPCUnixSocket::create()
  * \brief Bind to an existing IPC channel
  * \param[in] fd File descriptor
  *
- * This method binds the socket instance to an existing IPC channel identified
+ * This function binds the socket instance to an existing IPC channel identified
  * by the file descriptor \a fd. The file descriptor is obtained from the
- * IPCUnixSocket::create() method.
+ * IPCUnixSocket::create() function.
  *
  * \return 0 on success or a negative error code otherwise
  */
@@ -163,7 +162,7 @@ bool IPCUnixSocket::isBound() const
  * \brief Send a message payload
  * \param[in] payload Message payload to send
  *
- * This method queues the message payload for transmission to the other end of
+ * This function queues the message payload for transmission to the other end of
  * the IPC channel. It returns immediately, before the message is delivered to
  * the remote side.
  *
@@ -198,7 +197,7 @@ int IPCUnixSocket::send(const Payload &payload)
  * \brief Receive a message payload
  * \param[out] payload Payload where to write the received message
  *
- * This method receives the message payload from the IPC channel and writes it
+ * This function receives the message payload from the IPC channel and writes it
  * to the \a payload. If no message payload is available, it returns
  * immediately with -EAGAIN. The \ref readyRead signal shall be used to receive
  * notification of message availability.
@@ -261,7 +260,8 @@ int IPCUnixSocket::sendData(const void *buffer, size_t length,
 	msg.msg_control = cmsg;
 	msg.msg_controllen = cmsg->cmsg_len;
 	msg.msg_flags = 0;
-	memcpy(CMSG_DATA(cmsg), fds, num * sizeof(uint32_t));
+	if (fds)
+		memcpy(CMSG_DATA(cmsg), fds, num * sizeof(uint32_t));
 
 	if (sendmsg(fd_, &msg, 0) < 0) {
 		int ret = -errno;
@@ -305,12 +305,13 @@ int IPCUnixSocket::recvData(void *buffer, size_t length,
 		return ret;
 	}
 
-	memcpy(fds, CMSG_DATA(cmsg), num * sizeof(uint32_t));
+	if (fds)
+		memcpy(fds, CMSG_DATA(cmsg), num * sizeof(uint32_t));
 
 	return 0;
 }
 
-void IPCUnixSocket::dataNotifier([[maybe_unused]] EventNotifier *notifier)
+void IPCUnixSocket::dataNotifier()
 {
 	int ret;
 
@@ -330,7 +331,7 @@ void IPCUnixSocket::dataNotifier([[maybe_unused]] EventNotifier *notifier)
 	/*
 	 * If the payload has arrived, disable the notifier and emit the
 	 * readyRead signal. The notifier will be reenabled by the receive()
-	 * method.
+	 * function.
 	 */
 	struct pollfd fds = { fd_, POLLIN, 0 };
 	ret = poll(&fds, 1, 0);
@@ -341,7 +342,7 @@ void IPCUnixSocket::dataNotifier([[maybe_unused]] EventNotifier *notifier)
 		return;
 
 	notifier_->setEnabled(false);
-	readyRead.emit(this);
+	readyRead.emit();
 }
 
 } /* namespace libcamera */

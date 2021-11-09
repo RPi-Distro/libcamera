@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: CC0-1.0
 
 project('libcamera', 'c', 'cpp',
-    meson_version : '>= 0.51',
+    meson_version : '>= 0.55',
     version : '0.0.0',
     default_options : [
         'werror=true',
@@ -17,20 +17,24 @@ project('libcamera', 'c', 'cpp',
 # git version tag, the build metadata (e.g. +211-c94a24f4) is omitted from
 # libcamera_git_version.
 libcamera_git_version = run_command('utils/gen-version.sh',
-                                    meson.build_root()).stdout().strip()
+                                    meson.build_root(),
+                                    meson.source_root()).stdout().strip()
 if libcamera_git_version == ''
     libcamera_git_version = meson.project_version()
 endif
 
 libcamera_version = libcamera_git_version.split('+')[0]
 
+# This script gererates the .tarball-version file on a 'meson dist' command.
+meson.add_dist_script('utils/run-dist.sh')
+
 # Configure the build environment.
 cc = meson.get_compiler('c')
 cxx = meson.get_compiler('cpp')
 config_h = configuration_data()
 
-if cc.has_header_symbol('execinfo.h', 'backtrace')
-    config_h.set('HAVE_BACKTRACE', 1)
+if cc.has_header_symbol('unistd.h', 'issetugid')
+    config_h.set('HAVE_ISSETUGID', 1)
 endif
 
 if cc.has_header_symbol('stdlib.h', 'secure_getenv', prefix : '#define _GNU_SOURCE')
@@ -38,6 +42,7 @@ if cc.has_header_symbol('stdlib.h', 'secure_getenv', prefix : '#define _GNU_SOUR
 endif
 
 common_arguments = [
+    '-Wshadow',
     '-include', 'config.h',
 ]
 
@@ -45,8 +50,8 @@ c_arguments = []
 cpp_arguments = []
 
 if cc.get_id() == 'clang'
-    if cc.version().version_compare('<5')
-        error('clang version is too old, libcamera requires 5.0 or newer')
+    if cc.version().version_compare('<9')
+        error('clang version is too old, libcamera requires 9.0 or newer')
     endif
 
     # Turn _FORTIFY_SOURCE by default on optimised builds (as it requires -O1
@@ -64,11 +69,23 @@ if cc.get_id() == 'clang'
             '-stdlib=libc++',
         ]
     endif
+
+    cpp_arguments += [
+        '-Wextra-semi',
+    ]
 endif
 
 if cc.get_id() == 'gcc'
     if cc.version().version_compare('<7')
         error('gcc version is too old, libcamera requires 7.0 or newer')
+    endif
+
+    # On gcc 7 and 8, the file system library is provided in a separate static
+    # library.
+    if cc.version().version_compare('<9')
+        cpp_arguments += [
+            '-lstdc++fs',
+        ]
     endif
 
     # gcc 7.1 introduced processor-specific ABI breakages related to parameter
@@ -103,6 +120,20 @@ libcamera_includes = include_directories('include')
 # Sub-directories fill py_modules with their dependencies.
 py_modules = []
 
+# Libraries used by multiple components
+liblttng = cc.find_library('lttng-ust', required : get_option('tracing'))
+
+# Pipeline handlers
+#
+# Tests require the vimc pipeline handler, include it automatically when tests
+# are enabled.
+pipelines = get_option('pipelines')
+
+if get_option('test') and 'vimc' not in pipelines
+    message('Enabling vimc pipeline handler to support tests')
+    pipelines += ['vimc']
+endif
+
 # Utilities are parsed first to provide support for other components.
 subdir('utils')
 
@@ -113,10 +144,7 @@ subdir('src')
 # through configuration values. They are enabled by default.
 
 subdir('Documentation')
-
-if get_option('test')
-    subdir('test')
-endif
+subdir('test')
 
 if not meson.is_cross_build()
     kernel_version_req = '>= 5.0.0'
@@ -132,22 +160,25 @@ endif
 # Create a symlink from the build root to the source root. This is used when
 # running libcamera from the build directory to locate resources in the source
 # directory (such as IPA configuration files).
-run_command('ln', '-fsT', meson.source_root(),
-            join_paths(meson.build_root(), 'source'))
+run_command('ln', '-fsT', meson.source_root(), meson.build_root() / 'source')
 
 configure_file(output : 'config.h', configuration : config_h)
-
-pkg_mod = import('pkgconfig')
-pkg_mod.generate(libraries : libcamera,
-                 version : '1.0',
-                 name : 'libcamera',
-                 filebase : 'camera',
-                 description : 'Complex Camera Support Library',
-                 subdirs : 'libcamera')
 
 # Check for python installation and modules.
 py_mod = import('python')
 py_mod.find_installation('python3', modules: py_modules)
 
 ## Summarise Configurations
-message('Enabled pipelines: ' + ', '.join(get_option('pipelines')))
+summary({
+            'Enabled pipelines': pipelines,
+            'Enabled IPA modules': ipa_modules,
+            'Android support': android_enabled,
+            'GStreamer support': gst_enabled,
+            'V4L2 emulation support': v4l2_enabled,
+            'cam application': cam_enabled,
+            'qcam application': qcam_enabled,
+            'lc-compliance application': lc_compliance_enabled,
+            'Unit tests': test_enabled,
+        },
+        section : 'Configuration',
+        bool_yn : true)

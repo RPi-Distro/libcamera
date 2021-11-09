@@ -12,8 +12,8 @@
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
 
-#include "libcamera/internal/file.h"
-#include "libcamera/internal/log.h"
+#include <libcamera/base/file.h>
+#include <libcamera/base/log.h>
 
 /**
  * \file sysfs.h
@@ -22,7 +22,7 @@
 
 namespace libcamera {
 
-LOG_DEFINE_CATEGORY(SysFs);
+LOG_DEFINE_CATEGORY(SysFs)
 
 namespace sysfs {
 
@@ -70,10 +70,11 @@ std::string charDevPath(const std::string &deviceNode)
 std::string firmwareNodePath(const std::string &device)
 {
 	std::string fwPath, node;
+	struct stat st;
 
 	/* Lookup for DT-based systems */
 	node = device + "/of_node";
-	if (File::exists(node)) {
+	if (!stat(node.c_str(), &st)) {
 		char *ofPath = realpath(node.c_str(), nullptr);
 		if (!ofPath)
 			return {};

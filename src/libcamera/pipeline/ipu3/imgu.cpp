@@ -13,12 +13,13 @@
 
 #include <linux/media-bus-format.h>
 
+#include <libcamera/base/log.h>
+#include <libcamera/base/utils.h>
+
 #include <libcamera/formats.h>
 #include <libcamera/stream.h>
 
-#include "libcamera/internal/log.h"
 #include "libcamera/internal/media_device.h"
-#include "libcamera/internal/utils.h"
 
 namespace libcamera {
 
@@ -30,23 +31,8 @@ namespace {
  * The procedure to calculate the ImgU pipe configuration has been ported
  * from the pipe_config.py python script, available at:
  * https://github.com/intel/intel-ipu3-pipecfg
- * at revision: 61e83f2f7606 ("Add more information into README")
+ * at revision: 243d13446e44 ("Fix some bug for some resolutions")
  */
-
-static constexpr unsigned int FILTER_H = 4;
-
-static constexpr unsigned int IF_ALIGN_W = 2;
-static constexpr unsigned int IF_ALIGN_H = 4;
-
-static constexpr unsigned int BDS_ALIGN_W = 2;
-static constexpr unsigned int BDS_ALIGN_H = 4;
-
-static constexpr unsigned int IF_CROP_MAX_W = 40;
-static constexpr unsigned int IF_CROP_MAX_H = 540;
-
-static constexpr float BDS_SF_MAX = 2.5;
-static constexpr float BDS_SF_MIN = 1.0;
-static constexpr float BDS_SF_STEP = 0.03125;
 
 /* BSD scaling factors: min=1, max=2.5, step=1/32 */
 const std::vector<float> bdsScalingFactors = {
@@ -122,104 +108,117 @@ bool isSameRatio(const Size &in, const Size &out)
 void calculateBDSHeight(ImgUDevice::Pipe *pipe, const Size &iif, const Size &gdc,
 			unsigned int bdsWidth, float bdsSF)
 {
-	unsigned int minIFHeight = iif.height - IF_CROP_MAX_H;
-	unsigned int minBDSHeight = gdc.height + FILTER_H * 2;
+	unsigned int minIFHeight = iif.height - ImgUDevice::kIFMaxCropHeight;
+	unsigned int minBDSHeight = gdc.height + ImgUDevice::kFilterHeight * 2;
 	unsigned int ifHeight;
 	float bdsHeight;
 
 	if (!isSameRatio(pipe->input, gdc)) {
+		unsigned int foundIfHeight = 0;
 		float estIFHeight = (iif.width * gdc.height) /
 				    static_cast<float>(gdc.width);
 		estIFHeight = std::clamp<float>(estIFHeight, minIFHeight, iif.height);
-		bool found = false;
 
-		ifHeight = utils::alignUp(estIFHeight, IF_ALIGN_H);
-		while (ifHeight >= minIFHeight && ifHeight / bdsSF >= minBDSHeight) {
+		ifHeight = utils::alignUp(estIFHeight, ImgUDevice::kIFAlignHeight);
+		while (ifHeight >= minIFHeight && ifHeight <= iif.height &&
+		       ifHeight / bdsSF >= minBDSHeight) {
 
-			bdsHeight = ifHeight / bdsSF;
-			if (std::fmod(bdsHeight, 1.0) == 0) {
-				unsigned int bdsIntHeight = static_cast<unsigned int>(bdsHeight);
+			float height = ifHeight / bdsSF;
+			if (std::fmod(height, 1.0) == 0) {
+				unsigned int bdsIntHeight = static_cast<unsigned int>(height);
 
-				if (!(bdsIntHeight % BDS_ALIGN_H)) {
-					found = true;
+				if (!(bdsIntHeight % ImgUDevice::kBDSAlignHeight)) {
+					foundIfHeight = ifHeight;
+					bdsHeight = height;
 					break;
 				}
 			}
 
-			ifHeight -= IF_ALIGN_H;
+			ifHeight -= ImgUDevice::kIFAlignHeight;
 		}
 
-		ifHeight = utils::alignUp(estIFHeight, IF_ALIGN_H);
-		while (ifHeight <= iif.height && ifHeight / bdsSF >= minBDSHeight) {
+		ifHeight = utils::alignUp(estIFHeight, ImgUDevice::kIFAlignHeight);
+		while (ifHeight >= minIFHeight && ifHeight <= iif.height &&
+		       ifHeight / bdsSF >= minBDSHeight) {
 
-			bdsHeight = ifHeight / bdsSF;
-			if (std::fmod(bdsHeight, 1.0) == 0) {
-				unsigned int bdsIntHeight = static_cast<unsigned int>(bdsHeight);
+			float height = ifHeight / bdsSF;
+			if (std::fmod(height, 1.0) == 0) {
+				unsigned int bdsIntHeight = static_cast<unsigned int>(height);
 
-				if (!(bdsIntHeight % BDS_ALIGN_H)) {
-					found = true;
+				if (!(bdsIntHeight % ImgUDevice::kBDSAlignHeight)) {
+					foundIfHeight = ifHeight;
+					bdsHeight = height;
 					break;
 				}
 			}
 
-			ifHeight += IF_ALIGN_H;
+			ifHeight += ImgUDevice::kIFAlignHeight;
 		}
 
-		if (found) {
+		if (foundIfHeight) {
 			unsigned int bdsIntHeight = static_cast<unsigned int>(bdsHeight);
 
-			pipeConfigs.push_back({ bdsSF, { iif.width, ifHeight },
+			pipeConfigs.push_back({ bdsSF, { iif.width, foundIfHeight },
 						{ bdsWidth, bdsIntHeight }, gdc });
 			return;
 		}
 	} else {
-		ifHeight = utils::alignUp(iif.height, IF_ALIGN_H);
-		while (ifHeight > minIFHeight && ifHeight / bdsSF >= minBDSHeight) {
+		ifHeight = utils::alignUp(iif.height, ImgUDevice::kIFAlignHeight);
+		while (ifHeight >= minIFHeight && ifHeight / bdsSF >= minBDSHeight) {
 
 			bdsHeight = ifHeight / bdsSF;
 			if (std::fmod(ifHeight, 1.0) == 0 && std::fmod(bdsHeight, 1.0) == 0) {
 				unsigned int bdsIntHeight = static_cast<unsigned int>(bdsHeight);
 
-				if (!(ifHeight % IF_ALIGN_H) &&
-				    !(bdsIntHeight % BDS_ALIGN_H)) {
+				if (!(ifHeight % ImgUDevice::kIFAlignHeight) &&
+				    !(bdsIntHeight % ImgUDevice::kBDSAlignHeight)) {
 					pipeConfigs.push_back({ bdsSF, { iif.width, ifHeight },
 								{ bdsWidth, bdsIntHeight }, gdc });
 				}
 			}
 
-			ifHeight -= IF_ALIGN_H;
+			ifHeight -= ImgUDevice::kIFAlignHeight;
 		}
 	}
 }
 
 void calculateBDS(ImgUDevice::Pipe *pipe, const Size &iif, const Size &gdc, float bdsSF)
 {
-	unsigned int minBDSWidth = gdc.width + FILTER_H * 2;
+	unsigned int minBDSWidth = gdc.width + ImgUDevice::kFilterWidth * 2;
+	unsigned int minBDSHeight = gdc.height + ImgUDevice::kFilterHeight * 2;
 
 	float sf = bdsSF;
-	while (sf <= BDS_SF_MAX && sf >= BDS_SF_MIN) {
+	while (sf <= ImgUDevice::kBDSSfMax && sf >= ImgUDevice::kBDSSfMin) {
 		float bdsWidth = static_cast<float>(iif.width) / sf;
+		float bdsHeight = static_cast<float>(iif.height) / sf;
 
-		if (std::fmod(bdsWidth, 1.0) == 0) {
+		if (std::fmod(bdsWidth, 1.0) == 0 &&
+		    std::fmod(bdsHeight, 1.0) == 0) {
 			unsigned int bdsIntWidth = static_cast<unsigned int>(bdsWidth);
-			if (!(bdsIntWidth % BDS_ALIGN_W) && bdsWidth >= minBDSWidth)
+			unsigned int bdsIntHeight = static_cast<unsigned int>(bdsHeight);
+			if (!(bdsIntWidth % ImgUDevice::kBDSAlignWidth) && bdsWidth >= minBDSWidth &&
+			    !(bdsIntHeight % ImgUDevice::kBDSAlignHeight) && bdsHeight >= minBDSHeight)
 				calculateBDSHeight(pipe, iif, gdc, bdsIntWidth, sf);
 		}
 
-		sf += BDS_SF_STEP;
+		sf += ImgUDevice::kBDSSfStep;
 	}
 
 	sf = bdsSF;
-	while (sf <= BDS_SF_MAX && sf >= BDS_SF_MIN) {
+	while (sf <= ImgUDevice::kBDSSfMax && sf >= ImgUDevice::kBDSSfMin) {
 		float bdsWidth = static_cast<float>(iif.width) / sf;
+		float bdsHeight = static_cast<float>(iif.height) / sf;
 
-		if (std::fmod(bdsWidth, 1.0) == 0) {
+		if (std::fmod(bdsWidth, 1.0) == 0 &&
+		    std::fmod(bdsHeight, 1.0) == 0) {
 			unsigned int bdsIntWidth = static_cast<unsigned int>(bdsWidth);
-			if (!(bdsIntWidth % BDS_ALIGN_W) && bdsWidth >= minBDSWidth)
+			unsigned int bdsIntHeight = static_cast<unsigned int>(bdsHeight);
+			if (!(bdsIntWidth % ImgUDevice::kBDSAlignWidth) && bdsWidth >= minBDSWidth &&
+			    !(bdsIntHeight % ImgUDevice::kBDSAlignHeight) && bdsHeight >= minBDSHeight)
 				calculateBDSHeight(pipe, iif, gdc, bdsIntWidth, sf);
 		}
 
-		sf -= BDS_SF_STEP;
+		sf -= ImgUDevice::kBDSSfStep;
 	}
 }
 
@@ -343,29 +342,32 @@ int ImgUDevice::init(MediaDevice *media, unsigned int index)
 	 * by the match() function: no need to check for newly created
 	 * video devices and subdevice validity here.
 	 */
-	imgu_.reset(V4L2Subdevice::fromEntityName(media, name_));
+	imgu_ = V4L2Subdevice::fromEntityName(media, name_);
 	ret = imgu_->open();
 	if (ret)
 		return ret;
 
-	input_.reset(V4L2VideoDevice::fromEntityName(media, name_ + " input"));
+	input_ = V4L2VideoDevice::fromEntityName(media, name_ + " input");
 	ret = input_->open();
 	if (ret)
 		return ret;
 
-	output_.reset(V4L2VideoDevice::fromEntityName(media,
-						      name_ + " output"));
+	output_ = V4L2VideoDevice::fromEntityName(media, name_ + " output");
 	ret = output_->open();
 	if (ret)
 		return ret;
 
-	viewfinder_.reset(V4L2VideoDevice::fromEntityName(media,
-							  name_ + " viewfinder"));
+	viewfinder_ = V4L2VideoDevice::fromEntityName(media, name_ + " viewfinder");
 	ret = viewfinder_->open();
 	if (ret)
 		return ret;
 
-	stat_.reset(V4L2VideoDevice::fromEntityName(media, name_ + " 3a stat"));
+	param_ = V4L2VideoDevice::fromEntityName(media, name_ + " parameters");
+	ret = param_->open();
+	if (ret)
+		return ret;
+
+	stat_ = V4L2VideoDevice::fromEntityName(media, name_ + " 3a stat");
 	ret = stat_->open();
 	if (ret)
 		return ret;
@@ -389,19 +391,54 @@ ImgUDevice::PipeConfig ImgUDevice::calculatePipeConfig(Pipe *pipe)
 	LOG(IPU3, Debug) << "vf: " << pipe->viewfinder.toString();
 
 	const Size &in = pipe->input;
+
+	/*
+	 * \todo Filter out all resolutions < IF_CROP_MAX.
+	 * See https://bugs.libcamera.org/show_bug.cgi?id=32
+	 */
+	if (in.width < ImgUDevice::kIFMaxCropWidth || in.height < ImgUDevice::kIFMaxCropHeight) {
+		LOG(IPU3, Error) << "Input resolution " << in.toString()
+				 << " not supported";
+		return {};
+	}
+
 	Size gdc = calculateGDC(pipe);
 
-	unsigned int ifWidth = utils::alignUp(in.width, IF_ALIGN_W);
-	unsigned int ifHeight = in.height;
-	unsigned int minIfWidth = in.width - IF_CROP_MAX_W;
 	float bdsSF = static_cast<float>(in.width) / gdc.width;
 	float sf = findScaleFactor(bdsSF, bdsScalingFactors, true);
 
+	/* Populate the configurations vector by scaling width and height. */
+	unsigned int ifWidth = utils::alignUp(in.width, ImgUDevice::kIFAlignWidth);
+	unsigned int ifHeight = utils::alignUp(in.height, ImgUDevice::kIFAlignHeight);
+	unsigned int minIfWidth = in.width - ImgUDevice::kIFMaxCropWidth;
+	unsigned int minIfHeight = in.height - ImgUDevice::kIFMaxCropHeight;
 	while (ifWidth >= minIfWidth) {
-		Size iif{ ifWidth, ifHeight };
-		calculateBDS(pipe, iif, gdc, sf);
+		while (ifHeight >= minIfHeight) {
+			Size iif{ ifWidth, ifHeight };
+			calculateBDS(pipe, iif, gdc, sf);
+			ifHeight -= ImgUDevice::kIFAlignHeight;
+		}
 
-		ifWidth -= IF_ALIGN_W;
+		ifWidth -= ImgUDevice::kIFAlignWidth;
+	}
+
+	/* Repeat search by scaling width first. */
+	ifWidth = utils::alignUp(in.width, ImgUDevice::kIFAlignWidth);
+	ifHeight = utils::alignUp(in.height, ImgUDevice::kIFAlignHeight);
+	minIfWidth = in.width - ImgUDevice::kIFMaxCropWidth;
+	minIfHeight = in.height - ImgUDevice::kIFMaxCropHeight;
+	while (ifHeight >= minIfHeight) {
+		/*
+		 * \todo This procedure is probably broken:
+		 * https://github.com/intel/intel-ipu3-pipecfg/issues/2
+		 */
+		while (ifWidth >= minIfWidth) {
+			Size iif{ ifWidth, ifHeight };
+			calculateBDS(pipe, iif, gdc, sf);
+			ifWidth -= ImgUDevice::kIFAlignWidth;
+		}
+
+		ifHeight -= ImgUDevice::kIFAlignHeight;
 	}
 
 	if (pipeConfigs.size() == 0) {
@@ -477,6 +514,20 @@ int ImgUDevice::configure(const PipeConfig &pipeConfig, V4L2DeviceFormat *inputF
 
 	LOG(IPU3, Debug) << "ImgU GDC format = " << gdcFormat.toString();
 
+	StreamConfiguration paramCfg = {};
+	paramCfg.size = inputFormat->size;
+	V4L2DeviceFormat paramFormat;
+	ret = configureVideoDevice(param_.get(), PAD_PARAM, paramCfg, &paramFormat);
+	if (ret)
+		return ret;
+
+	StreamConfiguration statCfg = {};
+	statCfg.size = inputFormat->size;
+	V4L2DeviceFormat statFormat;
+	ret = configureVideoDevice(stat_.get(), PAD_STAT, statCfg, &statFormat);
+	if (ret)
+		return ret;
+
 	return 0;
 }
 
@@ -500,12 +551,15 @@ int ImgUDevice::configureVideoDevice(V4L2VideoDevice *dev, unsigned int pad,
 	if (ret)
 		return ret;
 
-	/* No need to apply format to the stat node. */
-	if (dev == stat_.get())
+	/*
+	 * No need to apply format to the param or stat video devices as the
+	 * driver ignores the operation.
+	 */
+	if (dev == param_.get() || dev == stat_.get())
 		return 0;
 
 	*outputFormat = {};
-	outputFormat->fourcc = dev->toV4L2PixelFormat(formats::NV12);
+	outputFormat->fourcc = V4L2PixelFormat::fromPixelFormat(formats::NV12);
 	outputFormat->size = cfg.size;
 	outputFormat->planesCount = 2;
 
@@ -532,14 +586,13 @@ int ImgUDevice::allocateBuffers(unsigned int bufferCount)
 		return ret;
 	}
 
-	/*
-	 * The kernel fails to start if buffers are not either imported or
-	 * allocated for the statistics video device. As statistics buffers are
-	 * not yet used by the pipeline import buffers to save memory.
-	 *
-	 * \todo To be revised when we'll actually use the stat node.
-	 */
-	ret = stat_->importBuffers(bufferCount);
+	ret = param_->allocateBuffers(bufferCount, &paramBuffers_);
+	if (ret < 0) {
+		LOG(IPU3, Error) << "Failed to allocate ImgU param buffers";
+		goto error;
+	}
+
+	ret = stat_->allocateBuffers(bufferCount, &statBuffers_);
 	if (ret < 0) {
 		LOG(IPU3, Error) << "Failed to allocate ImgU stat buffers";
 		goto error;
@@ -577,9 +630,16 @@ void ImgUDevice::freeBuffers()
 {
 	int ret;
 
+	paramBuffers_.clear();
+	statBuffers_.clear();
+
 	ret = output_->releaseBuffers();
 	if (ret)
 		LOG(IPU3, Error) << "Failed to release ImgU output buffers";
+
+	ret = param_->releaseBuffers();
+	if (ret)
+		LOG(IPU3, Error) << "Failed to release ImgU param buffers";
 
 	ret = stat_->releaseBuffers();
 	if (ret)
@@ -611,6 +671,12 @@ int ImgUDevice::start()
 		return ret;
 	}
 
+	ret = param_->streamOn();
+	if (ret) {
+		LOG(IPU3, Error) << "Failed to start ImgU param";
+		return ret;
+	}
+
 	ret = stat_->streamOn();
 	if (ret) {
 		LOG(IPU3, Error) << "Failed to start ImgU stat";
@@ -632,6 +698,7 @@ int ImgUDevice::stop()
 
 	ret = output_->streamOff();
 	ret |= viewfinder_->streamOff();
+	ret |= param_->streamOff();
 	ret |= stat_->streamOff();
 	ret |= input_->streamOff();
 
@@ -641,7 +708,7 @@ int ImgUDevice::stop()
 /**
  * \brief Enable or disable a single link on the ImgU instance
  *
- * This method assumes the media device associated with the ImgU instance
+ * This function assumes the media device associated with the ImgU instance
  * is open.
  *
  * \return 0 on success or a negative error code otherwise
@@ -665,7 +732,7 @@ int ImgUDevice::linkSetup(const std::string &source, unsigned int sourcePad,
  * \brief Enable or disable all media links in the ImgU instance to prepare
  * for capture operations
  *
- * \todo This method will probably be removed or changed once links will be
+ * \todo This function will probably be removed or changed once links will be
  * enabled or disabled selectively.
  *
  * \return 0 on success or a negative error code otherwise
@@ -673,6 +740,7 @@ int ImgUDevice::linkSetup(const std::string &source, unsigned int sourcePad,
 int ImgUDevice::enableLinks(bool enable)
 {
 	std::string viewfinderName = name_ + " viewfinder";
+	std::string paramName = name_ + " parameters";
 	std::string outputName = name_ + " output";
 	std::string statName = name_ + " 3a stat";
 	std::string inputName = name_ + " input";
@@ -687,6 +755,10 @@ int ImgUDevice::enableLinks(bool enable)
 		return ret;
 
 	ret = linkSetup(name_, PAD_VF, viewfinderName, 0, enable);
+	if (ret)
+		return ret;
+
+	ret = linkSetup(paramName, 0, name_, PAD_PARAM, enable);
 	if (ret)
 		return ret;
 

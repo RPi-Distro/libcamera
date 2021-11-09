@@ -17,9 +17,9 @@
 #include <sys/sysmacros.h>
 #include <unistd.h>
 
-#include <libcamera/event_notifier.h>
+#include <libcamera/base/event_notifier.h>
+#include <libcamera/base/log.h>
 
-#include "libcamera/internal/log.h"
 #include "libcamera/internal/media_device.h"
 
 namespace libcamera {
@@ -327,7 +327,7 @@ int DeviceEnumeratorUdev::addV4L2Device(dev_t devnum)
 	return 0;
 }
 
-void DeviceEnumeratorUdev::udevNotify([[maybe_unused]] EventNotifier *notifier)
+void DeviceEnumeratorUdev::udevNotify()
 {
 	struct udev_device *dev = udev_monitor_receive_device(monitor_);
 	std::string action(udev_device_get_action(dev));

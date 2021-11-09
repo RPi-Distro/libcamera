@@ -16,17 +16,16 @@
 #include <fcntl.h>
 #include <link.h>
 #include <string.h>
-#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 
-#include <libcamera/span.h>
+#include <libcamera/base/file.h>
+#include <libcamera/base/log.h>
+#include <libcamera/base/span.h>
+#include <libcamera/base/utils.h>
 
-#include "libcamera/internal/file.h"
-#include "libcamera/internal/log.h"
 #include "libcamera/internal/pipeline_handler.h"
-#include "libcamera/internal/utils.h"
 
 /**
  * \file ipa_module.h
@@ -253,7 +252,7 @@ Span<const uint8_t> elfLoadSymbol(Span<const uint8_t> elf, const char *symbol)
  * The IPA module shared object file must be of the same endianness and
  * bitness as libcamera.
  *
- * The caller shall call the isValid() method after constructing an
+ * The caller shall call the isValid() function after constructing an
  * IPAModule instance to verify the validity of the IPAModule.
  */
 IPAModule::IPAModule(const std::string &libPath)
@@ -275,7 +274,7 @@ IPAModule::~IPAModule()
 int IPAModule::loadIPAModuleInfo()
 {
 	File file{ libPath_ };
-	if (!file.open(File::ReadOnly)) {
+	if (!file.open(File::OpenModeFlag::ReadOnly)) {
 		LOG(IPAModule, Error) << "Failed to open IPA library: "
 				      << strerror(-file.error());
 		return file.error();
@@ -317,13 +316,13 @@ int IPAModule::loadIPAModuleInfo()
 
 	/* Load the signature. Failures are not fatal. */
 	File sign{ libPath_ + ".sign" };
-	if (!sign.open(File::ReadOnly)) {
+	if (!sign.open(File::OpenModeFlag::ReadOnly)) {
 		LOG(IPAModule, Debug)
 			<< "IPA module " << libPath_ << " is not signed";
 		return 0;
 	}
 
-	data = sign.map(0, -1, File::MapPrivate);
+	data = sign.map(0, -1, File::MapFlag::Private);
 	signature_.resize(data.size());
 	memcpy(signature_.data(), data.data(), data.size());
 
@@ -391,13 +390,13 @@ const std::string &IPAModule::path() const
 /**
  * \brief Load the IPA implementation factory from the shared object
  *
- * The IPA module shared object implements an ipa_context object to be used
- * by pipeline handlers. This method loads the factory function from the
- * shared object. Later, createContext() can be called to instantiate the
- * ipa_context.
+ * The IPA module shared object implements an IPAInterface object to be used
+ * by pipeline handlers. This function loads the factory function from the
+ * shared object. Later, createInterface() can be called to instantiate the
+ * IPAInterface.
  *
- * This method only needs to be called successfully once, after which
- * createContext() can be called as many times as ipa_context instances are
+ * This function only needs to be called successfully once, after which
+ * createInterface() can be called as many times as IPAInterface instances are
  * needed.
  *
  * Calling this function on an invalid module (as returned by isValid()) is
@@ -439,20 +438,18 @@ bool IPAModule::load()
 }
 
 /**
- * \brief Instantiate an IPA context
+ * \brief Instantiate an IPA interface
  *
- * After loading the IPA module with load(), this method creates an instance of
- * the IPA module context. Ownership of the context is passed to the caller, and
- * the context shall be destroyed by calling the \ref ipa_context_ops::destroy
- * "ipa_context::ops::destroy()" function.
+ * After loading the IPA module with load(), this function creates an instance
+ * of the IPA module interface.
  *
  * Calling this function on a module that has not yet been loaded, or an
  * invalid module (as returned by load() and isValid(), respectively) is
  * an error.
  *
- * \return The IPA context on success, or nullptr on error
+ * \return The IPA interface on success, or nullptr on error
  */
-struct ipa_context *IPAModule::createContext()
+IPAInterface *IPAModule::createInterface()
 {
 	if (!valid_ || !loaded_)
 		return nullptr;
@@ -466,7 +463,7 @@ struct ipa_context *IPAModule::createContext()
  * \param[in] minVersion Minimum acceptable version of IPA module
  * \param[in] maxVersion Maximum acceptable version of IPA module
  *
- * This method checks if this IPA module matches the \a pipe pipeline handler,
+ * This function checks if this IPA module matches the \a pipe pipeline handler,
  * and the input version range.
  *
  * \return True if the pipeline handler matches the IPA module, or false otherwise

@@ -7,8 +7,6 @@ This tutorial shows how to create a C++ application that uses libcamera to
 interface with a camera on a system, capture frames from it for 3 seconds, and
 write metadata about the frames to standard out.
 
-.. TODO: Check how much of the example code runs before camera start etc?
-
 Application skeleton
 --------------------
 
@@ -60,14 +58,18 @@ variable for the camera to support the event call back later:
 
 .. code:: cpp
 
-   std::shared_ptr<Camera> camera;
+   static std::shared_ptr<Camera> camera;
 
 Create a Camera Manager instance at the beginning of the main function, and then
-start it. An application should only create a single Camera Manager instance.
+start it. An application must only create a single Camera Manager instance.
+
+The CameraManager can be stored in a unique_ptr to automate deleting the
+instance when it is no longer used, but care must be taken to ensure all
+cameras are released explicitly before this happens.
 
 .. code:: cpp
 
-   CameraManager *cm = new CameraManager();
+   std::unique_ptr<CameraManager> cm = std::make_unique<CameraManager>();
    cm->start();
 
 During the application initialization, the Camera Manager is started to
@@ -107,9 +109,17 @@ the Camera Manager reports as available to applications.
 Camera devices are stored by the CameraManager in a list accessible by index, or
 can be retrieved by name through the ``CameraManager::get()`` function. The
 code below retrieves the name of the first available camera and gets the camera
-by name from the Camera Manager.
+by name from the Camera Manager, after making sure that at least one camera is
+available.
 
 .. code:: cpp
+
+   if (cm->cameras().empty()) {
+       std::cout << "No cameras were identified on the system."
+                 << std::endl;
+       cm->stop();
+       return EXIT_FAILURE;
+   }
 
    std::string cameraId = cm->cameras()[0]->id();
    camera = cm->get(cameraId);
@@ -194,7 +204,7 @@ function. If the new values are not supported by the ``Camera`` device, the
 validation process adjusts the parameters to what it considers to be the closest
 supported values.
 
-The ``validate`` method returns a `Status`_ which applications shall check to
+The ``validate`` function returns a `Status`_ which applications shall check to
 see if the Pipeline Handler adjusted the configuration.
 
 .. _Status: http://libcamera.org/api-html/classlibcamera_1_1CameraConfiguration.html#a64163f21db2fe1ce0a6af5a6f6847744
@@ -276,7 +286,7 @@ as the parameter of the ``FrameBufferAllocator::buffers()`` function.
            return -ENOMEM;
        }
 
-       unsigned int allocated = allocator->buffers(cfg.stream()).size();
+       size_t allocated = allocator->buffers(cfg.stream()).size();
        std::cout << "Allocated " << allocated << " buffers for stream" << std::endl;
    }
 
@@ -360,7 +370,7 @@ signal to handle it in the application code.
    camera->requestCompleted.connect(requestComplete);
 
 For this example application, only the ``Camera::requestCompleted`` signal gets
-handled and the matching ``requestComplete`` slot method outputs information
+handled and the matching ``requestComplete`` slot function outputs information
 about the FrameBuffer to standard output. This callback is typically where an
 application accesses the image data from the camera and does something with it.
 
@@ -417,7 +427,7 @@ and the bytes used, as described in the `FrameMetadata`_ documentation.
        const FrameMetadata &metadata = buffer->metadata();
    }
 
-For this example application, inside the ``for`` loop from above, we ca print
+For this example application, inside the ``for`` loop from above, we can print
 the Frame sequence number and details of the planes.
 
 .. code:: cpp
@@ -425,10 +435,10 @@ the Frame sequence number and details of the planes.
    std::cout << " seq: " << std::setw(6) << std::setfill('0') << metadata.sequence << " bytesused: ";
 
    unsigned int nplane = 0;
-   for (const FrameMetadata::Plane &plane : metadata.planes)
+   for (const FrameMetadata::Plane &plane : metadata.planes())
    {
        std::cout << plane.bytesused;
-       if (++nplane < metadata.planes.size()) std::cout << "/";
+       if (++nplane < metadata.planes().size()) std::cout << "/";
    }
 
    std::cout << std::endl;
@@ -464,10 +474,10 @@ and the bytes used by planes.
 A completed buffer contains of course image data which can be accessed through
 the per-plane dma-buf file descriptor transported by the ``FrameBuffer``
 instance. An example of how to write image data to disk is available in the
-`BufferWriter class`_ which is a part of the ``cam`` utility application in the
+`FileSink class`_ which is a part of the ``cam`` utility application in the
 libcamera repository.
 
-.. _BufferWriter class: https://git.linuxtv.org/libcamera.git/tree/src/cam/buffer_writer.cpp
+.. _FileSink class: https://git.libcamera.org/libcamera/libcamera.git/tree/src/cam/file_sink.cpp
 
 With the handling of this request completed, it is possible to re-use the
 buffers by adding them to a new ``Request`` instance with their matching
@@ -562,20 +572,23 @@ uses, so needs to do the following:
 
    return 0;
 
+In this instance the CameraManager will automatically be deleted by the
+unique_ptr implementation when it goes out of scope.
+
 Build and run instructions
 --------------------------
 
-To build the application, use the `Meson build system`_ which is also the
-official build system of the libcamera library.
+To build the application, we recommend that you use the `Meson build system`_
+which is also the official build system of the libcamera library.
 
 Make sure both ``meson`` and ``libcamera`` are installed in your system. Please
 refer to your distribution documentation to install meson and install the most
-recent version of libcamera from the git repository at `Linux TV`_. You would
-also need to install the ``pkg-config`` tool to correctly identify the
-libcamera.so object install location in the system.
+recent version of libcamera from the `git repository`_. You would also need to
+install the ``pkg-config`` tool to correctly identify the libcamera.so object
+install location in the system.
 
 .. _Meson build system: https://mesonbuild.com/
-.. _Linux TV: https://git.linuxtv.org/libcamera.git/
+.. _git repository: https://git.libcamera.org/libcamera/libcamera.git/
 
 Dependencies
 ~~~~~~~~~~~~
@@ -596,12 +609,12 @@ has been installed in your system.
 
    export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig/
 
-Verify that ``pkg-config`` can identify the ``camera`` library with
+Verify that ``pkg-config`` can identify the ``libcamera`` library with
 
 .. code:: shell
 
-   $ pkg-config --libs --cflags camera
-     -I/usr/local/include/libcamera -L/usr/local/lib -lcamera
+   $ pkg-config --libs --cflags libcamera
+     -I/usr/local/include/libcamera -L/usr/local/lib -lcamera -lcamera-base
 
 ``meson`` can alternatively use ``cmake`` to locate packages, please refer to
 the ``meson`` documentation if you prefer to use it in place of ``pkgconfig``
@@ -619,13 +632,13 @@ accordingly. In this example, the application file has been named
 
    project('simple-cam', 'cpp')
 
-   simpler_cam = executable('simple-cam',
+   simple_cam = executable('simple-cam',
        'simple-cam.cpp',
-       dependencies: dependency('camera', required : true))
+       dependencies: dependency('libcamera', required : true))
 
 The ``dependencies`` line instructs meson to ask ``pkgconfig`` (or ``cmake``) to
-locate the ``camera`` library, (libcamera without the lib prefix) which the test
-application will be dynamically linked against.
+locate the ``libcamera`` library,  which the test application will be
+dynamically linked against.
 
 With the build file in place, compile and run the application with:
 

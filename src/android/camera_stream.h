@@ -7,22 +7,26 @@
 #ifndef __ANDROID_CAMERA_STREAM_H__
 #define __ANDROID_CAMERA_STREAM_H__
 
+#include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <queue>
 #include <vector>
 
 #include <hardware/camera3.h>
 
-#include <libcamera/buffer.h>
+#include <libcamera/base/thread.h>
+
 #include <libcamera/camera.h>
+#include <libcamera/framebuffer.h>
 #include <libcamera/framebuffer_allocator.h>
 #include <libcamera/geometry.h>
 #include <libcamera/pixel_format.h>
 
+#include "camera_request.h"
+#include "post_processor.h"
+
 class CameraDevice;
-class CameraMetadata;
-class MappedCamera3Buffer;
-class PostProcessor;
 
 class CameraStream
 {
@@ -109,26 +113,60 @@ public:
 		Internal,
 		Mapped,
 	};
-	CameraStream(CameraDevice *cameraDevice, Type type,
+	CameraStream(CameraDevice *const cameraDevice,
+		     libcamera::CameraConfiguration *config, Type type,
 		     camera3_stream_t *camera3Stream, unsigned int index);
+	CameraStream(CameraStream &&other);
+	~CameraStream();
 
 	Type type() const { return type_; }
-	const camera3_stream_t &camera3Stream() const { return *camera3Stream_; }
+	camera3_stream_t *camera3Stream() const { return camera3Stream_; }
 	const libcamera::StreamConfiguration &configuration() const;
 	libcamera::Stream *stream() const;
 
 	int configure();
-	int process(const libcamera::FrameBuffer &source,
-		    MappedCamera3Buffer *dest, CameraMetadata *metadata);
+	int process(Camera3RequestDescriptor::StreamBuffer *streamBuffer);
 	libcamera::FrameBuffer *getBuffer();
 	void putBuffer(libcamera::FrameBuffer *buffer);
+	void flush();
 
 private:
-	CameraDevice *cameraDevice_;
-	libcamera::CameraConfiguration *config_;
-	Type type_;
+	class PostProcessorWorker : public libcamera::Thread
+	{
+	public:
+		enum class State {
+			Stopped,
+			Running,
+			Flushing,
+		};
+
+		PostProcessorWorker(PostProcessor *postProcessor);
+		~PostProcessorWorker();
+
+		void start();
+		void queueRequest(Camera3RequestDescriptor::StreamBuffer *request);
+		void flush();
+
+	protected:
+		void run() override;
+
+	private:
+		PostProcessor *postProcessor_;
+
+		libcamera::Mutex mutex_;
+		std::condition_variable cv_;
+
+		std::queue<Camera3RequestDescriptor::StreamBuffer *> requests_;
+		State state_ = State::Stopped;
+	};
+
+	int waitFence(int fence);
+
+	CameraDevice *const cameraDevice_;
+	const libcamera::CameraConfiguration *config_;
+	const Type type_;
 	camera3_stream_t *camera3Stream_;
-	unsigned int index_;
+	const unsigned int index_;
 
 	std::unique_ptr<libcamera::FrameBufferAllocator> allocator_;
 	std::vector<libcamera::FrameBuffer *> buffers_;
@@ -138,6 +176,8 @@ private:
 	 */
 	std::unique_ptr<std::mutex> mutex_;
 	std::unique_ptr<PostProcessor> postProcessor_;
+
+	std::unique_ptr<PostProcessorWorker> worker_;
 };
 
 #endif /* __ANDROID_CAMERA_STREAM__ */

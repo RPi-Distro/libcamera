@@ -6,6 +6,7 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <fcntl.h>
 #include <iostream>
 #include <stdlib.h>
@@ -15,12 +16,11 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include <libcamera/event_dispatcher.h>
-#include <libcamera/timer.h>
+#include <libcamera/base/event_dispatcher.h>
+#include <libcamera/base/thread.h>
+#include <libcamera/base/timer.h>
 
 #include "libcamera/internal/ipc_unixsocket.h"
-#include "libcamera/internal/thread.h"
-#include "libcamera/internal/utils.h"
 
 #include "test.h"
 
@@ -68,12 +68,12 @@ public:
 	}
 
 private:
-	void readyRead(IPCUnixSocket *ipc)
+	void readyRead()
 	{
 		IPCUnixSocket::Payload message, response;
 		int ret;
 
-		ret = ipc->receive(&message);
+		ret = ipc_.receive(&message);
 		if (ret) {
 			cerr << "Receive message failed: " << ret << endl;
 			return;
@@ -312,7 +312,7 @@ protected:
 		};
 		int fds[2];
 
-		for (unsigned int i = 0; i < ARRAY_SIZE(strings); i++) {
+		for (unsigned int i = 0; i < std::size(strings); i++) {
 			unsigned int len = strlen(strings[i]);
 
 			fds[i] = open("/tmp", O_TMPFILE | O_RDWR,
@@ -334,7 +334,7 @@ protected:
 		if (ret)
 			return ret;
 
-		for (unsigned int i = 0; i < ARRAY_SIZE(strings); i++) {
+		for (unsigned int i = 0; i < std::size(strings); i++) {
 			unsigned int len = strlen(strings[i]);
 			char buf[len];
 
@@ -447,14 +447,14 @@ private:
 		return 0;
 	}
 
-	void readyRead(IPCUnixSocket *ipc)
+	void readyRead()
 	{
 		if (!callResponse_) {
 			cerr << "Read ready without expecting data, fail." << endl;
 			return;
 		}
 
-		if (ipc->receive(callResponse_)) {
+		if (ipc_.receive(callResponse_)) {
 			cerr << "Receive message failed" << endl;
 			return;
 		}

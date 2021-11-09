@@ -12,6 +12,8 @@
 
 #include <linux/media.h>
 
+#include <libcamera/base/class.h>
+
 namespace libcamera {
 
 class MediaDevice;
@@ -22,6 +24,7 @@ class MediaObject
 {
 public:
 	MediaDevice *device() { return dev_; }
+	const MediaDevice *device() const { return dev_; }
 	unsigned int id() const { return id_; }
 
 protected:
@@ -31,7 +34,7 @@ protected:
 		: dev_(dev), id_(id)
 	{
 	}
-	virtual ~MediaObject() {}
+	virtual ~MediaObject() = default;
 
 	MediaDevice *dev_;
 	unsigned int id_;
@@ -46,12 +49,12 @@ public:
 	int setEnabled(bool enable);
 
 private:
+	LIBCAMERA_DISABLE_COPY_AND_MOVE(MediaLink)
+
 	friend class MediaDevice;
 
 	MediaLink(const struct media_v2_link *link,
 		  MediaPad *source, MediaPad *sink);
-	MediaLink(const MediaLink &) = delete;
-	~MediaLink() {}
 
 	MediaPad *source_;
 	MediaPad *sink_;
@@ -69,11 +72,11 @@ public:
 	void addLink(MediaLink *link);
 
 private:
+	LIBCAMERA_DISABLE_COPY_AND_MOVE(MediaPad)
+
 	friend class MediaDevice;
 
 	MediaPad(const struct media_v2_pad *pad, MediaEntity *entity);
-	MediaPad(const MediaPad &) = delete;
-	~MediaPad();
 
 	unsigned int index_;
 	MediaEntity *entity_;
@@ -85,9 +88,17 @@ private:
 class MediaEntity : public MediaObject
 {
 public:
+	enum class Type {
+		Invalid,
+		MediaEntity,
+		V4L2Subdevice,
+		V4L2VideoDevice,
+	};
+
 	const std::string &name() const { return name_; }
 	unsigned int function() const { return function_; }
 	unsigned int flags() const { return flags_; }
+	Type type() const { return type_; }
 	const std::string &deviceNode() const { return deviceNode_; }
 	unsigned int deviceMajor() const { return major_; }
 	unsigned int deviceMinor() const { return minor_; }
@@ -100,18 +111,19 @@ public:
 	int setDeviceNode(const std::string &deviceNode);
 
 private:
+	LIBCAMERA_DISABLE_COPY_AND_MOVE(MediaEntity)
+
 	friend class MediaDevice;
 
 	MediaEntity(MediaDevice *dev, const struct media_v2_entity *entity,
-		    unsigned int major = 0, unsigned int minor = 0);
-	MediaEntity(const MediaEntity &) = delete;
-	~MediaEntity();
+		    const struct media_v2_interface *iface);
 
 	void addPad(MediaPad *pad);
 
 	std::string name_;
 	unsigned int function_;
 	unsigned int flags_;
+	Type type_;
 	std::string deviceNode_;
 	unsigned int major_;
 	unsigned int minor_;

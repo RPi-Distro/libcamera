@@ -7,6 +7,7 @@
 
 #include "viewfinder_qt.h"
 
+#include <assert.h>
 #include <stdint.h>
 #include <utility>
 
@@ -19,6 +20,7 @@
 
 #include <libcamera/formats.h>
 
+#include "../cam/image.h"
 #include "format_converter.h"
 
 static const QMap<libcamera::PixelFormat, QImage::Format> nativeFormats
@@ -50,7 +52,7 @@ const QList<libcamera::PixelFormat> &ViewFinderQt::nativeFormats() const
 }
 
 int ViewFinderQt::setFormat(const libcamera::PixelFormat &format,
-			    const QSize &size)
+			    const QSize &size, unsigned int stride)
 {
 	image_ = QImage();
 
@@ -59,7 +61,7 @@ int ViewFinderQt::setFormat(const libcamera::PixelFormat &format,
 	 * the destination image.
 	 */
 	if (!::nativeFormats.contains(format)) {
-		int ret = converter_.configure(format, size);
+		int ret = converter_.configure(format, size, stride);
 		if (ret < 0)
 			return ret;
 
@@ -78,15 +80,9 @@ int ViewFinderQt::setFormat(const libcamera::PixelFormat &format,
 	return 0;
 }
 
-void ViewFinderQt::render(libcamera::FrameBuffer *buffer, MappedBuffer *map)
+void ViewFinderQt::render(libcamera::FrameBuffer *buffer, Image *image)
 {
-	if (buffer->planes().size() != 1) {
-		qWarning() << "Multi-planar buffers are not supported";
-		return;
-	}
-
-	unsigned char *memory = static_cast<unsigned char *>(map->memory);
-	size_t size = buffer->metadata().planes[0].bytesused;
+	size_t size = buffer->metadata().planes()[0].bytesused;
 
 	{
 		QMutexLocker locker(&mutex_);
@@ -102,8 +98,9 @@ void ViewFinderQt::render(libcamera::FrameBuffer *buffer, MappedBuffer *map)
 			 * \todo Get the stride from the buffer instead of
 			 * computing it naively
 			 */
-			image_ = QImage(memory, size_.width(), size_.height(),
-					size / size_.height(),
+			assert(buffer->planes().size() == 1);
+			image_ = QImage(image->data(0).data(), size_.width(),
+					size_.height(), size / size_.height(),
 					::nativeFormats[format_]);
 			std::swap(buffer, buffer_);
 		} else {
@@ -111,7 +108,7 @@ void ViewFinderQt::render(libcamera::FrameBuffer *buffer, MappedBuffer *map)
 			 * Otherwise, convert the format and release the frame
 			 * buffer immediately.
 			 */
-			converter_.convert(memory, size, &image_);
+			converter_.convert(image, size, &image_);
 		}
 	}
 

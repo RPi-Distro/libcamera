@@ -14,14 +14,15 @@
 #include <unistd.h>
 #include <vector>
 
-#include <libcamera/event_dispatcher.h>
 #include <libcamera/logging.h>
-#include <libcamera/timer.h>
 
-#include "libcamera/internal/log.h"
+#include <libcamera/base/event_dispatcher.h>
+#include <libcamera/base/log.h>
+#include <libcamera/base/thread.h>
+#include <libcamera/base/timer.h>
+#include <libcamera/base/utils.h>
+
 #include "libcamera/internal/process.h"
-#include "libcamera/internal/thread.h"
-#include "libcamera/internal/utils.h"
 
 #include "test.h"
 
@@ -125,8 +126,7 @@ protected:
 	}
 
 private:
-	void procFinished([[maybe_unused]] Process *proc,
-			  enum Process::ExitStatus exitStatus, int exitCode)
+	void procFinished(enum Process::ExitStatus exitStatus, int exitCode)
 	{
 		exitStatus_ = exitStatus;
 		exitCode_ = exitCode;

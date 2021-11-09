@@ -10,10 +10,9 @@
 #include <signal.h>
 #include <sys/time.h>
 
-#include <libcamera/event_dispatcher.h>
-#include <libcamera/timer.h>
-
-#include "libcamera/internal/thread.h"
+#include <libcamera/base/event_dispatcher.h>
+#include <libcamera/base/thread.h>
+#include <libcamera/base/timer.h>
 
 #include "test.h"
 

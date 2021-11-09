@@ -7,22 +7,29 @@
 #ifndef __ANDROID_POST_PROCESSOR_H__
 #define __ANDROID_POST_PROCESSOR_H__
 
-#include <libcamera/buffer.h>
-#include <libcamera/span.h>
+#include <libcamera/base/signal.h>
+
+#include <libcamera/framebuffer.h>
 #include <libcamera/stream.h>
 
-class CameraMetadata;
+#include "camera_buffer.h"
+#include "camera_request.h"
 
 class PostProcessor
 {
 public:
-	virtual ~PostProcessor() {}
+	enum class Status {
+		Error,
+		Success
+	};
+
+	virtual ~PostProcessor() = default;
 
 	virtual int configure(const libcamera::StreamConfiguration &inCfg,
 			      const libcamera::StreamConfiguration &outCfg) = 0;
-	virtual int process(const libcamera::FrameBuffer *source,
-			    const libcamera::Span<uint8_t> &destination,
-			    CameraMetadata *metadata) = 0;
+	virtual void process(Camera3RequestDescriptor::StreamBuffer *streamBuffer) = 0;
+
+	libcamera::Signal<Camera3RequestDescriptor::StreamBuffer *, Status> processComplete;
 };
 
 #endif /* __ANDROID_POST_PROCESSOR_H__ */

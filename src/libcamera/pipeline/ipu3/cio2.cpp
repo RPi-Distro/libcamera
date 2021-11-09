@@ -7,6 +7,9 @@
 
 #include "cio2.h"
 
+#include <limits>
+#include <math.h>
+
 #include <linux/media-bus-format.h>
 
 #include <libcamera/formats.h>
@@ -14,6 +17,7 @@
 #include <libcamera/stream.h>
 
 #include "libcamera/internal/camera_sensor.h"
+#include "libcamera/internal/framebuffer.h"
 #include "libcamera/internal/media_device.h"
 #include "libcamera/internal/v4l2_subdevice.h"
 
@@ -33,15 +37,7 @@ const std::map<uint32_t, PixelFormat> mbusCodesToPixelFormat = {
 } /* namespace */
 
 CIO2Device::CIO2Device()
-	: sensor_(nullptr), csi2_(nullptr), output_(nullptr)
 {
-}
-
-CIO2Device::~CIO2Device()
-{
-	delete output_;
-	delete csi2_;
-	delete sensor_;
 }
 
 /**
@@ -69,16 +65,35 @@ std::vector<PixelFormat> CIO2Device::formats() const
 
 /**
  * \brief Retrieve the list of supported size ranges
- * \return The list of supported SizeRange
+ * \param[in] format The pixel format
+ *
+ * Retrieve the list of supported sizes for a particular \a format by matching
+ * the sensor produced media bus codes formats supported by the CIO2 unit.
+ *
+ * \return A list of supported sizes for the \a format or an empty list
+ * otherwise
  */
-std::vector<SizeRange> CIO2Device::sizes() const
+std::vector<SizeRange> CIO2Device::sizes(const PixelFormat &format) const
 {
+	int mbusCode = -1;
+
 	if (!sensor_)
 		return {};
 
 	std::vector<SizeRange> sizes;
-	for (const Size &size : sensor_->sizes())
-		sizes.emplace_back(size, size);
+	for (const auto &iter : mbusCodesToPixelFormat) {
+		if (iter.second != format)
+			continue;
+
+		mbusCode = iter.first;
+		break;
+	}
+
+	if (mbusCode == -1)
+		return {};
+
+	for (const Size &sz : sensor_->sizes(mbusCode))
+		sizes.emplace_back(sz);
 
 	return sizes;
 }
@@ -118,7 +133,7 @@ int CIO2Device::init(const MediaDevice *media, unsigned int index)
 
 	MediaLink *link = links[0];
 	MediaEntity *sensorEntity = link->source()->entity();
-	sensor_ = new CameraSensor(sensorEntity);
+	sensor_ = std::make_unique<CameraSensor>(sensorEntity);
 	ret = sensor_->init();
 	if (ret)
 		return ret;
@@ -149,7 +164,7 @@ int CIO2Device::init(const MediaDevice *media, unsigned int index)
 	 * might impact on power consumption.
 	 */
 
-	csi2_ = new V4L2Subdevice(csi2Entity);
+	csi2_ = std::make_unique<V4L2Subdevice>(csi2Entity);
 	ret = csi2_->open();
 	if (ret)
 		return ret;
@@ -175,7 +190,7 @@ int CIO2Device::configure(const Size &size, V4L2DeviceFormat *outputFormat)
 	 * the CIO2 output device.
 	 */
 	std::vector<unsigned int> mbusCodes = utils::map_keys(mbusCodesToPixelFormat);
-	sensorFormat = sensor_->getFormat(mbusCodes, size);
+	sensorFormat = getSensorFormat(mbusCodes, size);
 	ret = sensor_->setFormat(&sensorFormat);
 	if (ret)
 		return ret;
@@ -188,9 +203,7 @@ int CIO2Device::configure(const Size &size, V4L2DeviceFormat *outputFormat)
 	if (itInfo == mbusCodesToPixelFormat.end())
 		return -EINVAL;
 
-	const PixelFormatInfo &info = PixelFormatInfo::info(itInfo->second);
-
-	outputFormat->fourcc = info.v4l2Format;
+	outputFormat->fourcc = V4L2PixelFormat::fromPixelFormat(itInfo->second);
 	outputFormat->size = sensorFormat.size;
 	outputFormat->planesCount = 1;
 
@@ -203,8 +216,7 @@ int CIO2Device::configure(const Size &size, V4L2DeviceFormat *outputFormat)
 	return 0;
 }
 
-StreamConfiguration
-CIO2Device::generateConfiguration(Size size) const
+StreamConfiguration CIO2Device::generateConfiguration(Size size) const
 {
 	StreamConfiguration cfg;
 
@@ -214,7 +226,7 @@ CIO2Device::generateConfiguration(Size size) const
 
 	/* Query the sensor static information for closest match. */
 	std::vector<unsigned int> mbusCodes = utils::map_keys(mbusCodesToPixelFormat);
-	V4L2SubdeviceFormat sensorFormat = sensor_->getFormat(mbusCodes, size);
+	V4L2SubdeviceFormat sensorFormat = getSensorFormat(mbusCodes, size);
 	if (!sensorFormat.mbus_code) {
 		LOG(IPU3, Error) << "Sensor does not support mbus code";
 		return {};
@@ -222,9 +234,100 @@ CIO2Device::generateConfiguration(Size size) const
 
 	cfg.size = sensorFormat.size;
 	cfg.pixelFormat = mbusCodesToPixelFormat.at(sensorFormat.mbus_code);
-	cfg.bufferCount = CIO2_BUFFER_COUNT;
+	cfg.bufferCount = kBufferCount;
 
 	return cfg;
+}
+
+/**
+ * \brief Retrieve the best sensor format for a desired output
+ * \param[in] mbusCodes The list of acceptable media bus codes
+ * \param[in] size The desired size
+ *
+ * Media bus codes are selected from \a mbusCodes, which lists all acceptable
+ * codes in decreasing order of preference. Media bus codes supported by the
+ * sensor but not listed in \a mbusCodes are ignored. If none of the desired
+ * codes is supported, it returns an error.
+ *
+ * \a size indicates the desired size at the output of the sensor. This method
+ * selects the best media bus code and size supported by the sensor according
+ * to the following criteria.
+ *
+ * - The desired \a size shall fit in the sensor output size to avoid the need
+ *   to up-scale.
+ * - The aspect ratio of sensor output size shall be as close as possible to
+ *   the sensor's native resolution field of view.
+ * - The sensor output size shall be as small as possible to lower the required
+ *   bandwidth.
+ * - The desired \a size shall be supported by one of the media bus code listed
+ *   in \a mbusCodes.
+ *
+ * When multiple media bus codes can produce the same size, the code at the
+ * lowest position in \a mbusCodes is selected.
+ *
+ * The returned sensor output format is guaranteed to be acceptable by the
+ * setFormat() method without any modification.
+ *
+ * \return The best sensor output format matching the desired media bus codes
+ * and size on success, or an empty format otherwise.
+ */
+V4L2SubdeviceFormat CIO2Device::getSensorFormat(const std::vector<unsigned int> &mbusCodes,
+						const Size &size) const
+{
+	unsigned int desiredArea = size.width * size.height;
+	unsigned int bestArea = std::numeric_limits<unsigned int>::max();
+	const Size &resolution = sensor_->resolution();
+	float desiredRatio = static_cast<float>(resolution.width) /
+			     resolution.height;
+	float bestRatio = std::numeric_limits<float>::max();
+	Size bestSize;
+	uint32_t bestCode = 0;
+
+	for (unsigned int code : mbusCodes) {
+		const auto sizes = sensor_->sizes(code);
+		if (!sizes.size())
+			continue;
+
+		for (const Size &sz : sizes) {
+			if (sz.width < size.width || sz.height < size.height)
+				continue;
+
+			float ratio = static_cast<float>(sz.width) / sz.height;
+			/*
+			 * Ratios can differ by small mantissa difference which
+			 * can affect the selection of the sensor output size
+			 * wildly. We are interested in selection of the closest
+			 * size with respect to the desired output size, hence
+			 * comparing it with a single precision digit is enough.
+			 */
+			ratio = static_cast<unsigned int>(ratio * 10) / 10.0;
+			float ratioDiff = fabsf(ratio - desiredRatio);
+			unsigned int area = sz.width * sz.height;
+			unsigned int areaDiff = area - desiredArea;
+
+			if (ratioDiff > bestRatio)
+				continue;
+
+			if (ratioDiff < bestRatio || areaDiff < bestArea) {
+				bestRatio = ratioDiff;
+				bestArea = areaDiff;
+				bestSize = sz;
+				bestCode = code;
+			}
+		}
+	}
+
+	if (bestSize.isNull()) {
+		LOG(IPU3, Debug) << "No supported format or size found";
+		return {};
+	}
+
+	V4L2SubdeviceFormat format{
+		.mbus_code = bestCode,
+		.size = bestSize,
+	};
+
+	return format;
 }
 
 int CIO2Device::exportBuffers(unsigned int count,
@@ -235,11 +338,11 @@ int CIO2Device::exportBuffers(unsigned int count,
 
 int CIO2Device::start()
 {
-	int ret = output_->exportBuffers(CIO2_BUFFER_COUNT, &buffers_);
+	int ret = output_->exportBuffers(kBufferCount, &buffers_);
 	if (ret < 0)
 		return ret;
 
-	ret = output_->importBuffers(CIO2_BUFFER_COUNT);
+	ret = output_->importBuffers(kBufferCount);
 	if (ret)
 		LOG(IPU3, Error) << "Failed to import CIO2 buffers";
 
@@ -247,39 +350,54 @@ int CIO2Device::start()
 		availableBuffers_.push(buffer.get());
 
 	ret = output_->streamOn();
-	if (ret)
+	if (ret) {
 		freeBuffers();
+		return ret;
+	}
 
-	return ret;
+	ret = csi2_->setFrameStartEnabled(true);
+	if (ret) {
+		stop();
+		return ret;
+	}
+
+	return 0;
 }
 
 int CIO2Device::stop()
 {
-	int ret = output_->streamOff();
+	int ret;
+
+	csi2_->setFrameStartEnabled(false);
+
+	ret = output_->streamOff();
 
 	freeBuffers();
 
 	return ret;
 }
 
-int CIO2Device::queueBuffer(Request *request, FrameBuffer *rawBuffer)
+FrameBuffer *CIO2Device::queueBuffer(Request *request, FrameBuffer *rawBuffer)
 {
 	FrameBuffer *buffer = rawBuffer;
 
 	/* If no buffer is provided in the request, use an internal one. */
 	if (!buffer) {
 		if (availableBuffers_.empty()) {
-			LOG(IPU3, Error) << "CIO2 buffer underrun";
-			return -EINVAL;
+			LOG(IPU3, Debug) << "CIO2 buffer underrun";
+			return nullptr;
 		}
 
 		buffer = availableBuffers_.front();
 		availableBuffers_.pop();
+		buffer->_d()->setRequest(request);
 	}
 
-	buffer->setRequest(request);
+	int ret = output_->queueBuffer(buffer);
+	if (ret)
+		return nullptr;
 
-	return output_->queueBuffer(buffer);
+	return buffer;
 }
 
 void CIO2Device::tryReturnBuffer(FrameBuffer *buffer)
@@ -296,6 +414,8 @@ void CIO2Device::tryReturnBuffer(FrameBuffer *buffer)
 			break;
 		}
 	}
+
+	bufferAvailable.emit();
 }
 
 void CIO2Device::freeBuffers()

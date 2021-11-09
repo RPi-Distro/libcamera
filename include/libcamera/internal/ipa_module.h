@@ -11,10 +11,11 @@
 #include <string>
 #include <vector>
 
+#include <libcamera/base/log.h>
+
 #include <libcamera/ipa/ipa_interface.h>
 #include <libcamera/ipa/ipa_module_info.h>
 
-#include "libcamera/internal/log.h"
 #include "libcamera/internal/pipeline_handler.h"
 
 namespace libcamera {
@@ -33,7 +34,7 @@ public:
 
 	bool load();
 
-	struct ipa_context *createContext();
+	IPAInterface *createInterface();
 
 	bool match(PipelineHandler *pipe,
 		   uint32_t minVersion, uint32_t maxVersion) const;
@@ -52,7 +53,7 @@ private:
 	bool loaded_;
 
 	void *dlHandle_;
-	typedef struct ipa_context *(*IPAIntfFactory)();
+	typedef IPAInterface *(*IPAIntfFactory)(void);
 	IPAIntfFactory ipaCreate_;
 };
 

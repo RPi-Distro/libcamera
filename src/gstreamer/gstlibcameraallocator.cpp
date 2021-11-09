@@ -52,8 +52,10 @@ FrameWrap::FrameWrap(GstAllocator *allocator, FrameBuffer *buffer,
 	  outstandingPlanes_(0)
 {
 	for (const FrameBuffer::Plane &plane : buffer->planes()) {
-		GstMemory *mem = gst_fd_allocator_alloc(allocator, plane.fd.fd(), plane.length,
+		GstMemory *mem = gst_fd_allocator_alloc(allocator, plane.fd.fd(),
+							plane.offset + plane.length,
 							GST_FD_MEMORY_FLAG_DONT_CLOSE);
+		gst_memory_resize(mem, plane.offset, plane.length);
 		gst_mini_object_set_qdata(GST_MINI_OBJECT(mem), getQuark(), this, nullptr);
 		GST_MINI_OBJECT(mem)->dispose = gst_libcamera_allocator_release;
 		g_object_unref(mem->allocator);
@@ -101,22 +103,25 @@ struct _GstLibcameraAllocator {
 };
 
 G_DEFINE_TYPE(GstLibcameraAllocator, gst_libcamera_allocator,
-	      GST_TYPE_DMABUF_ALLOCATOR);
+	      GST_TYPE_DMABUF_ALLOCATOR)
 
 static gboolean
 gst_libcamera_allocator_release(GstMiniObject *mini_object)
 {
 	GstMemory *mem = GST_MEMORY_CAST(mini_object);
 	GstLibcameraAllocator *self = GST_LIBCAMERA_ALLOCATOR(mem->allocator);
-	GLibLocker lock(GST_OBJECT(self));
-	auto *frame = reinterpret_cast<FrameWrap *>(gst_mini_object_get_qdata(mini_object, FrameWrap::getQuark()));
 
-	gst_memory_ref(mem);
+	{
+		GLibLocker lock(GST_OBJECT(self));
+		auto *frame = reinterpret_cast<FrameWrap *>(gst_mini_object_get_qdata(mini_object, FrameWrap::getQuark()));
 
-	if (frame->releasePlane()) {
-		auto *pool = reinterpret_cast<GQueue *>(g_hash_table_lookup(self->pools, frame->stream_));
-		g_return_val_if_fail(pool, TRUE);
-		g_queue_push_tail(pool, frame);
+		gst_memory_ref(mem);
+
+		if (frame->releasePlane()) {
+			auto *pool = reinterpret_cast<GQueue *>(g_hash_table_lookup(self->pools, frame->stream_));
+			g_return_val_if_fail(pool, TRUE);
+			g_queue_push_tail(pool, frame);
+		}
 	}
 
 	/* Keep last in case we are holding on the last allocator ref. */
@@ -183,13 +188,15 @@ gst_libcamera_allocator_class_init(GstLibcameraAllocatorClass *klass)
 }
 
 GstLibcameraAllocator *
-gst_libcamera_allocator_new(std::shared_ptr<Camera> camera)
+gst_libcamera_allocator_new(std::shared_ptr<Camera> camera,
+			    CameraConfiguration *config_)
 {
 	auto *self = GST_LIBCAMERA_ALLOCATOR(g_object_new(GST_TYPE_LIBCAMERA_ALLOCATOR,
 							  nullptr));
 
 	self->fb_allocator = new FrameBufferAllocator(camera);
-	for (Stream *stream : camera->streams()) {
+	for (StreamConfiguration &streamCfg : *config_) {
+		Stream *stream = streamCfg.stream();
 		gint ret;
 
 		ret = self->fb_allocator->allocate(stream);

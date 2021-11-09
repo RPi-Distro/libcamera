@@ -1,5 +1,12 @@
 # SPDX-License-Identifier: CC0-1.0
 
+if not get_option('v4l2')
+    v4l2_enabled = false
+    subdir_done()
+endif
+
+v4l2_enabled = true
+
 v4l2_compat_sources = files([
     'v4l2_camera.cpp',
     'v4l2_camera_file.cpp',
@@ -24,5 +31,5 @@ v4l2_compat = shared_library('v4l2-compat',
                              v4l2_compat_sources,
                              name_prefix : '',
                              install : true,
-                             dependencies : [ libcamera_dep, libdl ],
+                             dependencies : [libcamera_private, libdl],
                              cpp_args : v4l2_compat_cpp_args)

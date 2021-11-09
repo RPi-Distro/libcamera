@@ -3,7 +3,7 @@
 ipa_name = 'ipa_rpi'
 
 rpi_ipa_deps = [
-    libcamera_dep,
+    libcamera_private,
     dependency('boost'),
     libatomic,
 ]
@@ -16,12 +16,14 @@ rpi_ipa_includes = [
 
 rpi_ipa_sources = files([
     'raspberrypi.cpp',
-    'md_parser.cpp',
-    'md_parser_rpi.cpp',
+    'md_parser_smia.cpp',
     'cam_helper.cpp',
     'cam_helper_ov5647.cpp',
     'cam_helper_imx219.cpp',
+    'cam_helper_imx290.cpp',
     'cam_helper_imx477.cpp',
+    'cam_helper_imx519.cpp',
+    'cam_helper_ov9281.cpp',
     'controller/controller.cpp',
     'controller/histogram.cpp',
     'controller/algorithm.cpp',
@@ -39,10 +41,11 @@ rpi_ipa_sources = files([
     'controller/rpi/contrast.cpp',
     'controller/rpi/sdn.cpp',
     'controller/pwl.cpp',
+    'controller/device_status.cpp',
 ])
 
 mod = shared_module(ipa_name,
-                    rpi_ipa_sources,
+                    [rpi_ipa_sources, libcamera_generated_ipa_headers],
                     name_prefix : '',
                     include_directories : rpi_ipa_includes,
                     dependencies : rpi_ipa_deps,
@@ -54,7 +57,7 @@ if ipa_sign_module
     custom_target(ipa_name + '.so.sign',
                   input : mod,
                   output : ipa_name + '.so.sign',
-                  command : [ ipa_sign, ipa_priv_key, '@INPUT@', '@OUTPUT@' ],
+                  command : [ipa_sign, ipa_priv_key, '@INPUT@', '@OUTPUT@'],
                   install : false,
                   build_by_default : true)
 endif

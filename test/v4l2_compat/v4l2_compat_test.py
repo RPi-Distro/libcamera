@@ -94,7 +94,7 @@ def main(argv):
         return TestSkip
 
     ret, out = run_with_stdout(v4l2_compliance, '--version')
-    if ret != 0 or version.parse(out[0].split()[-1]) < MIN_V4L_UTILS_VERSION:
+    if ret != 0 or version.parse(out[0].split()[1].replace(',', '')) < MIN_V4L_UTILS_VERSION:
         print('v4l2-compliance version >= 1.21.0 required')
         return TestSkip
 
@@ -134,6 +134,10 @@ def main(argv):
         if driver not in supported_pipelines:
             continue
 
+        # TODO: Add kernel version check when vimc supports scaling
+        if driver == "vimc":
+            continue
+
         if not args.all and driver in drivers_tested:
             continue
 
@@ -146,6 +150,10 @@ def main(argv):
         else:
             print('success')
         drivers_tested[driver] = True
+
+    if len(drivers_tested) == 0:
+        print(f'No compatible drivers found')
+        return TestSkip
 
     if len(failed) > 0:
         print(f'Failed {len(failed)} tests:')

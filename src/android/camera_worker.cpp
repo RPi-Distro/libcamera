@@ -10,12 +10,13 @@
 #include <errno.h>
 #include <string.h>
 #include <sys/poll.h>
+#include <unistd.h>
 
 #include "camera_device.h"
 
 using namespace libcamera;
 
-LOG_DECLARE_CATEGORY(HAL);
+LOG_DECLARE_CATEGORY(HAL)
 
 /*
  * \class CaptureRequest
@@ -26,7 +27,7 @@ LOG_DECLARE_CATEGORY(HAL);
  * by the CameraWorker which queues it to the libcamera::Camera after handling
  * fences.
  */
-CaptureRequest::CaptureRequest(libcamera::Camera *camera, uint64_t cookie)
+CaptureRequest::CaptureRequest(Camera *camera, uint64_t cookie)
 	: camera_(camera)
 {
 	request_ = camera_->createRequest(cookie);
@@ -52,18 +53,24 @@ void CaptureRequest::queue()
  */
 CameraWorker::CameraWorker()
 {
-	worker_.moveToThread(&thread_);
+	worker_.moveToThread(this);
 }
 
 void CameraWorker::start()
 {
-	thread_.start();
+	Thread::start();
 }
 
 void CameraWorker::stop()
 {
-	thread_.exit();
-	thread_.wait();
+	exit();
+	wait();
+}
+
+void CameraWorker::run()
+{
+	exec();
+	dispatchMessages(Message::Type::InvokeMessage);
 }
 
 void CameraWorker::queueRequest(CaptureRequest *request)

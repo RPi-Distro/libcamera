@@ -9,14 +9,17 @@
 
 #include <sys/sysmacros.h>
 
-#include <libcamera/buffer.h>
+#include <libcamera/base/log.h>
+#include <libcamera/base/utils.h>
+
 #include <libcamera/camera.h>
 #include <libcamera/camera_manager.h>
+#include <libcamera/framebuffer.h>
 
+#include "libcamera/internal/camera.h"
 #include "libcamera/internal/device_enumerator.h"
-#include "libcamera/internal/log.h"
 #include "libcamera/internal/media_device.h"
-#include "libcamera/internal/utils.h"
+#include "libcamera/internal/tracepoints.h"
 
 /**
  * \file pipeline_handler.h
@@ -37,84 +40,6 @@ namespace libcamera {
 LOG_DEFINE_CATEGORY(Pipeline)
 
 /**
- * \class CameraData
- * \brief Base class for platform-specific data associated with a camera
- *
- * The CameraData base abstract class represents platform specific-data
- * a pipeline handler might want to associate with a Camera to access them
- * at a later time.
- *
- * Pipeline handlers are expected to extend this base class with platform
- * specific implementation, associate instances of the derived classes
- * using the registerCamera() method, and access them at a later time
- * with cameraData().
- */
-
-/**
- * \fn CameraData::CameraData(PipelineHandler *pipe)
- * \brief Construct a CameraData instance for the given pipeline handler
- * \param[in] pipe The pipeline handler
- *
- * The reference to the pipeline handler is stored internally, the caller shall
- * guarantee that the pointer remains valid as long as the CameraData instance
- * exists.
- */
-
-/**
- * \var CameraData::camera_
- * \brief The camera related to this CameraData instance
- *
- * The camera_ pointer provides access to the Camera object that this instance
- * is related to. It is set when the Camera is registered with
- * PipelineHandler::registerCamera() and remains valid until the CameraData
- * instance is destroyed.
- */
-
-/**
- * \var CameraData::pipe_
- * \brief The pipeline handler related to this CameraData instance
- *
- * The pipe_ pointer provides access to the PipelineHandler object that this
- * instance is related to. It is set when the CameraData instance is created
- * and remains valid until the instance is destroyed.
- */
-
-/**
- * \var CameraData::queuedRequests_
- * \brief The list of queued and not yet completed request
- *
- * The list of queued request is used to track requests queued in order to
- * ensure completion of all requests when the pipeline handler is stopped.
- *
- * \sa PipelineHandler::queueRequest(), PipelineHandler::stop(),
- * PipelineHandler::completeRequest()
- */
-
-/**
- * \var CameraData::controlInfo_
- * \brief The set of controls supported by the camera
- *
- * The control information shall be initialised by the pipeline handler when
- * creating the camera, and shall not be modified afterwards.
- */
-
-/**
- * \var CameraData::properties_
- * \brief The list of properties supported by the camera
- *
- * The list of camera properties shall be initialised by the pipeline handler
- * when creating the camera, and shall not be modified afterwards.
- */
-
-/**
- * \var CameraData::ipa_
- * \brief The IPA module used by the camera
- *
- * Reference to the Image Processing Algorithms (IPA) operating on the camera's
- * stream(s). If no IPA exists for the camera, this field is set to nullptr.
- */
-
-/**
  * \class PipelineHandler
  * \brief Create and manage cameras based on a set of media devices
  *
@@ -133,7 +58,7 @@ LOG_DEFINE_CATEGORY(Pipeline)
  *
  * In order to honour the std::enable_shared_from_this<> contract,
  * PipelineHandler instances shall never be constructed manually, but always
- * through the PipelineHandlerFactory::create() method implemented by the
+ * through the PipelineHandlerFactory::create() function implemented by the
  * respective factories.
  */
 PipelineHandler::PipelineHandler(CameraManager *manager)
@@ -214,8 +139,8 @@ MediaDevice *PipelineHandler::acquireMediaDevice(DeviceEnumerator *enumerator,
 /**
  * \brief Lock all media devices acquired by the pipeline
  *
- * This method shall not be called from pipeline handler implementation, as the
- * Camera class handles locking directly.
+ * This function shall not be called from pipeline handler implementation, as
+ * the Camera class handles locking directly.
  *
  * \context This function is \threadsafe.
  *
@@ -238,8 +163,8 @@ bool PipelineHandler::lock()
 /**
  * \brief Unlock all media devices acquired by the pipeline
  *
- * This method shall not be called from pipeline handler implementation, as the
- * Camera class handles locking directly.
+ * This function shall not be called from pipeline handler implementation, as
+ * the Camera class handles locking directly.
  *
  * \context This function is \threadsafe.
  *
@@ -249,29 +174,6 @@ void PipelineHandler::unlock()
 {
 	for (std::shared_ptr<MediaDevice> &media : mediaDevices_)
 		media->unlock();
-}
-
-/**
- * \brief Retrieve the list of controls for a camera
- * \param[in] camera The camera
- * \context This function is \threadsafe.
- * \return A ControlInfoMap listing the controls support by \a camera
- */
-const ControlInfoMap &PipelineHandler::controls(const Camera *camera) const
-{
-	const CameraData *data = cameraData(camera);
-	return data->controlInfo_;
-}
-
-/**
- * \brief Retrieve the list of properties for a camera
- * \param[in] camera The camera
- * \return A ControlList of properties supported by \a camera
- */
-const ControlList &PipelineHandler::properties(const Camera *camera) const
-{
-	const CameraData *data = cameraData(camera);
-	return data->properties_;
 }
 
 /**
@@ -310,13 +212,13 @@ const ControlList &PipelineHandler::properties(const Camera *camera) const
  * application.
  *
  * The configuration is guaranteed to have been validated with
- * CameraConfiguration::valid(). The pipeline handler implementation shall not
- * perform further validation and may rely on any custom field stored in its
+ * CameraConfiguration::validate(). The pipeline handler implementation shall
+ * not perform further validation and may rely on any custom field stored in its
  * custom CameraConfiguration derived class.
  *
  * When configuring the camera the pipeline handler shall associate a Stream
  * instance to each StreamConfiguration entry in the CameraConfiguration using
- * the StreamConfiguration::setStream() method.
+ * the StreamConfiguration::setStream() function.
  *
  * \context This function is called from the CameraManager thread.
  *
@@ -330,13 +232,13 @@ const ControlList &PipelineHandler::properties(const Camera *camera) const
  * \param[in] stream The stream to allocate buffers for
  * \param[out] buffers Array of buffers successfully allocated
  *
- * This method allocates buffers for the \a stream from the devices associated
+ * This function allocates buffers for the \a stream from the devices associated
  * with the stream in the corresponding pipeline handler. Those buffers shall be
  * suitable to be added to a Request for the stream, and shall be mappable to
  * the CPU through their associated dmabufs with mmap().
  *
- * The method may only be called after the Camera has been configured and before
- * it gets started, or after it gets stopped. It shall be called only for
+ * The function may only be called after the Camera has been configured and
+ * before it gets started, or after it gets stopped. It shall be called only for
  * streams that are part of the active camera configuration.
  *
  * The only intended caller is Camera::exportFrameBuffers().
@@ -351,10 +253,11 @@ const ControlList &PipelineHandler::properties(const Camera *camera) const
  * \fn PipelineHandler::start()
  * \brief Start capturing from a group of streams
  * \param[in] camera The camera to start
+ * \param[in] controls Controls to be applied before starting the Camera
  *
  * Start the group of streams that have been configured for capture by
- * \a configure(). The intended caller of this method is the Camera class which
- * will in turn be called from the application to indicate that it has
+ * \a configure(). The intended caller of this function is the Camera class
+ * which will in turn be called from the application to indicate that it has
  * configured the streams and is ready to capture.
  *
  * \context This function is called from the CameraManager thread.
@@ -367,40 +270,58 @@ const ControlList &PipelineHandler::properties(const Camera *camera) const
  * \brief Stop capturing from all running streams
  * \param[in] camera The camera to stop
  *
- * This method stops capturing and processing requests immediately. All pending
- * requests are cancelled and complete immediately in an error state.
+ * This function stops capturing and processing requests immediately. All
+ * pending requests are cancelled and complete immediately in an error state.
  *
  * \context This function is called from the CameraManager thread.
  */
 
 /**
+ * \brief Determine if the camera has any requests pending
+ * \param[in] camera The camera to check
+ *
+ * This function determines if there are any requests queued to the pipeline
+ * awaiting processing.
+ *
+ * \return True if there are pending requests, or false otherwise
+ */
+bool PipelineHandler::hasPendingRequests(const Camera *camera) const
+{
+	return !camera->_d()->queuedRequests_.empty();
+}
+
+/**
  * \fn PipelineHandler::queueRequest()
- * \brief Queue a request to the camera
- * \param[in] camera The camera to queue the request to
+ * \brief Queue a request
  * \param[in] request The request to queue
  *
- * This method queues a capture request to the pipeline handler for processing.
- * The request is first added to the internal list of queued requests, and
- * then passed to the pipeline handler with a call to queueRequestDevice().
+ * This function queues a capture request to the pipeline handler for
+ * processing. The request is first added to the internal list of queued
+ * requests, and then passed to the pipeline handler with a call to
+ * queueRequestDevice(). If the pipeline handler fails in queuing the request
+ * to the hardware the request is cancelled.
  *
  * Keeping track of queued requests ensures automatic completion of all requests
  * when the pipeline handler is stopped with stop(). Request completion shall be
- * signalled by the pipeline handler using the completeRequest() method.
+ * signalled by the pipeline handler using the completeRequest() function.
  *
  * \context This function is called from the CameraManager thread.
- *
- * \return 0 on success or a negative error code otherwise
  */
-int PipelineHandler::queueRequest(Camera *camera, Request *request)
+void PipelineHandler::queueRequest(Request *request)
 {
-	CameraData *data = cameraData(camera);
+	LIBCAMERA_TRACEPOINT(request_queue, request);
+
+	Camera *camera = request->camera_;
+	Camera::Private *data = camera->_d();
 	data->queuedRequests_.push_back(request);
 
-	int ret = queueRequestDevice(camera, request);
-	if (ret)
-		data->queuedRequests_.remove(request);
+	request->sequence_ = data->requestSequence_++;
 
-	return ret;
+	int ret = queueRequestDevice(camera, request);
+	if (ret) {
+		request->cancel();
+		completeRequest(request);
+	}
 }
 
 /**
@@ -409,7 +330,7 @@ int PipelineHandler::queueRequest(Camera *camera, Request *request)
  * \param[in] camera The camera to queue the request to
  * \param[in] request The request to queue
  *
- * This method queues a capture request to the device for processing. The
+ * This function queues a capture request to the device for processing. The
  * request contains a set of buffers associated with streams and a set of
  * parameters. The pipeline handler shall program the device to ensure that the
  * parameters will be applied to the frames captured in the buffers provided in
@@ -422,12 +343,11 @@ int PipelineHandler::queueRequest(Camera *camera, Request *request)
 
 /**
  * \brief Complete a buffer for a request
- * \param[in] camera The camera the request belongs to
  * \param[in] request The request the buffer belongs to
  * \param[in] buffer The buffer that has completed
  *
- * This method shall be called by pipeline handlers to signal completion of the
- * \a buffer part of the \a request. It notifies applications of buffer
+ * This function shall be called by pipeline handlers to signal completion of
+ * the \a buffer part of the \a request. It notifies applications of buffer
  * completion and updates the request's internal buffer tracking. The request
  * is not completed automatically when the last buffer completes to give
  * pipeline handlers a chance to perform any operation that may still be
@@ -438,33 +358,34 @@ int PipelineHandler::queueRequest(Camera *camera, Request *request)
  * \return True if all buffers contained in the request have completed, false
  * otherwise
  */
-bool PipelineHandler::completeBuffer(Camera *camera, Request *request,
-				     FrameBuffer *buffer)
+bool PipelineHandler::completeBuffer(Request *request, FrameBuffer *buffer)
 {
+	Camera *camera = request->camera_;
 	camera->bufferCompleted.emit(request, buffer);
 	return request->completeBuffer(buffer);
 }
 
 /**
  * \brief Signal request completion
- * \param[in] camera The camera that the request belongs to
  * \param[in] request The request that has completed
  *
- * The pipeline handler shall call this method to notify the \a camera that the
- * request has completed. The request is deleted and shall not be accessed once
- * this method returns.
+ * The pipeline handler shall call this function to notify the \a camera that
+ * the request has completed. The request is no longer managed by the pipeline
+ * handler and shall not be accessed once this function returns.
  *
- * This method ensures that requests will be returned to the application in
+ * This function ensures that requests will be returned to the application in
  * submission order, the pipeline handler may call it on any complete request
  * without any ordering constraint.
  *
  * \context This function shall be called from the CameraManager thread.
  */
-void PipelineHandler::completeRequest(Camera *camera, Request *request)
+void PipelineHandler::completeRequest(Request *request)
 {
+	Camera *camera = request->camera_;
+
 	request->complete();
 
-	CameraData *data = cameraData(camera);
+	Camera::Private *data = camera->_d();
 
 	while (!data->queuedRequests_.empty()) {
 		Request *req = data->queuedRequests_.front();
@@ -480,20 +401,14 @@ void PipelineHandler::completeRequest(Camera *camera, Request *request)
 /**
  * \brief Register a camera to the camera manager and pipeline handler
  * \param[in] camera The camera to be added
- * \param[in] data Pipeline-specific data for the camera
  *
- * This method is called by pipeline handlers to register the cameras they
- * handle with the camera manager. It associates the pipeline-specific \a data
- * with the camera, for later retrieval with cameraData(). Ownership of \a data
- * is transferred to the PipelineHandler.
+ * This function is called by pipeline handlers to register the cameras they
+ * handle with the camera manager.
  *
  * \context This function shall be called from the CameraManager thread.
  */
-void PipelineHandler::registerCamera(std::shared_ptr<Camera> camera,
-				     std::unique_ptr<CameraData> data)
+void PipelineHandler::registerCamera(std::shared_ptr<Camera> camera)
 {
-	data->camera_ = camera.get();
-	cameraData_[camera.get()] = std::move(data);
 	cameras_.push_back(camera);
 
 	if (mediaDevices_.empty())
@@ -533,7 +448,7 @@ void PipelineHandler::registerCamera(std::shared_ptr<Camera> camera,
  */
 void PipelineHandler::hotplugMediaDevice(MediaDevice *media)
 {
-	media->disconnected.connect(this, &PipelineHandler::mediaDeviceDisconnected);
+	media->disconnected.connect(this, [=]() { mediaDeviceDisconnected(media); });
 }
 
 /**
@@ -585,33 +500,6 @@ void PipelineHandler::disconnect()
 		camera->disconnect();
 		manager_->removeCamera(camera);
 	}
-}
-
-/**
- * \brief Retrieve the pipeline-specific data associated with a Camera
- * \param[in] camera The camera whose data to retrieve
- * \return A pointer to the pipeline-specific data passed to registerCamera().
- * The returned pointer is a borrowed reference and is guaranteed to remain
- * valid until the pipeline handler is destroyed. It shall not be deleted
- * manually by the caller.
- */
-CameraData *PipelineHandler::cameraData(const Camera *camera)
-{
-	ASSERT(cameraData_.count(camera));
-	return cameraData_[camera].get();
-}
-
-/**
- * \brief Retrieve the pipeline-specific data associated with a Camera
- * \param[in] camera The camera whose data to retrieve
- * \sa cameraData()
- * \return A const pointer to the pipeline-specific data passed to
- * registerCamera().
- */
-const CameraData *PipelineHandler::cameraData(const Camera *camera) const
-{
-	ASSERT(cameraData_.count(camera));
-	return cameraData_.at(camera).get();
 }
 
 /**
@@ -693,14 +581,15 @@ void PipelineHandlerFactory::registerType(PipelineHandlerFactory *factory)
 
 /**
  * \brief Retrieve the list of all pipeline handler factories
- *
- * The static factories map is defined inside the function to ensures it gets
- * initialized on first use, without any dependency on link order.
- *
  * \return the list of pipeline handler factories
  */
 std::vector<PipelineHandlerFactory *> &PipelineHandlerFactory::factories()
 {
+	/*
+	 * The static factories map is defined inside the function to ensure
+	 * it gets initialized on first use, without any dependency on
+	 * link order.
+	 */
 	static std::vector<PipelineHandlerFactory *> factories;
 	return factories;
 }

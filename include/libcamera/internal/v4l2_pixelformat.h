@@ -20,6 +20,11 @@ namespace libcamera {
 class V4L2PixelFormat
 {
 public:
+	struct Info {
+		PixelFormat format;
+		const char *description;
+	};
+
 	V4L2PixelFormat()
 		: fourcc_(0)
 	{
@@ -35,10 +40,11 @@ public:
 	operator uint32_t() const { return fourcc_; }
 
 	std::string toString() const;
+	const char *description() const;
 
 	PixelFormat toPixelFormat() const;
 	static V4L2PixelFormat fromPixelFormat(const PixelFormat &pixelFormat,
-					       bool multiplanar);
+					       bool multiplanar = false);
 
 private:
 	uint32_t fourcc_;

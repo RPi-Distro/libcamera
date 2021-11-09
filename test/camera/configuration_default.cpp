@@ -10,6 +10,7 @@
 #include "camera_test.h"
 #include "test.h"
 
+using namespace libcamera;
 using namespace std;
 
 namespace {
@@ -56,4 +57,4 @@ protected:
 
 } /* namespace */
 
-TEST_REGISTER(ConfigurationDefault);
+TEST_REGISTER(ConfigurationDefault)

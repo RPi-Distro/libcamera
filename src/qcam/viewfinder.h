@@ -11,23 +11,21 @@
 #include <QList>
 #include <QSize>
 
-#include <libcamera/buffer.h>
 #include <libcamera/formats.h>
+#include <libcamera/framebuffer.h>
 
-struct MappedBuffer {
-	void *memory;
-	size_t size;
-};
+class Image;
 
 class ViewFinder
 {
 public:
-	virtual ~ViewFinder() {}
+	virtual ~ViewFinder() = default;
 
 	virtual const QList<libcamera::PixelFormat> &nativeFormats() const = 0;
 
-	virtual int setFormat(const libcamera::PixelFormat &format, const QSize &size) = 0;
-	virtual void render(libcamera::FrameBuffer *buffer, MappedBuffer *map) = 0;
+	virtual int setFormat(const libcamera::PixelFormat &format, const QSize &size,
+			      unsigned int stride) = 0;
+	virtual void render(libcamera::FrameBuffer *buffer, Image *image) = 0;
 	virtual void stop() = 0;
 
 	virtual QImage getCurrentImage() = 0;

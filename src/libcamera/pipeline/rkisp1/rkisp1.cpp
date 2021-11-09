@@ -14,40 +14,37 @@
 
 #include <linux/media-bus-format.h>
 
-#include <libcamera/buffer.h>
+#include <libcamera/base/log.h>
+#include <libcamera/base/utils.h>
+
 #include <libcamera/camera.h>
 #include <libcamera/control_ids.h>
 #include <libcamera/formats.h>
-#include <libcamera/ipa/rkisp1.h>
+#include <libcamera/framebuffer.h>
+#include <libcamera/ipa/core_ipa_interface.h>
+#include <libcamera/ipa/rkisp1_ipa_interface.h>
+#include <libcamera/ipa/rkisp1_ipa_proxy.h>
 #include <libcamera/request.h>
 #include <libcamera/stream.h>
 
+#include "libcamera/internal/camera.h"
 #include "libcamera/internal/camera_sensor.h"
+#include "libcamera/internal/delayed_controls.h"
 #include "libcamera/internal/device_enumerator.h"
 #include "libcamera/internal/ipa_manager.h"
-#include "libcamera/internal/log.h"
 #include "libcamera/internal/media_device.h"
 #include "libcamera/internal/pipeline_handler.h"
-#include "libcamera/internal/utils.h"
 #include "libcamera/internal/v4l2_subdevice.h"
 #include "libcamera/internal/v4l2_videodevice.h"
 
 #include "rkisp1_path.h"
-#include "timeline.h"
 
 namespace libcamera {
 
 LOG_DEFINE_CATEGORY(RkISP1)
 
 class PipelineHandlerRkISP1;
-class RkISP1ActionQueueBuffers;
 class RkISP1CameraData;
-
-enum RkISP1ActionType {
-	SetSensor,
-	SOE,
-	QueueBuffers,
-};
 
 struct RkISP1FrameInfo {
 	unsigned int frame;
@@ -58,7 +55,6 @@ struct RkISP1FrameInfo {
 	FrameBuffer *mainPathBuffer;
 	FrameBuffer *selfPathBuffer;
 
-	bool paramFilled;
 	bool paramDequeued;
 	bool metadataProcessed;
 };
@@ -81,72 +77,35 @@ private:
 	std::map<unsigned int, RkISP1FrameInfo *> frameInfo_;
 };
 
-class RkISP1Timeline : public Timeline
-{
-public:
-	RkISP1Timeline()
-		: Timeline()
-	{
-		setDelay(SetSensor, -1, 5);
-		setDelay(SOE, 0, -1);
-		setDelay(QueueBuffers, -1, 10);
-	}
-
-	void bufferReady(FrameBuffer *buffer)
-	{
-		/*
-		 * Calculate SOE by taking the end of DMA set by the kernel and applying
-		 * the time offsets provideprovided by the IPA to find the best estimate
-		 * of SOE.
-		 */
-
-		ASSERT(frameOffset(SOE) == 0);
-
-		utils::time_point soe = std::chrono::time_point<utils::clock>()
-			+ std::chrono::nanoseconds(buffer->metadata().timestamp)
-			+ timeOffset(SOE);
-
-		notifyStartOfExposure(buffer->metadata().sequence, soe);
-	}
-
-	void setDelay(unsigned int type, int frame, int msdelay)
-	{
-		utils::duration delay = std::chrono::milliseconds(msdelay);
-		setRawDelay(type, frame, delay);
-	}
-};
-
-class RkISP1CameraData : public CameraData
+class RkISP1CameraData : public Camera::Private
 {
 public:
 	RkISP1CameraData(PipelineHandler *pipe, RkISP1MainPath *mainPath,
 			 RkISP1SelfPath *selfPath)
-		: CameraData(pipe), sensor_(nullptr), frame_(0),
-		  frameInfo_(pipe), mainPath_(mainPath), selfPath_(selfPath)
+		: Camera::Private(pipe), frame_(0), frameInfo_(pipe),
+		  mainPath_(mainPath), selfPath_(selfPath)
 	{
 	}
 
-	~RkISP1CameraData()
-	{
-		delete sensor_;
-	}
-
-	int loadIPA();
+	PipelineHandlerRkISP1 *pipe();
+	int loadIPA(unsigned int hwRevision);
 
 	Stream mainPathStream_;
 	Stream selfPathStream_;
-	CameraSensor *sensor_;
+	std::unique_ptr<CameraSensor> sensor_;
+	std::unique_ptr<DelayedControls> delayedCtrls_;
 	unsigned int frame_;
 	std::vector<IPABuffer> ipaBuffers_;
 	RkISP1Frames frameInfo_;
-	RkISP1Timeline timeline_;
 
 	RkISP1MainPath *mainPath_;
 	RkISP1SelfPath *selfPath_;
 
+	std::unique_ptr<ipa::rkisp1::IPAProxyRkISP1> ipa_;
+
 private:
 	void queueFrameAction(unsigned int frame,
-			      const IPAOperationData &action);
+			      const ipa::rkisp1::RkISP1Action &action);
 
 	void metadataReady(unsigned int frame, const ControlList &metadata);
 };
@@ -178,7 +137,6 @@ class PipelineHandlerRkISP1 : public PipelineHandler
 {
 public:
 	PipelineHandlerRkISP1(CameraManager *manager);
-	~PipelineHandlerRkISP1();
 
 	CameraConfiguration *generateConfiguration(Camera *camera,
 		const StreamRoles &roles) override;
@@ -187,7 +145,7 @@ public:
 	int exportFrameBuffers(Camera *camera, Stream *stream,
 			       std::vector<std::unique_ptr<FrameBuffer>> *buffers) override;
 
-	int start(Camera *camera) override;
+	int start(Camera *camera, const ControlList *controls) override;
 	void stop(Camera *camera) override;
 
 	int queueRequestDevice(Camera *camera, Request *request) override;
@@ -195,31 +153,30 @@ public:
 	bool match(DeviceEnumerator *enumerator) override;
 
 private:
-	RkISP1CameraData *cameraData(const Camera *camera)
+	RkISP1CameraData *cameraData(Camera *camera)
 	{
-		return static_cast<RkISP1CameraData *>(
-			PipelineHandler::cameraData(camera));
+		return static_cast<RkISP1CameraData *>(camera->_d());
 	}
 
-	friend RkISP1ActionQueueBuffers;
 	friend RkISP1CameraData;
 	friend RkISP1Frames;
 
-	int initLinks(const Camera *camera, const CameraSensor *sensor,
+	int initLinks(Camera *camera, const CameraSensor *sensor,
 		      const RkISP1CameraConfiguration &config);
 	int createCamera(MediaEntity *sensor);
 	void tryCompleteRequest(Request *request);
 	void bufferReady(FrameBuffer *buffer);
 	void paramReady(FrameBuffer *buffer);
 	void statReady(FrameBuffer *buffer);
+	void frameStart(uint32_t sequence);
 
 	int allocateBuffers(Camera *camera);
 	int freeBuffers(Camera *camera);
 
 	MediaDevice *media_;
-	V4L2Subdevice *isp_;
-	V4L2VideoDevice *param_;
-	V4L2VideoDevice *stat_;
+	std::unique_ptr<V4L2Subdevice> isp_;
+	std::unique_ptr<V4L2VideoDevice> param_;
+	std::unique_ptr<V4L2VideoDevice> stat_;
 
 	RkISP1MainPath mainPath_;
 	RkISP1SelfPath selfPath_;
@@ -267,7 +224,6 @@ RkISP1FrameInfo *RkISP1Frames::create(const RkISP1CameraData *data, Request *req
 	info->mainPathBuffer = mainPathBuffer;
 	info->selfPathBuffer = selfPathBuffer;
 	info->statBuffer = statBuffer;
-	info->paramFilled = false;
 	info->paramDequeued = false;
 	info->metadataProcessed = false;
 
@@ -313,7 +269,8 @@ RkISP1FrameInfo *RkISP1Frames::find(unsigned int frame)
 	if (itInfo != frameInfo_.end())
 		return itInfo->second;
 
-	LOG(RkISP1, Error) << "Can't locate info from frame";
+	LOG(RkISP1, Fatal) << "Can't locate info from frame";
+
 	return nullptr;
 }
 
@@ -329,7 +286,8 @@ RkISP1FrameInfo *RkISP1Frames::find(FrameBuffer *buffer)
 			return info;
 	}
 
-	LOG(RkISP1, Error) << "Can't locate info from buffer";
+	LOG(RkISP1, Fatal) << "Can't locate info from buffer";
+
 	return nullptr;
 }
 
@@ -342,127 +300,79 @@ RkISP1FrameInfo *RkISP1Frames::find(Request *request)
 			return info;
 	}
 
-	LOG(RkISP1, Error) << "Can't locate info from request";
+	LOG(RkISP1, Fatal) << "Can't locate info from request";
+
 	return nullptr;
 }
 
-class RkISP1ActionSetSensor : public FrameAction
+PipelineHandlerRkISP1 *RkISP1CameraData::pipe()
 {
-public:
-	RkISP1ActionSetSensor(unsigned int frame, CameraSensor *sensor, const ControlList &controls)
-		: FrameAction(frame, SetSensor), sensor_(sensor), controls_(controls) {}
+	return static_cast<PipelineHandlerRkISP1 *>(Camera::Private::pipe());
+}
 
-protected:
-	void run() override
-	{
-		sensor_->setControls(&controls_);
-	}
-
-private:
-	CameraSensor *sensor_;
-	ControlList controls_;
-};
-
-class RkISP1ActionQueueBuffers : public FrameAction
+int RkISP1CameraData::loadIPA(unsigned int hwRevision)
 {
-public:
-	RkISP1ActionQueueBuffers(unsigned int frame, RkISP1CameraData *data,
-				 PipelineHandlerRkISP1 *pipe)
-		: FrameAction(frame, QueueBuffers), data_(data), pipe_(pipe)
-	{
-	}
-
-protected:
-	void run() override
-	{
-		RkISP1FrameInfo *info = data_->frameInfo_.find(frame());
-		if (!info)
-			LOG(RkISP1, Fatal) << "Frame not known";
-
-		/*
-		 * \todo: If parameters are not filled a better method to handle
-		 * the situation than queuing a buffer with unknown content
-		 * should be used.
-		 *
-		 * It seems excessive to keep an internal zeroed scratch
-		 * parameters buffer around as this should not happen unless the
-		 * devices is under too much load. Perhaps failing the request
-		 * and returning it to the application with an error code is
-		 * better than queue it to hardware?
-		 */
-		if (!info->paramFilled)
-			LOG(RkISP1, Error)
-				<< "Parameters not ready on time for frame "
-				<< frame();
-
-		pipe_->param_->queueBuffer(info->paramBuffer);
-		pipe_->stat_->queueBuffer(info->statBuffer);
-
-		if (info->mainPathBuffer)
-			pipe_->mainPath_.queueBuffer(info->mainPathBuffer);
-
-		if (info->selfPathBuffer)
-			pipe_->selfPath_.queueBuffer(info->selfPathBuffer);
-	}
-
-private:
-	RkISP1CameraData *data_;
-	PipelineHandlerRkISP1 *pipe_;
-};
-
-int RkISP1CameraData::loadIPA()
-{
-	ipa_ = IPAManager::createIPA(pipe_, 1, 1);
+	ipa_ = IPAManager::createIPA<ipa::rkisp1::IPAProxyRkISP1>(pipe(), 1, 1);
 	if (!ipa_)
 		return -ENOENT;
 
 	ipa_->queueFrameAction.connect(this,
 				       &RkISP1CameraData::queueFrameAction);
 
-	ipa_->init(IPASettings{});
+	int ret = ipa_->init(hwRevision);
+	if (ret < 0) {
+		LOG(RkISP1, Error) << "IPA initialization failure";
+		return ret;
+	}
 
 	return 0;
 }
 
 void RkISP1CameraData::queueFrameAction(unsigned int frame,
-					const IPAOperationData &action)
+					const ipa::rkisp1::RkISP1Action &action)
 {
-	switch (action.operation) {
-	case RKISP1_IPA_ACTION_V4L2_SET: {
-		const ControlList &controls = action.controls[0];
-		timeline_.scheduleAction(std::make_unique<RkISP1ActionSetSensor>(frame,
-										 sensor_,
-										 controls));
+	switch (action.op) {
+	case ipa::rkisp1::ActionV4L2Set: {
+		const ControlList &controls = action.controls;
+		delayedCtrls_->push(controls);
 		break;
 	}
-	case RKISP1_IPA_ACTION_PARAM_FILLED: {
+	case ipa::rkisp1::ActionParamFilled: {
+		PipelineHandlerRkISP1 *pipe = RkISP1CameraData::pipe();
 		RkISP1FrameInfo *info = frameInfo_.find(frame);
-		if (info)
-			info->paramFilled = true;
+		if (!info)
+			break;
+
+		pipe->param_->queueBuffer(info->paramBuffer);
+		pipe->stat_->queueBuffer(info->statBuffer);
+
+		if (info->mainPathBuffer)
+			mainPath_->queueBuffer(info->mainPathBuffer);
+
+		if (info->selfPathBuffer)
+			selfPath_->queueBuffer(info->selfPathBuffer);
+
 		break;
 	}
-	case RKISP1_IPA_ACTION_METADATA:
-		metadataReady(frame, action.controls[0]);
+	case ipa::rkisp1::ActionMetadata:
+		metadataReady(frame, action.controls);
 		break;
 	default:
-		LOG(RkISP1, Error) << "Unknown action " << action.operation;
+		LOG(RkISP1, Error) << "Unknown action " << action.op;
 		break;
 	}
 }
 
 void RkISP1CameraData::metadataReady(unsigned int frame, const ControlList &metadata)
 {
-	PipelineHandlerRkISP1 *pipe =
-		static_cast<PipelineHandlerRkISP1 *>(pipe_);
-
 	RkISP1FrameInfo *info = frameInfo_.find(frame);
 	if (!info)
 		return;
 
-	info->request->metadata() = metadata;
+	info->request->metadata().merge(metadata);
 	info->metadataProcessed = true;
 
-	pipe->tryCompleteRequest(info->request);
+	pipe()->tryCompleteRequest(info->request);
 }
 
 RkISP1CameraConfiguration::RkISP1CameraConfiguration(Camera *camera,
@@ -490,7 +400,7 @@ bool RkISP1CameraConfiguration::fitsAllPaths(const StreamConfiguration &cfg)
 
 CameraConfiguration::Status RkISP1CameraConfiguration::validate()
 {
-	const CameraSensor *sensor = data_->sensor_;
+	const CameraSensor *sensor = data_->sensor_.get();
 	Status status = Valid;
 
 	if (config_.empty())
@@ -599,16 +509,8 @@ CameraConfiguration::Status RkISP1CameraConfiguration::validate()
 }
 
 PipelineHandlerRkISP1::PipelineHandlerRkISP1(CameraManager *manager)
-	: PipelineHandler(manager), isp_(nullptr), param_(nullptr),
-	  stat_(nullptr)
+	: PipelineHandler(manager)
 {
-}
-
-PipelineHandlerRkISP1::~PipelineHandlerRkISP1()
-{
-	delete param_;
-	delete stat_;
-	delete isp_;
 }
 
 /* -----------------------------------------------------------------------------
@@ -669,7 +571,7 @@ int PipelineHandlerRkISP1::configure(Camera *camera, CameraConfiguration *c)
 	RkISP1CameraConfiguration *config =
 		static_cast<RkISP1CameraConfiguration *>(c);
 	RkISP1CameraData *data = cameraData(camera);
-	CameraSensor *sensor = data->sensor_;
+	CameraSensor *sensor = data->sensor_.get();
 	int ret;
 
 	ret = initLinks(camera, sensor, *config);
@@ -698,40 +600,75 @@ int PipelineHandlerRkISP1::configure(Camera *camera, CameraConfiguration *c)
 	if (ret < 0)
 		return ret;
 
-	LOG(RkISP1, Debug) << "ISP input pad configured with " << format.toString();
+	LOG(RkISP1, Debug)
+		<< "ISP input pad configured with " << format.toString()
+		<< " crop " << rect.toString();
 
 	/* YUYV8_2X8 is required on the ISP source path pad for YUV output. */
 	format.mbus_code = MEDIA_BUS_FMT_YUYV8_2X8;
-	LOG(RkISP1, Debug) << "Configuring ISP output pad with " << format.toString();
+	LOG(RkISP1, Debug)
+		<< "Configuring ISP output pad with " << format.toString()
+		<< " crop " << rect.toString();
+
+	ret = isp_->setSelection(2, V4L2_SEL_TGT_CROP, &rect);
+	if (ret < 0)
+		return ret;
 
 	ret = isp_->setFormat(2, &format);
 	if (ret < 0)
 		return ret;
 
-	LOG(RkISP1, Debug) << "ISP output pad configured with " << format.toString();
+	LOG(RkISP1, Debug)
+		<< "ISP output pad configured with " << format.toString()
+		<< " crop " << rect.toString();
+
+	std::map<unsigned int, IPAStream> streamConfig;
 
 	for (const StreamConfiguration &cfg : *config) {
-		if (cfg.stream() == &data->mainPathStream_)
+		if (cfg.stream() == &data->mainPathStream_) {
 			ret = mainPath_.configure(cfg, format);
-		else
+			streamConfig[0] = IPAStream(cfg.pixelFormat,
+						    cfg.size);
+		} else {
 			ret = selfPath_.configure(cfg, format);
+			streamConfig[1] = IPAStream(cfg.pixelFormat,
+						    cfg.size);
+		}
 
 		if (ret)
 			return ret;
 	}
 
-	V4L2DeviceFormat paramFormat = {};
+	V4L2DeviceFormat paramFormat;
 	paramFormat.fourcc = V4L2PixelFormat(V4L2_META_FMT_RK_ISP1_PARAMS);
 	ret = param_->setFormat(&paramFormat);
 	if (ret)
 		return ret;
 
-	V4L2DeviceFormat statFormat = {};
+	V4L2DeviceFormat statFormat;
 	statFormat.fourcc = V4L2PixelFormat(V4L2_META_FMT_RK_ISP1_STAT_3A);
 	ret = stat_->setFormat(&statFormat);
 	if (ret)
 		return ret;
 
+	/* Inform IPA of stream configuration and sensor controls. */
+	IPACameraSensorInfo sensorInfo = {};
+	ret = data->sensor_->sensorInfo(&sensorInfo);
+	if (ret) {
+		/* \todo Turn this into a hard failure. */
+		LOG(RkISP1, Warning) << "Camera sensor information not available";
+		sensorInfo = {};
+		ret = 0;
+	}
+
+	std::map<uint32_t, ControlInfoMap> entityControls;
+	entityControls.emplace(0, data->sensor_->controls());
+
+	ret = data->ipa_->configure(sensorInfo, streamConfig, entityControls);
+	if (ret) {
+		LOG(RkISP1, Error) << "failed configuring IPA (" << ret << ")";
+		return ret;
+	}
 	return 0;
 }
 
@@ -770,15 +707,15 @@ int PipelineHandlerRkISP1::allocateBuffers(Camera *camera)
 
 	for (std::unique_ptr<FrameBuffer> &buffer : paramBuffers_) {
 		buffer->setCookie(ipaBufferId++);
-		data->ipaBuffers_.push_back({ .id = buffer->cookie(),
-					      .planes = buffer->planes() });
+		data->ipaBuffers_.emplace_back(buffer->cookie(),
+					       buffer->planes());
 		availableParamBuffers_.push(buffer.get());
 	}
 
 	for (std::unique_ptr<FrameBuffer> &buffer : statBuffers_) {
 		buffer->setCookie(ipaBufferId++);
-		data->ipaBuffers_.push_back({ .id = buffer->cookie(),
-					      .planes = buffer->planes() });
+		data->ipaBuffers_.emplace_back(buffer->cookie(),
+					       buffer->planes());
 		availableStatBuffers_.push(buffer.get());
 	}
 
@@ -822,7 +759,7 @@ int PipelineHandlerRkISP1::freeBuffers(Camera *camera)
 	return 0;
 }
 
-int PipelineHandlerRkISP1::start(Camera *camera)
+int PipelineHandlerRkISP1::start(Camera *camera, [[maybe_unused]] const ControlList *controls)
 {
 	RkISP1CameraData *data = cameraData(camera);
 	int ret;
@@ -861,8 +798,6 @@ int PipelineHandlerRkISP1::start(Camera *camera)
 		return ret;
 	}
 
-	std::map<unsigned int, IPAStream> streamConfig;
-
 	if (data->mainPath_->isEnabled()) {
 		ret = mainPath_.start();
 		if (ret) {
@@ -872,11 +807,6 @@ int PipelineHandlerRkISP1::start(Camera *camera)
 			freeBuffers(camera);
 			return ret;
 		}
-
-		streamConfig[0] = {
-			.pixelFormat = data->mainPathStream_.configuration().pixelFormat,
-			.size = data->mainPathStream_.configuration().size,
-		};
 	}
 
 	if (data->selfPath_->isEnabled()) {
@@ -889,32 +819,11 @@ int PipelineHandlerRkISP1::start(Camera *camera)
 			freeBuffers(camera);
 			return ret;
 		}
-
-		streamConfig[1] = {
-			.pixelFormat = data->selfPathStream_.configuration().pixelFormat,
-			.size = data->selfPathStream_.configuration().size,
-		};
 	}
+
+	isp_->setFrameStartEnabled(true);
 
 	activeCamera_ = camera;
-
-	/* Inform IPA of stream configuration and sensor controls. */
-	CameraSensorInfo sensorInfo = {};
-	ret = data->sensor_->sensorInfo(&sensorInfo);
-	if (ret) {
-		/* \todo Turn this in an hard failure. */
-		LOG(RkISP1, Warning) << "Camera sensor information not available";
-		sensorInfo = {};
-		ret = 0;
-	}
-
-	std::map<unsigned int, const ControlInfoMap &> entityControls;
-	entityControls.emplace(0, data->sensor_->controls());
-
-	IPAOperationData ipaConfig;
-	data->ipa_->configure(sensorInfo, streamConfig, entityControls,
-			      ipaConfig, nullptr);
-
 	return ret;
 }
 
@@ -922,6 +831,10 @@ void PipelineHandlerRkISP1::stop(Camera *camera)
 {
 	RkISP1CameraData *data = cameraData(camera);
 	int ret;
+
+	isp_->setFrameStartEnabled(false);
+
+	data->ipa_->stop();
 
 	selfPath_.stop();
 	mainPath_.stop();
@@ -936,10 +849,7 @@ void PipelineHandlerRkISP1::stop(Camera *camera)
 		LOG(RkISP1, Warning)
 			<< "Failed to stop parameters for " << camera->id();
 
-	data->ipa_->stop();
-
-	data->timeline_.reset();
-
+	ASSERT(data->queuedRequests_.empty());
 	data->frameInfo_.clear();
 
 	freeBuffers(camera);
@@ -955,15 +865,12 @@ int PipelineHandlerRkISP1::queueRequestDevice(Camera *camera, Request *request)
 	if (!info)
 		return -ENOENT;
 
-	IPAOperationData op;
-	op.operation = RKISP1_IPA_EVENT_QUEUE_REQUEST;
-	op.data = { data->frame_, info->paramBuffer->cookie() };
-	op.controls = { request->controls() };
-	data->ipa_->processEvent(op);
-
-	data->timeline_.scheduleAction(std::make_unique<RkISP1ActionQueueBuffers>(data->frame_,
-										  data,
-										  this));
+	ipa::rkisp1::RkISP1Event ev;
+	ev.op = ipa::rkisp1::EventQueueRequest;
+	ev.frame = data->frame_;
+	ev.bufferId = info->paramBuffer->cookie();
+	ev.controls = request->controls();
+	data->ipa_->processEvent(ev);
 
 	data->frame_++;
 
@@ -974,7 +881,7 @@ int PipelineHandlerRkISP1::queueRequestDevice(Camera *camera, Request *request)
  * Match and Setup
  */
 
-int PipelineHandlerRkISP1::initLinks(const Camera *camera,
+int PipelineHandlerRkISP1::initLinks(Camera *camera,
 				     const CameraSensor *sensor,
 				     const RkISP1CameraConfiguration &config)
 {
@@ -1031,9 +938,10 @@ int PipelineHandlerRkISP1::createCamera(MediaEntity *sensor)
 		      std::forward_as_tuple(&controls::AeEnable),
 		      std::forward_as_tuple(false, true));
 
-	data->controlInfo_ = std::move(ctrls);
+	data->controlInfo_ = ControlInfoMap(std::move(ctrls),
+					    controls::controls);
 
-	data->sensor_ = new CameraSensor(sensor);
+	data->sensor_ = std::make_unique<CameraSensor>(sensor);
 	ret = data->sensor_->init();
 	if (ret)
 		return ret;
@@ -1041,7 +949,23 @@ int PipelineHandlerRkISP1::createCamera(MediaEntity *sensor)
 	/* Initialize the camera properties. */
 	data->properties_ = data->sensor_->properties();
 
-	ret = data->loadIPA();
+	/*
+	 * \todo Read dealy values from the sensor itself or from a
+	 * a sensor database. For now use generic values taken from
+	 * the Raspberry Pi and listed as generic values.
+	 */
+	std::unordered_map<uint32_t, DelayedControls::ControlParams> params = {
+		{ V4L2_CID_ANALOGUE_GAIN, { 1, false } },
+		{ V4L2_CID_EXPOSURE, { 2, false } },
+	};
+
+	data->delayedCtrls_ =
+		std::make_unique<DelayedControls>(data->sensor_->device(),
+						  params);
+	isp_->frameStart.connect(data->delayedCtrls_.get(),
+				 &DelayedControls::applyControls);
+
+	ret = data->loadIPA(media_->hwRevision());
 	if (ret)
 		return ret;
 
@@ -1049,9 +973,10 @@ int PipelineHandlerRkISP1::createCamera(MediaEntity *sensor)
 		&data->mainPathStream_,
 		&data->selfPathStream_,
 	};
+	const std::string &id = data->sensor_->id();
 	std::shared_ptr<Camera> camera =
-		Camera::create(this, data->sensor_->id(), streams);
-	registerCamera(std::move(camera), std::move(data));
+		Camera::create(std::move(data), id, streams);
+	registerCamera(std::move(camera));
 
 	return 0;
 }
@@ -1072,6 +997,12 @@ bool PipelineHandlerRkISP1::match(DeviceEnumerator *enumerator)
 	media_ = acquireMediaDevice(enumerator, dm);
 	if (!media_)
 		return false;
+
+	if (!media_->hwRevision()) {
+		LOG(RkISP1, Error)
+			<< "The rkisp1 driver is too old, v5.11 or newer is required";
+		return false;
+	}
 
 	/* Create the V4L2 subdevices we will need. */
 	isp_ = V4L2Subdevice::fromEntityName(media_, "rkisp1_isp");
@@ -1107,10 +1038,13 @@ bool PipelineHandlerRkISP1::match(DeviceEnumerator *enumerator)
 	if (!pad)
 		return false;
 
-	for (MediaLink *link : pad->links())
-		createCamera(link->source()->entity());
+	bool registered = false;
+	for (MediaLink *link : pad->links()) {
+		if (!createCamera(link->source()->entity()))
+			registered = true;
+	}
 
-	return true;
+	return registered;
 }
 
 /* -----------------------------------------------------------------------------
@@ -1135,37 +1069,28 @@ void PipelineHandlerRkISP1::tryCompleteRequest(Request *request)
 
 	data->frameInfo_.destroy(info->frame);
 
-	completeRequest(activeCamera_, request);
+	completeRequest(request);
 }
 
 void PipelineHandlerRkISP1::bufferReady(FrameBuffer *buffer)
 {
-	ASSERT(activeCamera_);
 	Request *request = buffer->request();
 
-	completeBuffer(activeCamera_, request, buffer);
+	/*
+	 * Record the sensor's timestamp in the request metadata.
+	 *
+	 * \todo The sensor timestamp should be better estimated by connecting
+	 * to the V4L2Device::frameStart signal.
+	 */
+	request->metadata().set(controls::SensorTimestamp,
+				buffer->metadata().timestamp);
+
+	completeBuffer(request, buffer);
 	tryCompleteRequest(request);
 }
 
 void PipelineHandlerRkISP1::paramReady(FrameBuffer *buffer)
 {
-	if (buffer->metadata().status == FrameMetadata::FrameCancelled)
-		return;
-
-	ASSERT(activeCamera_);
-	RkISP1CameraData *data = cameraData(activeCamera_);
-
-	RkISP1FrameInfo *info = data->frameInfo_.find(buffer);
-
-	info->paramDequeued = true;
-	tryCompleteRequest(info->request);
-}
-
-void PipelineHandlerRkISP1::statReady(FrameBuffer *buffer)
-{
-	if (buffer->metadata().status == FrameMetadata::FrameCancelled)
-		return;
-
 	ASSERT(activeCamera_);
 	RkISP1CameraData *data = cameraData(activeCamera_);
 
@@ -1173,17 +1098,35 @@ void PipelineHandlerRkISP1::statReady(FrameBuffer *buffer)
 	if (!info)
 		return;
 
-	data->timeline_.bufferReady(buffer);
+	info->paramDequeued = true;
+	tryCompleteRequest(info->request);
+}
+
+void PipelineHandlerRkISP1::statReady(FrameBuffer *buffer)
+{
+	ASSERT(activeCamera_);
+	RkISP1CameraData *data = cameraData(activeCamera_);
+
+	RkISP1FrameInfo *info = data->frameInfo_.find(buffer);
+	if (!info)
+		return;
+
+	if (buffer->metadata().status == FrameMetadata::FrameCancelled) {
+		info->metadataProcessed = true;
+		tryCompleteRequest(info->request);
+		return;
+	}
 
 	if (data->frame_ <= buffer->metadata().sequence)
 		data->frame_ = buffer->metadata().sequence + 1;
 
-	IPAOperationData op;
-	op.operation = RKISP1_IPA_EVENT_SIGNAL_STAT_BUFFER;
-	op.data = { info->frame, info->statBuffer->cookie() };
-	data->ipa_->processEvent(op);
+	ipa::rkisp1::RkISP1Event ev;
+	ev.op = ipa::rkisp1::EventSignalStatBuffer;
+	ev.frame = info->frame;
+	ev.bufferId = info->statBuffer->cookie();
+	data->ipa_->processEvent(ev);
 }
 
-REGISTER_PIPELINE_HANDLER(PipelineHandlerRkISP1);
+REGISTER_PIPELINE_HANDLER(PipelineHandlerRkISP1)
 
 } /* namespace libcamera */

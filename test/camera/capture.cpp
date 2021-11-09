@@ -7,13 +7,16 @@
 
 #include <iostream>
 
-#include <libcamera/event_dispatcher.h>
 #include <libcamera/framebuffer_allocator.h>
-#include <libcamera/timer.h>
+
+#include <libcamera/base/event_dispatcher.h>
+#include <libcamera/base/thread.h>
+#include <libcamera/base/timer.h>
 
 #include "camera_test.h"
 #include "test.h"
 
+using namespace libcamera;
 using namespace std;
 
 namespace {
@@ -131,7 +134,7 @@ protected:
 			}
 		}
 
-		EventDispatcher *dispatcher = cm_->eventDispatcher();
+		EventDispatcher *dispatcher = Thread::current()->eventDispatcher();
 
 		Timer timer;
 		timer.start(1000);
@@ -140,7 +143,7 @@ protected:
 
 		unsigned int nbuffers = allocator_->buffers(stream).size();
 
-		if (completeRequestsCount_ <= nbuffers * 2) {
+		if (completeRequestsCount_ < nbuffers * 2) {
 			cout << "Failed to capture enough frames (got "
 			     << completeRequestsCount_ << " expected at least "
 			     << nbuffers * 2 << ")" << endl;
@@ -168,4 +171,4 @@ protected:
 
 } /* namespace */
 
-TEST_REGISTER(Capture);
+TEST_REGISTER(Capture)

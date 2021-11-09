@@ -7,9 +7,9 @@
 
 #include "main_window.h"
 
+#include <assert.h>
 #include <iomanip>
 #include <string>
-#include <sys/mman.h>
 
 #include <QComboBox>
 #include <QCoreApplication>
@@ -19,6 +19,7 @@
 #include <QInputDialog>
 #include <QMutexLocker>
 #include <QStandardPaths>
+#include <QStringList>
 #include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
@@ -27,6 +28,7 @@
 #include <libcamera/camera_manager.h>
 #include <libcamera/version.h>
 
+#include "../cam/image.h"
 #include "dng_writer.h"
 #ifndef QT_NO_OPENGL
 #include "viewfinder_gl.h"
@@ -446,7 +448,8 @@ int MainWindow::startCapture()
 
 	/* Configure the viewfinder. */
 	ret = viewfinder_->setFormat(vfConfig.pixelFormat,
-				     QSize(vfConfig.size.width, vfConfig.size.height));
+				     QSize(vfConfig.size.width, vfConfig.size.height),
+				     vfConfig.stride);
 	if (ret < 0) {
 		qInfo() << "Failed to set viewfinder format";
 		return ret;
@@ -471,10 +474,10 @@ int MainWindow::startCapture()
 
 		for (const std::unique_ptr<FrameBuffer> &buffer : allocator_->buffers(stream)) {
 			/* Map memory buffers and cache the mappings. */
-			const FrameBuffer::Plane &plane = buffer->planes().front();
-			void *memory = mmap(NULL, plane.length, PROT_READ, MAP_SHARED,
-					    plane.fd.fd(), 0);
-			mappedBuffers_[buffer.get()] = { memory, plane.length };
+			std::unique_ptr<Image> image =
+				Image::fromFrameBuffer(buffer.get(), Image::MapMode::ReadOnly);
+			assert(image != nullptr);
+			mappedBuffers_[buffer.get()] = std::move(image);
 
 			/* Store buffers on the free list. */
 			freeBuffers_[stream].enqueue(buffer.get());
@@ -530,16 +533,12 @@ int MainWindow::startCapture()
 	return 0;
 
 error_disconnect:
-	camera_->requestCompleted.disconnect(this, &MainWindow::requestComplete);
+	camera_->requestCompleted.disconnect(this);
 	camera_->stop();
 
 error:
 	requests_.clear();
 
-	for (auto &iter : mappedBuffers_) {
-		const MappedBuffer &buffer = iter.second;
-		munmap(buffer.memory, buffer.size);
-	}
 	mappedBuffers_.clear();
 
 	freeBuffers_.clear();
@@ -570,15 +569,12 @@ void MainWindow::stopCapture()
 	if (ret)
 		qInfo() << "Failed to stop capture";
 
-	camera_->requestCompleted.disconnect(this, &MainWindow::requestComplete);
+	camera_->requestCompleted.disconnect(this);
 
-	for (auto &iter : mappedBuffers_) {
-		const MappedBuffer &buffer = iter.second;
-		munmap(buffer.memory, buffer.size);
-	}
 	mappedBuffers_.clear();
 
 	requests_.clear();
+	freeQueue_.clear();
 
 	delete allocator_;
 
@@ -672,10 +668,10 @@ void MainWindow::processRaw(FrameBuffer *buffer,
 							"DNG Files (*.dng)");
 
 	if (!filename.isEmpty()) {
-		const MappedBuffer &mapped = mappedBuffers_[buffer];
+		uint8_t *memory = mappedBuffers_[buffer]->data(0).data();
 		DNGWriter::write(filename.toStdString().c_str(), camera_.get(),
 				 rawStream_->configuration(), metadata, buffer,
-				 mapped.memory);
+				 memory);
 	}
 #endif
 
@@ -745,14 +741,18 @@ void MainWindow::processViewfinder(FrameBuffer *buffer)
 	fps = lastBufferTime_ && fps ? 1000000000.0 / fps : 0.0;
 	lastBufferTime_ = metadata.timestamp;
 
-	qInfo().noquote()
+	QStringList bytesused;
+	for (const FrameMetadata::Plane &plane : metadata.planes())
+		bytesused << QString::number(plane.bytesused);
+
+	qDebug().noquote()
 		<< QString("seq: %1").arg(metadata.sequence, 6, 10, QLatin1Char('0'))
-		<< "bytesused:" << metadata.planes[0].bytesused
-		<< "timestamp:" << metadata.timestamp
+		<< "bytesused: {" << bytesused.join(", ")
+		<< "} timestamp:" << metadata.timestamp
 		<< "fps:" << Qt::fixed << qSetRealNumberPrecision(2) << fps;
 
 	/* Render the frame on the viewfinder. */
-	viewfinder_->render(buffer, &mappedBuffers_[buffer]);
+	viewfinder_->render(buffer, mappedBuffers_[buffer].get());
 }
 
 void MainWindow::queueRequest(FrameBuffer *buffer)
@@ -769,16 +769,16 @@ void MainWindow::queueRequest(FrameBuffer *buffer)
 	request->addBuffer(vfStream_, buffer);
 
 	if (captureRaw_) {
-		FrameBuffer *buffer = nullptr;
+		FrameBuffer *rawBuffer = nullptr;
 
 		{
 			QMutexLocker locker(&mutex_);
 			if (!freeBuffers_[rawStream_].isEmpty())
-				buffer = freeBuffers_[rawStream_].dequeue();
+				rawBuffer = freeBuffers_[rawStream_].dequeue();
 		}
 
-		if (buffer) {
-			request->addBuffer(rawStream_, buffer);
+		if (rawBuffer) {
+			request->addBuffer(rawStream_, rawBuffer);
 			captureRaw_ = false;
 		} else {
 			qWarning() << "No free buffer available for RAW capture";

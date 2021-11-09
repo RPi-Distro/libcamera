@@ -11,45 +11,54 @@
 #include <queue>
 #include <vector>
 
+#include <libcamera/base/log.h>
+#include <libcamera/base/utils.h>
+
 #include <libcamera/camera.h>
+#include <libcamera/control_ids.h>
 #include <libcamera/formats.h>
+#include <libcamera/ipa/ipu3_ipa_interface.h>
+#include <libcamera/ipa/ipu3_ipa_proxy.h>
+#include <libcamera/property_ids.h>
 #include <libcamera/request.h>
 #include <libcamera/stream.h>
 
+#include "libcamera/internal/camera.h"
 #include "libcamera/internal/camera_sensor.h"
+#include "libcamera/internal/delayed_controls.h"
 #include "libcamera/internal/device_enumerator.h"
-#include "libcamera/internal/log.h"
+#include "libcamera/internal/ipa_manager.h"
 #include "libcamera/internal/media_device.h"
 #include "libcamera/internal/pipeline_handler.h"
-#include "libcamera/internal/utils.h"
-#include "libcamera/internal/v4l2_controls.h"
 
 #include "cio2.h"
+#include "frames.h"
 #include "imgu.h"
 
 namespace libcamera {
 
 LOG_DEFINE_CATEGORY(IPU3)
 
-static constexpr unsigned int IPU3_BUFFER_COUNT = 4;
-static constexpr unsigned int IPU3_MAX_STREAMS = 3;
-static const Size IMGU_OUTPUT_MIN_SIZE = { 2, 2 };
-static const Size IMGU_OUTPUT_MAX_SIZE = { 4480, 34004 };
-static constexpr unsigned int IMGU_OUTPUT_WIDTH_ALIGN = 64;
-static constexpr unsigned int IMGU_OUTPUT_HEIGHT_ALIGN = 4;
-static constexpr unsigned int IMGU_OUTPUT_WIDTH_MARGIN = 64;
-static constexpr unsigned int IMGU_OUTPUT_HEIGHT_MARGIN = 32;
+static const ControlInfoMap::Map IPU3Controls = {
+	{ &controls::draft::PipelineDepth, ControlInfo(2, 3) },
+};
 
-class IPU3CameraData : public CameraData
+class IPU3CameraData : public Camera::Private
 {
 public:
 	IPU3CameraData(PipelineHandler *pipe)
-		: CameraData(pipe)
+		: Camera::Private(pipe), exposureTime_(0), supportsFlips_(false)
 	{
 	}
 
+	int loadIPA();
+
 	void imguOutputBufferReady(FrameBuffer *buffer);
 	void cio2BufferReady(FrameBuffer *buffer);
+	void paramBufferReady(FrameBuffer *buffer);
+	void statBufferReady(FrameBuffer *buffer);
+	void queuePendingRequests();
+	void cancelPendingRequests();
 
 	CIO2Device cio2_;
 	ImgUDevice *imgu_;
@@ -57,17 +66,41 @@ public:
 	Stream outStream_;
 	Stream vfStream_;
 	Stream rawStream_;
+
+	uint32_t exposureTime_;
+	Rectangle cropRegion_;
+	bool supportsFlips_;
+	Transform rotationTransform_;
+
+	std::unique_ptr<DelayedControls> delayedCtrls_;
+	IPU3Frames frameInfos_;
+
+	std::unique_ptr<ipa::ipu3::IPAProxyIPU3> ipa_;
+
+	std::queue<Request *> pendingRequests_;
+
+	ControlInfoMap ipaControls_;
+
+private:
+	void queueFrameAction(unsigned int id,
+			      const ipa::ipu3::IPU3Action &action);
 };
 
 class IPU3CameraConfiguration : public CameraConfiguration
 {
 public:
+	static constexpr unsigned int kBufferCount = 4;
+	static constexpr unsigned int kMaxStreams = 3;
+
 	IPU3CameraConfiguration(IPU3CameraData *data);
 
 	Status validate() override;
 
-	const StreamConfiguration &cio2Format() const { return cio2Configuration_; };
+	const StreamConfiguration &cio2Format() const { return cio2Configuration_; }
 	const ImgUDevice::PipeConfig imguConfig() const { return pipeConfig_; }
+
+	/* Cache the combinedTransform_ that will be applied to the sensor */
+	Transform combinedTransform_;
 
 private:
 	/*
@@ -85,6 +118,7 @@ class PipelineHandlerIPU3 : public PipelineHandler
 {
 public:
 	static constexpr unsigned int V4L2_CID_IPU3_PIPE_MODE = 0x009819c1;
+	static constexpr Size kViewfinderSize{ 1280, 720 };
 
 	enum IPU3PipeModes {
 		IPU3PipeModeVideo = 0,
@@ -100,7 +134,7 @@ public:
 	int exportFrameBuffers(Camera *camera, Stream *stream,
 			       std::vector<std::unique_ptr<FrameBuffer>> *buffers) override;
 
-	int start(Camera *camera) override;
+	int start(Camera *camera, const ControlList *controls) override;
 	void stop(Camera *camera) override;
 
 	int queueRequestDevice(Camera *camera, Request *request) override;
@@ -108,12 +142,13 @@ public:
 	bool match(DeviceEnumerator *enumerator) override;
 
 private:
-	IPU3CameraData *cameraData(const Camera *camera)
+	IPU3CameraData *cameraData(Camera *camera)
 	{
-		return static_cast<IPU3CameraData *>(
-			PipelineHandler::cameraData(camera));
+		return static_cast<IPU3CameraData *>(camera->_d());
 	}
 
+	int initControls(IPU3CameraData *data);
+	int updateControls(IPU3CameraData *data);
 	int registerCameras();
 
 	int allocateBuffers(Camera *camera);
@@ -123,6 +158,8 @@ private:
 	ImgUDevice imgu1_;
 	MediaDevice *cio2MediaDev_;
 	MediaDevice *imguMediaDev_;
+
+	std::vector<IPABuffer> ipaBuffers_;
 };
 
 IPU3CameraConfiguration::IPU3CameraConfiguration(IPU3CameraData *data)
@@ -138,27 +175,76 @@ CameraConfiguration::Status IPU3CameraConfiguration::validate()
 	if (config_.empty())
 		return Invalid;
 
-	if (transform != Transform::Identity) {
-		transform = Transform::Identity;
+	Transform combined = transform * data_->rotationTransform_;
+
+	/*
+	 * We combine the platform and user transform, but must "adjust away"
+	 * any combined result that includes a transposition, as we can't do
+	 * those. In this case, flipping only the transpose bit is helpful to
+	 * applications - they either get the transform they requested, or have
+	 * to do a simple transpose themselves (they don't have to worry about
+	 * the other possible cases).
+	 */
+	if (!!(combined & Transform::Transpose)) {
+		/*
+		 * Flipping the transpose bit in "transform" flips it in the
+		 * combined result too (as it's the last thing that happens),
+		 * which is of course clearing it.
+		 */
+		transform ^= Transform::Transpose;
+		combined &= ~Transform::Transpose;
 		status = Adjusted;
 	}
+
+	/*
+	 * We also check if the sensor doesn't do h/vflips at all, in which
+	 * case we clear them, and the application will have to do everything.
+	 */
+	if (!data_->supportsFlips_ && !!combined) {
+		/*
+		 * If the sensor can do no transforms, then combined must be
+		 * changed to the identity. The only user transform that gives
+		 * rise to this is the inverse of the rotation. (Recall that
+		 * combined = transform * rotationTransform.)
+		 */
+		transform = -data_->rotationTransform_;
+		combined = Transform::Identity;
+		status = Adjusted;
+	}
+
+	/*
+	 * Store the final combined transform that configure() will need to
+	 * apply to the sensor to save us working it out again.
+	 */
+	combinedTransform_ = combined;
 
 	/* Cap the number of entries to the available streams. */
-	if (config_.size() > IPU3_MAX_STREAMS) {
-		config_.resize(IPU3_MAX_STREAMS);
+	if (config_.size() > kMaxStreams) {
+		config_.resize(kMaxStreams);
 		status = Adjusted;
 	}
 
-	/* Validate the requested stream configuration */
+	/*
+	 * Validate the requested stream configuration and select the sensor
+	 * format by collecting the maximum RAW stream width and height and
+	 * picking the closest larger match.
+	 *
+	 * If no RAW stream is requested use the one of the largest YUV stream,
+	 * plus margin pixels for the IF and BDS rectangle to downscale.
+	 *
+	 * \todo Clarify the IF and BDS margins requirements.
+	 */
 	unsigned int rawCount = 0;
 	unsigned int yuvCount = 0;
 	Size maxYuvSize;
+	Size rawSize;
 
 	for (const StreamConfiguration &cfg : config_) {
 		const PixelFormatInfo &info = PixelFormatInfo::info(cfg.pixelFormat);
 
 		if (info.colourEncoding == PixelFormatInfo::ColourEncodingRAW) {
 			rawCount++;
+			rawSize.expandTo(cfg.size);
 		} else {
 			yuvCount++;
 			maxYuvSize.expandTo(cfg.size);
@@ -168,24 +254,41 @@ CameraConfiguration::Status IPU3CameraConfiguration::validate()
 	if (rawCount > 1 || yuvCount > 2) {
 		LOG(IPU3, Debug) << "Camera configuration not supported";
 		return Invalid;
+	} else if (rawCount && !yuvCount) {
+		/*
+		 * Disallow raw-only camera configuration. Currently, ImgU does
+		 * not get configured for raw-only streams and has early return
+		 * in configure(). To support raw-only stream, we do need the IPA
+		 * to get configured since it will setup the sensor controls for
+		 * the capture.
+		 *
+		 * \todo Configure the ImgU with internal buffers which will enable
+		 * the IPA to get configured for the raw-only camera configuration.
+		 */
+		LOG(IPU3, Debug)
+			<< "Camera configuration cannot support raw-only streams";
+		return Invalid;
 	}
 
 	/*
 	 * Generate raw configuration from CIO2.
 	 *
-	 * \todo The image sensor frame size should be selected to optimize
-	 * operations based on the sizes of the requested streams. However such
-	 * a selection makes the pipeline configuration procedure fail for small
-	 * resolutions (for example: 640x480 with OV5670) and causes the capture
-	 * operations to stall for some stream size combinations (see the
-	 * commit message of the patch that introduced this comment for more
-	 * failure examples).
+	 * The output YUV streams will be limited in size to the maximum frame
+	 * size requested for the RAW stream, if present.
 	 *
-	 * Until the sensor frame size calculation criteria are clarified,
-	 * always use the largest possible one which guarantees better results
-	 * at the expense of the frame rate and CSI-2 bus bandwidth.
+	 * If no raw stream is requested generate a size as large as the maximum
+	 * requested YUV size aligned to the ImgU constraints and bound by the
+	 * sensor's maximum resolution. See
+	 * https://bugs.libcamera.org/show_bug.cgi?id=32
 	 */
-	cio2Configuration_ = data_->cio2_.generateConfiguration({});
+	if (rawSize.isNull())
+		rawSize = maxYuvSize.expandedTo({ ImgUDevice::kIFMaxCropWidth,
+						  ImgUDevice::kIFMaxCropHeight })
+				    .grownBy({ ImgUDevice::kOutputMarginWidth,
+					       ImgUDevice::kOutputMarginHeight })
+				    .boundedTo(data_->cio2_.sensor()->resolution());
+
+	cio2Configuration_ = data_->cio2_.generateConfiguration(rawSize);
 	if (!cio2Configuration_.pixelFormat.isValid())
 		return Invalid;
 
@@ -239,22 +342,22 @@ CameraConfiguration::Status IPU3CameraConfiguration::validate()
 			 */
 			unsigned int limit;
 			limit = utils::alignDown(cio2Configuration_.size.width - 1,
-						 IMGU_OUTPUT_WIDTH_MARGIN);
+						 ImgUDevice::kOutputMarginWidth);
 			cfg->size.width = std::clamp(cfg->size.width,
-						     IMGU_OUTPUT_MIN_SIZE.width,
+						     ImgUDevice::kOutputMinSize.width,
 						     limit);
 
 			limit = utils::alignDown(cio2Configuration_.size.height - 1,
-						 IMGU_OUTPUT_HEIGHT_MARGIN);
+						 ImgUDevice::kOutputMarginHeight);
 			cfg->size.height = std::clamp(cfg->size.height,
-						      IMGU_OUTPUT_MIN_SIZE.height,
+						      ImgUDevice::kOutputMinSize.height,
 						      limit);
 
-			cfg->size.alignDownTo(IMGU_OUTPUT_WIDTH_ALIGN,
-					      IMGU_OUTPUT_HEIGHT_ALIGN);
+			cfg->size.alignDownTo(ImgUDevice::kOutputAlignWidth,
+					      ImgUDevice::kOutputAlignHeight);
 
 			cfg->pixelFormat = formats::NV12;
-			cfg->bufferCount = IPU3_BUFFER_COUNT;
+			cfg->bufferCount = kBufferCount;
 			cfg->stride = info.stride(cfg->size.width, 0, 1);
 			cfg->frameSize = info.frameSize(cfg->size, 1);
 
@@ -337,14 +440,13 @@ CameraConfiguration *PipelineHandlerIPU3::generateConfiguration(Camera *camera,
 			 * \todo Clarify the alignment constraints as explained
 			 * in validate()
 			 */
-			size = sensorResolution.boundedTo(IMGU_OUTPUT_MAX_SIZE);
-			size.width = utils::alignDown(size.width - 1,
-						      IMGU_OUTPUT_WIDTH_MARGIN);
-			size.height = utils::alignDown(size.height - 1,
-						       IMGU_OUTPUT_HEIGHT_MARGIN);
+			size = sensorResolution.boundedTo(ImgUDevice::kOutputMaxSize)
+					       .shrunkBy({ 1, 1 })
+					       .alignedDownTo(ImgUDevice::kOutputMarginWidth,
+							      ImgUDevice::kOutputMarginHeight);
 			pixelFormat = formats::NV12;
-			bufferCount = IPU3_BUFFER_COUNT;
-			streamFormats[pixelFormat] = { { IMGU_OUTPUT_MIN_SIZE, size } };
+			bufferCount = IPU3CameraConfiguration::kBufferCount;
+			streamFormats[pixelFormat] = { { ImgUDevice::kOutputMinSize, size } };
 
 			break;
 
@@ -356,7 +458,7 @@ CameraConfiguration *PipelineHandlerIPU3::generateConfiguration(Camera *camera,
 			bufferCount = cio2Config.bufferCount;
 
 			for (const PixelFormat &format : data->cio2_.formats())
-				streamFormats[format] = data->cio2_.sizes();
+				streamFormats[format] = data->cio2_.sizes(format);
 
 			break;
 		}
@@ -368,12 +470,12 @@ CameraConfiguration *PipelineHandlerIPU3::generateConfiguration(Camera *camera,
 			 * capped to the maximum sensor resolution and aligned
 			 * to the ImgU output constraints.
 			 */
-			size = sensorResolution.boundedTo({ 1280, 720 })
-					       .alignedDownTo(IMGU_OUTPUT_WIDTH_ALIGN,
-							      IMGU_OUTPUT_HEIGHT_ALIGN);
+			size = sensorResolution.boundedTo(kViewfinderSize)
+					       .alignedDownTo(ImgUDevice::kOutputAlignWidth,
+							      ImgUDevice::kOutputAlignHeight);
 			pixelFormat = formats::NV12;
-			bufferCount = IPU3_BUFFER_COUNT;
-			streamFormats[pixelFormat] = { { IMGU_OUTPUT_MIN_SIZE, size } };
+			bufferCount = IPU3CameraConfiguration::kBufferCount;
+			streamFormats[pixelFormat] = { { ImgUDevice::kOutputMinSize, size } };
 
 			break;
 		}
@@ -458,10 +560,32 @@ int PipelineHandlerIPU3::configure(Camera *camera, CameraConfiguration *c)
 	 * adjusted format to be propagated to the ImgU output devices.
 	 */
 	const Size &sensorSize = config->cio2Format().size;
-	V4L2DeviceFormat cio2Format = {};
+	V4L2DeviceFormat cio2Format;
 	ret = cio2->configure(sensorSize, &cio2Format);
 	if (ret)
 		return ret;
+
+	IPACameraSensorInfo sensorInfo;
+	cio2->sensor()->sensorInfo(&sensorInfo);
+	data->cropRegion_ = sensorInfo.analogCrop;
+
+	/*
+	 * Configure the H/V flip controls based on the combination of
+	 * the sensor and user transform.
+	 */
+	if (data->supportsFlips_) {
+		ControlList sensorCtrls(cio2->sensor()->controls());
+		sensorCtrls.set(V4L2_CID_HFLIP,
+				static_cast<int32_t>(!!(config->combinedTransform_
+							& Transform::HFlip)));
+		sensorCtrls.set(V4L2_CID_VFLIP,
+				static_cast<int32_t>(!!(config->combinedTransform_
+						        & Transform::VFlip)));
+
+		ret = cio2->sensor()->setControls(&sensorCtrls);
+		if (ret)
+			return ret;
+	}
 
 	/*
 	 * If the ImgU gets configured, its driver seems to expect that
@@ -513,29 +637,37 @@ int PipelineHandlerIPU3::configure(Camera *camera, CameraConfiguration *c)
 			return ret;
 	}
 
-	/*
-	 * Apply the largest available format to the stat node.
-	 * \todo Revise this when we'll actually use the stat node.
-	 */
-	StreamConfiguration statCfg = {};
-	statCfg.size = cio2Format.size;
-
-	ret = imgu->configureStat(statCfg, &outputFormat);
-	if (ret)
-		return ret;
-
 	/* Apply the "pipe_mode" control to the ImgU subdevice. */
 	ControlList ctrls(imgu->imgu_->controls());
+	/*
+	 * Set the ImgU pipe mode to 'Video' unconditionally to have statistics
+	 * generated.
+	 *
+	 * \todo Figure out what the 'Still Capture' mode is meant for, and use
+	 * it accordingly.
+	 */
 	ctrls.set(V4L2_CID_IPU3_PIPE_MODE,
-		  static_cast<int32_t>(vfCfg ? IPU3PipeModeVideo :
-				       IPU3PipeModeStillCapture));
+		  static_cast<int32_t>(IPU3PipeModeVideo));
 	ret = imgu->imgu_->setControls(&ctrls);
 	if (ret) {
 		LOG(IPU3, Error) << "Unable to set pipe_mode control";
 		return ret;
 	}
 
-	return 0;
+	ipa::ipu3::IPAConfigInfo configInfo;
+	configInfo.sensorControls = data->cio2_.sensor()->controls();
+	configInfo.sensorInfo = sensorInfo;
+	configInfo.bdsOutputSize = config->imguConfig().bds;
+	configInfo.iif = config->imguConfig().iif;
+
+	ret = data->ipa_->configure(configInfo, &data->ipaControls_);
+	if (ret) {
+		LOG(IPU3, Error) << "Failed to configure IPA: "
+				 << strerror(-ret);
+		return ret;
+	}
+
+	return updateControls(data);
 }
 
 int PipelineHandlerIPU3::exportFrameBuffers(Camera *camera, Stream *stream,
@@ -579,6 +711,25 @@ int PipelineHandlerIPU3::allocateBuffers(Camera *camera)
 	if (ret < 0)
 		return ret;
 
+	/* Map buffers to the IPA. */
+	unsigned int ipaBufferId = 1;
+
+	for (const std::unique_ptr<FrameBuffer> &buffer : imgu->paramBuffers_) {
+		buffer->setCookie(ipaBufferId++);
+		ipaBuffers_.emplace_back(buffer->cookie(), buffer->planes());
+	}
+
+	for (const std::unique_ptr<FrameBuffer> &buffer : imgu->statBuffers_) {
+		buffer->setCookie(ipaBufferId++);
+		ipaBuffers_.emplace_back(buffer->cookie(), buffer->planes());
+	}
+
+	data->ipa_->mapBuffers(ipaBuffers_);
+
+	data->frameInfos_.init(imgu->paramBuffers_, imgu->statBuffers_);
+	data->frameInfos_.bufferAvailable.connect(
+		data, &IPU3CameraData::queuePendingRequests);
+
 	return 0;
 }
 
@@ -586,12 +737,21 @@ int PipelineHandlerIPU3::freeBuffers(Camera *camera)
 {
 	IPU3CameraData *data = cameraData(camera);
 
+	data->frameInfos_.clear();
+
+	std::vector<unsigned int> ids;
+	for (IPABuffer &ipabuf : ipaBuffers_)
+		ids.push_back(ipabuf.id);
+
+	data->ipa_->unmapBuffers(ids);
+	ipaBuffers_.clear();
+
 	data->imgu_->freeBuffers();
 
 	return 0;
 }
 
-int PipelineHandlerIPU3::start(Camera *camera)
+int PipelineHandlerIPU3::start(Camera *camera, [[maybe_unused]] const ControlList *controls)
 {
 	IPU3CameraData *data = cameraData(camera);
 	CIO2Device *cio2 = &data->cio2_;
@@ -603,6 +763,10 @@ int PipelineHandlerIPU3::start(Camera *camera)
 	if (ret)
 		return ret;
 
+	ret = data->ipa_->start();
+	if (ret)
+		goto error;
+
 	/*
 	 * Start the ImgU video devices, buffers will be queued to the
 	 * ImgU output and viewfinder when requests will be queued.
@@ -612,15 +776,15 @@ int PipelineHandlerIPU3::start(Camera *camera)
 		goto error;
 
 	ret = imgu->start();
-	if (ret) {
-		imgu->stop();
-		cio2->stop();
+	if (ret)
 		goto error;
-	}
 
 	return 0;
 
 error:
+	imgu->stop();
+	cio2->stop();
+	data->ipa_->stop();
 	freeBuffers(camera);
 	LOG(IPU3, Error) << "Failed to start camera " << camera->id();
 
@@ -632,6 +796,10 @@ void PipelineHandlerIPU3::stop(Camera *camera)
 	IPU3CameraData *data = cameraData(camera);
 	int ret = 0;
 
+	data->cancelPendingRequests();
+
+	data->ipa_->stop();
+
 	ret |= data->imgu_->stop();
 	ret |= data->cio2_.stop();
 	if (ret)
@@ -640,38 +808,68 @@ void PipelineHandlerIPU3::stop(Camera *camera)
 	freeBuffers(camera);
 }
 
+void IPU3CameraData::cancelPendingRequests()
+{
+	while (!pendingRequests_.empty()) {
+		Request *request = pendingRequests_.front();
+
+		for (auto it : request->buffers()) {
+			FrameBuffer *buffer = it.second;
+			buffer->cancel();
+			pipe()->completeBuffer(request, buffer);
+		}
+
+		pipe()->completeRequest(request);
+		pendingRequests_.pop();
+	}
+}
+
+void IPU3CameraData::queuePendingRequests()
+{
+	while (!pendingRequests_.empty()) {
+		Request *request = pendingRequests_.front();
+
+		IPU3Frames::Info *info = frameInfos_.create(request);
+		if (!info)
+			break;
+
+		/*
+		 * Queue a buffer on the CIO2, using the raw stream buffer
+		 * provided in the request, if any, or a CIO2 internal buffer
+		 * otherwise.
+		 */
+		FrameBuffer *reqRawBuffer = request->findBuffer(&rawStream_);
+		FrameBuffer *rawBuffer = cio2_.queueBuffer(request, reqRawBuffer);
+		/*
+		 * \todo If queueBuffer fails in queuing a buffer to the device,
+		 * report the request as error by cancelling the request and
+		 * calling PipelineHandler::completeRequest().
+		 */
+		if (!rawBuffer) {
+			frameInfos_.remove(info);
+			break;
+		}
+
+		info->rawBuffer = rawBuffer;
+
+		ipa::ipu3::IPU3Event ev;
+		ev.op = ipa::ipu3::EventProcessControls;
+		ev.frame = info->id;
+		ev.controls = request->controls();
+		ipa_->processEvent(ev);
+
+		pendingRequests_.pop();
+	}
+}
+
 int PipelineHandlerIPU3::queueRequestDevice(Camera *camera, Request *request)
 {
 	IPU3CameraData *data = cameraData(camera);
-	int error = 0;
 
-	/*
-	 * Queue a buffer on the CIO2, using the raw stream buffer provided in
-	 * the request, if any, or a CIO2 internal buffer otherwise.
-	 */
-	FrameBuffer *rawBuffer = request->findBuffer(&data->rawStream_);
-	error = data->cio2_.queueBuffer(request, rawBuffer);
-	if (error)
-		return error;
+	data->pendingRequests_.push(request);
+	data->queuePendingRequests();
 
-	/* Queue all buffers from the request aimed for the ImgU. */
-	for (auto it : request->buffers()) {
-		const Stream *stream = it.first;
-		FrameBuffer *buffer = it.second;
-		int ret;
-
-		if (stream == &data->outStream_)
-			ret = data->imgu_->output_->queueBuffer(buffer);
-		else if (stream == &data->vfStream_)
-			ret = data->imgu_->viewfinder_->queueBuffer(buffer);
-		else
-			continue;
-
-		if (ret < 0)
-			error = ret;
-	}
-
-	return error;
+	return 0;
 }
 
 bool PipelineHandlerIPU3::match(DeviceEnumerator *enumerator)
@@ -727,6 +925,146 @@ bool PipelineHandlerIPU3::match(DeviceEnumerator *enumerator)
 }
 
 /**
+ * \brief Initialize the camera controls
+ * \param[in] data The camera data
+ *
+ * Initialize the camera controls by calculating controls which the pipeline
+ * is reponsible for and merge them with the controls computed by the IPA.
+ *
+ * This function needs data->ipaControls_ to be initialized by the IPA init()
+ * function at camera creation time. Always call this function after IPA init().
+ *
+ * \return 0 on success or a negative error code otherwise
+ */
+int PipelineHandlerIPU3::initControls(IPU3CameraData *data)
+{
+	/*
+	 * \todo The controls initialized here depend on sensor configuration
+	 * and their limits should be updated once the configuration gets
+	 * changed.
+	 *
+	 * Initialize the sensor using its resolution and compute the control
+	 * limits.
+	 */
+	CameraSensor *sensor = data->cio2_.sensor();
+	V4L2SubdeviceFormat sensorFormat = {};
+	sensorFormat.size = sensor->resolution();
+	int ret = sensor->setFormat(&sensorFormat);
+	if (ret)
+		return ret;
+
+	return updateControls(data);
+}
+
+/**
+ * \brief Update the camera controls
+ * \param[in] data The camera data
+ *
+ * Compute the camera controls by calculating controls which the pipeline
+ * is reponsible for and merge them with the controls computed by the IPA.
+ *
+ * This function needs data->ipaControls_ to be refreshed when a new
+ * configuration is applied to the camera by the IPA configure() function.
+ *
+ * Always call this function after IPA configure() to make sure to have a
+ * properly refreshed IPA controls list.
+ *
+ * \return 0 on success or a negative error code otherwise
+ */
+int PipelineHandlerIPU3::updateControls(IPU3CameraData *data)
+{
+	CameraSensor *sensor = data->cio2_.sensor();
+	IPACameraSensorInfo sensorInfo{};
+
+	int ret = sensor->sensorInfo(&sensorInfo);
+	if (ret)
+		return ret;
+
+	ControlInfoMap::Map controls = IPU3Controls;
+	const std::vector<int32_t> &testPatternModes = sensor->testPatternModes();
+	if (!testPatternModes.empty()) {
+		std::vector<ControlValue> values;
+		values.reserve(testPatternModes.size());
+
+		for (int32_t pattern : testPatternModes)
+			values.emplace_back(pattern);
+
+		controls[&controls::draft::TestPatternMode] = ControlInfo(values);
+	}
+
+	/*
+	 * Compute the scaler crop limits.
+	 *
+	 * Initialize the control use the 'Viewfinder' configuration (1280x720)
+	 * as the pipeline output resolution and the full sensor size as input
+	 * frame (see the todo note in the validate() function about the usage
+	 * of the sensor's full frame as ImgU input).
+	 */
+
+	/*
+	 * The maximum scaler crop rectangle is the analogue crop used to
+	 * produce the maximum frame size.
+	 */
+	const Rectangle &analogueCrop = sensorInfo.analogCrop;
+	Rectangle maxCrop = analogueCrop;
+
+	/*
+	 * As the ImgU cannot up-scale, the minimum selection rectangle has to
+	 * be as large as the pipeline output size. Use the default viewfinder
+	 * configuration as the desired output size and calculate the minimum
+	 * rectangle required to satisfy the ImgU processing margins, unless the
+	 * sensor resolution is smaller.
+	 *
+	 * \todo This implementation is based on the same assumptions about the
+	 * ImgU pipeline configuration described in then viewfinder and main
+	 * output sizes calculation in the validate() function.
+	 */
+
+	/* The strictly smaller size than the sensor resolution, aligned to margins. */
+	Size minSize = sensor->resolution().shrunkBy({ 1, 1 })
+					   .alignedDownTo(ImgUDevice::kOutputMarginWidth,
+							  ImgUDevice::kOutputMarginHeight);
+
+	/*
+	 * Either the smallest margin-aligned size larger than the viewfinder
+	 * size or the adjusted sensor resolution.
+	 */
+	minSize = kViewfinderSize.grownBy({ 1, 1 })
+				 .alignedUpTo(ImgUDevice::kOutputMarginWidth,
+					      ImgUDevice::kOutputMarginHeight)
+				 .boundedTo(minSize);
+
+	/*
+	 * Re-scale in the sensor's native coordinates. Report (0,0) as
+	 * top-left corner as we allow application to freely pan the crop area.
+	 */
+	Rectangle minCrop = Rectangle(minSize).scaledBy(analogueCrop.size(),
+					       sensorInfo.outputSize);
+
+	controls[&controls::ScalerCrop] = ControlInfo(minCrop, maxCrop, maxCrop);
+
+	/*
+	 * \todo Report the actual exposure time, use the default for the
+	 * moment.
+	 */
+	const auto exposureInfo = data->ipaControls_.find(&controls::ExposureTime);
+	if (exposureInfo == data->ipaControls_.end()) {
+		LOG(IPU3, Error) << "Exposure control not initialized by the IPA";
+		return -EINVAL;
+	}
+	data->exposureTime_ = exposureInfo->second.def().get<int32_t>();
+
+	/* Add the IPA registered controls to list of camera controls. */
+	for (const auto &ipaControl : data->ipaControls_)
+		controls[ipaControl.first] = ipaControl.second;
+
+	data->controlInfo_ = ControlInfoMap(std::move(controls),
+					    controls::controls);
+
+	return 0;
+}
+
+/**
  * \brief Initialise ImgU and CIO2 devices associated with cameras
  *
  * Initialise the two ImgU instances and create cameras with an associated
@@ -768,8 +1106,52 @@ int PipelineHandlerIPU3::registerCameras()
 		if (ret)
 			continue;
 
+		ret = data->loadIPA();
+		if (ret)
+			continue;
+
 		/* Initialize the camera properties. */
 		data->properties_ = cio2->sensor()->properties();
+
+		ret = initControls(data.get());
+		if (ret)
+			continue;
+
+		/*
+		 * \todo Read delay values from the sensor itself or from a
+		 * a sensor database. For now use generic values taken from
+		 * the Raspberry Pi and listed as 'generic values'.
+		 */
+		std::unordered_map<uint32_t, DelayedControls::ControlParams> params = {
+			{ V4L2_CID_ANALOGUE_GAIN, { 1, false } },
+			{ V4L2_CID_EXPOSURE, { 2, false } },
+		};
+
+		data->delayedCtrls_ =
+			std::make_unique<DelayedControls>(cio2->sensor()->device(),
+							  params);
+		data->cio2_.frameStart().connect(data->delayedCtrls_.get(),
+						 &DelayedControls::applyControls);
+
+		/* Convert the sensor rotation to a transformation */
+		int32_t rotation = 0;
+		if (data->properties_.contains(properties::Rotation))
+			rotation = data->properties_.get(properties::Rotation);
+		else
+			LOG(IPU3, Warning) << "Rotation control not exposed by "
+					   << cio2->sensor()->id()
+					   << ". Assume rotation 0";
+
+		bool success;
+		data->rotationTransform_ = transformFromRotation(rotation, &success);
+		if (!success)
+			LOG(IPU3, Warning) << "Invalid rotation of " << rotation
+					   << " degrees: ignoring";
+
+		ControlList ctrls = cio2->sensor()->getControls({ V4L2_CID_HFLIP });
+		if (!ctrls.empty())
+			/* We assume the sensor supports VFLIP too. */
+			data->supportsFlips_ = true;
 
 		/**
 		 * \todo Dynamically assign ImgU and output devices to each
@@ -789,19 +1171,25 @@ int PipelineHandlerIPU3::registerCameras()
 		 */
 		data->cio2_.bufferReady().connect(data.get(),
 					&IPU3CameraData::cio2BufferReady);
+		data->cio2_.bufferAvailable.connect(
+			data.get(), &IPU3CameraData::queuePendingRequests);
 		data->imgu_->input_->bufferReady.connect(&data->cio2_,
 					&CIO2Device::tryReturnBuffer);
 		data->imgu_->output_->bufferReady.connect(data.get(),
 					&IPU3CameraData::imguOutputBufferReady);
 		data->imgu_->viewfinder_->bufferReady.connect(data.get(),
 					&IPU3CameraData::imguOutputBufferReady);
+		data->imgu_->param_->bufferReady.connect(data.get(),
+					&IPU3CameraData::paramBufferReady);
+		data->imgu_->stat_->bufferReady.connect(data.get(),
+					&IPU3CameraData::statBufferReady);
 
 		/* Create and register the Camera instance. */
-		std::string cameraId = cio2->sensor()->id();
+		const std::string &cameraId = cio2->sensor()->id();
 		std::shared_ptr<Camera> camera =
-			Camera::create(this, cameraId, streams);
+			Camera::create(std::move(data), cameraId, streams);
 
-		registerCamera(std::move(camera), std::move(data));
+		registerCamera(std::move(camera));
 
 		LOG(IPU3, Info)
 			<< "Registered Camera[" << numCameras << "] \""
@@ -812,6 +1200,98 @@ int PipelineHandlerIPU3::registerCameras()
 	}
 
 	return numCameras ? 0 : -ENODEV;
+}
+
+int IPU3CameraData::loadIPA()
+{
+	ipa_ = IPAManager::createIPA<ipa::ipu3::IPAProxyIPU3>(pipe(), 1, 1);
+	if (!ipa_)
+		return -ENOENT;
+
+	ipa_->queueFrameAction.connect(this, &IPU3CameraData::queueFrameAction);
+
+	/*
+	 * Pass the sensor info to the IPA to initialize controls.
+	 *
+	 * \todo Find a way to initialize IPA controls without basing their
+	 * limits on a particular sensor mode. We currently pass sensor
+	 * information corresponding to the largest sensor resolution, and the
+	 * IPA uses this to compute limits for supported controls. There's a
+	 * discrepancy between the need to compute IPA control limits at init
+	 * time, and the fact that those limits may depend on the sensor mode.
+	 * Research is required to find out to handle this issue.
+	 */
+	CameraSensor *sensor = cio2_.sensor();
+	V4L2SubdeviceFormat sensorFormat = {};
+	sensorFormat.size = sensor->resolution();
+	int ret = sensor->setFormat(&sensorFormat);
+	if (ret)
+		return ret;
+
+	IPACameraSensorInfo sensorInfo{};
+	ret = sensor->sensorInfo(&sensorInfo);
+	if (ret)
+		return ret;
+
+	ret = ipa_->init(IPASettings{ "", sensor->model() }, sensorInfo,
+			 sensor->controls(), &ipaControls_);
+	if (ret) {
+		LOG(IPU3, Error) << "Failed to initialise the IPU3 IPA";
+		return ret;
+	}
+
+	return 0;
+}
+
+void IPU3CameraData::queueFrameAction(unsigned int id,
+				      const ipa::ipu3::IPU3Action &action)
+{
+	switch (action.op) {
+	case ipa::ipu3::ActionSetSensorControls: {
+		const ControlList &controls = action.controls;
+		delayedCtrls_->push(controls);
+		break;
+	}
+	case ipa::ipu3::ActionParamFilled: {
+		IPU3Frames::Info *info = frameInfos_.find(id);
+		if (!info)
+			break;
+
+		/* Queue all buffers from the request aimed for the ImgU. */
+		for (auto it : info->request->buffers()) {
+			const Stream *stream = it.first;
+			FrameBuffer *outbuffer = it.second;
+
+			if (stream == &outStream_)
+				imgu_->output_->queueBuffer(outbuffer);
+			else if (stream == &vfStream_)
+				imgu_->viewfinder_->queueBuffer(outbuffer);
+		}
+
+		imgu_->param_->queueBuffer(info->paramBuffer);
+		imgu_->stat_->queueBuffer(info->statBuffer);
+		imgu_->input_->queueBuffer(info->rawBuffer);
+
+		break;
+	}
+	case ipa::ipu3::ActionMetadataReady: {
+		IPU3Frames::Info *info = frameInfos_.find(id);
+		if (!info)
+			break;
+
+		Request *request = info->request;
+		request->metadata().merge(action.controls);
+
+		info->metadataProcessed = true;
+		if (frameInfos_.tryComplete(info))
+			pipe()->completeRequest(request);
+
+		break;
+	}
+	default:
+		LOG(IPU3, Error) << "Unknown action " << action.op;
+		break;
+	}
 }
 
 /* -----------------------------------------------------------------------------
@@ -826,14 +1306,24 @@ int PipelineHandlerIPU3::registerCameras()
  */
 void IPU3CameraData::imguOutputBufferReady(FrameBuffer *buffer)
 {
-	Request *request = buffer->request();
-
-	if (!pipe_->completeBuffer(camera_, request, buffer))
-		/* Request not completed yet, return here. */
+	IPU3Frames::Info *info = frameInfos_.find(buffer);
+	if (!info)
 		return;
 
-	/* Mark the request as complete. */
-	pipe_->completeRequest(camera_, request);
+	Request *request = info->request;
+
+	pipe()->completeBuffer(request, buffer);
+
+	request->metadata().set(controls::draft::PipelineDepth, 3);
+	/* \todo Move the ExposureTime control to the IPA. */
+	request->metadata().set(controls::ExposureTime, exposureTime_);
+	/* \todo Actually apply the scaler crop region to the ImgU. */
+	if (request->controls().contains(controls::ScalerCrop))
+		cropRegion_ = request->controls().get(controls::ScalerCrop);
+	request->metadata().set(controls::ScalerCrop, cropRegion_);
+
+	if (frameInfos_.tryComplete(info))
+		pipe()->completeRequest(request);
 }
 
 /**
@@ -845,27 +1335,93 @@ void IPU3CameraData::imguOutputBufferReady(FrameBuffer *buffer)
  */
 void IPU3CameraData::cio2BufferReady(FrameBuffer *buffer)
 {
-	/* \todo Handle buffer failures when state is set to BufferError. */
-	if (buffer->metadata().status == FrameMetadata::FrameCancelled)
+	IPU3Frames::Info *info = frameInfos_.find(buffer);
+	if (!info)
 		return;
 
-	Request *request = buffer->request();
+	Request *request = info->request;
 
-	/*
-	 * If the request contains a buffer for the RAW stream only, complete it
-	 * now as there's no need for ImgU processing.
-	 */
-	if (request->findBuffer(&rawStream_)) {
-		bool isComplete = pipe_->completeBuffer(camera_, request, buffer);
-		if (isComplete) {
-			pipe_->completeRequest(camera_, request);
-			return;
+	/* If the buffer is cancelled force a complete of the whole request. */
+	if (buffer->metadata().status == FrameMetadata::FrameCancelled) {
+		for (auto it : request->buffers()) {
+			FrameBuffer *b = it.second;
+			b->cancel();
+			pipe()->completeBuffer(request, b);
 		}
+
+		frameInfos_.remove(info);
+		pipe()->completeRequest(request);
+		return;
 	}
 
-	imgu_->input_->queueBuffer(buffer);
+	/*
+	 * Record the sensor's timestamp in the request metadata.
+	 *
+	 * \todo The sensor timestamp should be better estimated by connecting
+	 * to the V4L2Device::frameStart signal.
+	 */
+	request->metadata().set(controls::SensorTimestamp,
+				buffer->metadata().timestamp);
+
+	if (request->findBuffer(&rawStream_))
+		pipe()->completeBuffer(request, buffer);
+
+	ipa::ipu3::IPU3Event ev;
+	ev.op = ipa::ipu3::EventFillParams;
+	ev.frame = info->id;
+	ev.bufferId = info->paramBuffer->cookie();
+	ipa_->processEvent(ev);
 }
 
-REGISTER_PIPELINE_HANDLER(PipelineHandlerIPU3);
+void IPU3CameraData::paramBufferReady(FrameBuffer *buffer)
+{
+	IPU3Frames::Info *info = frameInfos_.find(buffer);
+	if (!info)
+		return;
+
+	info->paramDequeued = true;
+
+	/*
+	 * tryComplete() will delete info if it completes the IPU3Frame.
+	 * In that event, we must have obtained the Request before hand.
+	 *
+	 * \todo Improve the FrameInfo API to avoid this type of issue
+	 */
+	Request *request = info->request;
+
+	if (frameInfos_.tryComplete(info))
+		pipe()->completeRequest(request);
+}
+
+void IPU3CameraData::statBufferReady(FrameBuffer *buffer)
+{
+	IPU3Frames::Info *info = frameInfos_.find(buffer);
+	if (!info)
+		return;
+
+	Request *request = info->request;
+
+	if (buffer->metadata().status == FrameMetadata::FrameCancelled) {
+		info->metadataProcessed = true;
+
+		/*
+		 * tryComplete() will delete info if it completes the IPU3Frame.
+		 * In that event, we must have obtained the Request before hand.
+		 */
+		if (frameInfos_.tryComplete(info))
+			pipe()->completeRequest(request);
+
+		return;
+	}
+
+	ipa::ipu3::IPU3Event ev;
+	ev.op = ipa::ipu3::EventStatReady;
+	ev.frame = info->id;
+	ev.bufferId = info->statBuffer->cookie();
+	ev.frameTimestamp = request->metadata().get(controls::SensorTimestamp);
+	ipa_->processEvent(ev);
+}
+
+REGISTER_PIPELINE_HANDLER(PipelineHandlerIPU3)
 
 } /* namespace libcamera */

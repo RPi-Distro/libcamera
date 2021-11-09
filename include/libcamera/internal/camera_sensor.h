@@ -11,29 +11,20 @@
 #include <string>
 #include <vector>
 
+#include <libcamera/base/class.h>
+#include <libcamera/base/log.h>
+
 #include <libcamera/controls.h>
 #include <libcamera/geometry.h>
+#include <libcamera/ipa/core_ipa_interface.h>
 
 #include "libcamera/internal/formats.h"
-#include "libcamera/internal/log.h"
 #include "libcamera/internal/v4l2_subdevice.h"
 
 namespace libcamera {
 
+class BayerFormat;
 class MediaEntity;
-
-struct CameraSensorInfo {
-	std::string model;
-
-	uint32_t bitsPerPixel;
-
-	Size activeAreaSize;
-	Rectangle analogCrop;
-	Size outputSize;
-
-	uint64_t pixelRate;
-	uint32_t lineLength;
-};
 
 class CameraSensor : protected Loggable
 {
@@ -41,17 +32,18 @@ public:
 	explicit CameraSensor(const MediaEntity *entity);
 	~CameraSensor();
 
-	CameraSensor(const CameraSensor &) = delete;
-	CameraSensor &operator=(const CameraSensor &) = delete;
-
 	int init();
 
 	const std::string &model() const { return model_; }
 	const std::string &id() const { return id_; }
 	const MediaEntity *entity() const { return entity_; }
 	const std::vector<unsigned int> &mbusCodes() const { return mbusCodes_; }
-	const std::vector<Size> &sizes() const { return sizes_; }
-	const Size &resolution() const { return resolution_; }
+	const std::vector<Size> sizes(unsigned int mbusCode) const;
+	Size resolution() const;
+	const std::vector<int32_t> &testPatternModes() const
+	{
+		return testPatternModes_;
+	}
 
 	V4L2SubdeviceFormat getFormat(const std::vector<unsigned int> &mbusCodes,
 				      const Size &size) const;
@@ -61,14 +53,26 @@ public:
 	ControlList getControls(const std::vector<uint32_t> &ids);
 	int setControls(ControlList *ctrls);
 
+	V4L2Subdevice *device() { return subdev_.get(); }
+
 	const ControlList &properties() const { return properties_; }
-	int sensorInfo(CameraSensorInfo *info) const;
+	int sensorInfo(IPACameraSensorInfo *info) const;
+
+	void updateControlInfo();
 
 protected:
 	std::string logPrefix() const override;
 
 private:
+	LIBCAMERA_DISABLE_COPY(CameraSensor)
+
 	int generateId();
+	int validateSensorDriver();
+	void initVimcDefaultProperties();
+	void initStaticProperties();
+	void initTestPatternModes(
+		const std::map<int32_t, int32_t> &testPatternModeMap);
+	int initProperties();
 
 	const MediaEntity *entity_;
 	std::unique_ptr<V4L2Subdevice> subdev_;
@@ -78,9 +82,13 @@ private:
 	std::string id_;
 
 	V4L2Subdevice::Formats formats_;
-	Size resolution_;
 	std::vector<unsigned int> mbusCodes_;
 	std::vector<Size> sizes_;
+	std::vector<int32_t> testPatternModes_;
+
+	Size pixelArraySize_;
+	Rectangle activeArea_;
+	const BayerFormat *bayerFormat_;
 
 	ControlList properties_;
 };

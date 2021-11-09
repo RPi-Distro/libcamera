@@ -10,10 +10,12 @@
 #include <ctype.h>
 #include <list>
 #include <map>
+#include <tuple>
 #include <vector>
 
 class KeyValueParser;
 class OptionValue;
+struct Option;
 
 enum OptionArgument {
 	ArgumentNone,
@@ -26,21 +28,6 @@ enum OptionType {
 	OptionInteger,
 	OptionString,
 	OptionKeyValue,
-};
-
-struct Option {
-	int opt;
-	OptionType type;
-	const char *name;
-	OptionArgument argument;
-	const char *argumentName;
-	const char *help;
-	KeyValueParser *keyValueParser;
-	bool isArray;
-
-	bool hasShortOption() const { return isalnum(opt); }
-	bool hasLongOption() const { return name != nullptr; }
-	const char *typeName() const;
 };
 
 template<typename T>
@@ -73,16 +60,59 @@ public:
 	{
 	};
 
-	virtual ~KeyValueParser() {}
+	KeyValueParser();
+	virtual ~KeyValueParser();
 
 	bool addOption(const char *name, OptionType type, const char *help,
 		       OptionArgument argument = ArgumentNone);
 
 	virtual Options parse(const char *arguments);
-	void usage(int indent);
 
 private:
+	KeyValueParser(const KeyValueParser &) = delete;
+	KeyValueParser &operator=(const KeyValueParser &) = delete;
+
+	friend class OptionsParser;
+	unsigned int maxOptionLength() const;
+	void usage(int indent);
+
 	std::map<std::string, Option> optionsMap_;
+};
+
+class OptionsParser
+{
+public:
+	class Options : public OptionsBase<int>
+	{
+	};
+
+	OptionsParser();
+	~OptionsParser();
+
+	bool addOption(int opt, OptionType type, const char *help,
+		       const char *name = nullptr,
+		       OptionArgument argument = ArgumentNone,
+		       const char *argumentName = nullptr, bool array = false,
+		       int parent = 0);
+	bool addOption(int opt, KeyValueParser *parser, const char *help,
+		       const char *name = nullptr, bool array = false,
+		       int parent = 0);
+
+	Options parse(int argc, char *argv[]);
+	void usage();
+
+private:
+	OptionsParser(const OptionsParser &) = delete;
+	OptionsParser &operator=(const OptionsParser &) = delete;
+
+	void usageOptions(const std::list<Option> &options, unsigned int indent);
+
+	std::tuple<OptionsParser::Options *, const Option *>
+	childOption(const Option *parent, Options *options);
+	bool parseValue(const Option &option, const char *arg, Options *options);
+
+	std::list<Option> options_;
+	std::map<unsigned int, Option *> optionsMap_;
 };
 
 class OptionValue
@@ -105,16 +135,17 @@ public:
 	void addValue(const OptionValue &value);
 
 	ValueType type() const { return type_; }
+	bool empty() const { return type_ == ValueType::ValueNone; }
 
 	operator int() const;
 	operator std::string() const;
-	operator KeyValueParser::Options() const;
-	operator std::vector<OptionValue>() const;
 
 	int toInteger() const;
 	std::string toString() const;
-	KeyValueParser::Options toKeyValues() const;
-	std::vector<OptionValue> toArray() const;
+	const KeyValueParser::Options &toKeyValues() const;
+	const std::vector<OptionValue> &toArray() const;
+
+	const OptionsParser::Options &children() const;
 
 private:
 	ValueType type_;
@@ -122,30 +153,7 @@ private:
 	std::string string_;
 	KeyValueParser::Options keyValues_;
 	std::vector<OptionValue> array_;
-};
-
-class OptionsParser
-{
-public:
-	class Options : public OptionsBase<int>
-	{
-	};
-
-	bool addOption(int opt, OptionType type, const char *help,
-		       const char *name = nullptr,
-		       OptionArgument argument = ArgumentNone,
-		       const char *argumentName = nullptr, bool array = false);
-	bool addOption(int opt, KeyValueParser *parser, const char *help,
-		       const char *name = nullptr, bool array = false);
-
-	Options parse(int argc, char *argv[]);
-	void usage();
-
-private:
-	void parseValueError(const Option &option);
-
-	std::list<Option> options_;
-	std::map<unsigned int, Option *> optionsMap_;
+	OptionsParser::Options children_;
 };
 
 #endif /* __CAM_OPTIONS_H__ */

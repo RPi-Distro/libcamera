@@ -10,35 +10,46 @@
 #include <map>
 #include <mutex>
 #include <stddef.h>
+#include <tuple>
 #include <vector>
 
 #include <hardware/camera_common.h>
 #include <hardware/hardware.h>
 #include <system/camera_metadata.h>
 
+#include <libcamera/base/class.h>
+
 #include <libcamera/camera_manager.h>
+
+#include "camera_hal_config.h"
 
 class CameraDevice;
 
 class CameraHalManager
 {
 public:
-	CameraHalManager();
 	~CameraHalManager();
+
+	static CameraHalManager *instance();
 
 	int init();
 
-	CameraDevice *open(unsigned int id, const hw_module_t *module);
+	std::tuple<CameraDevice *, int>
+	open(unsigned int id, const hw_module_t *module);
 
 	unsigned int numCameras() const;
 	int getCameraInfo(unsigned int id, struct camera_info *info);
 	void setCallbacks(const camera_module_callbacks_t *callbacks);
 
 private:
+	LIBCAMERA_DISABLE_COPY_AND_MOVE(CameraHalManager)
+
 	using Mutex = std::mutex;
 	using MutexLocker = std::unique_lock<std::mutex>;
 
 	static constexpr unsigned int firstExternalCameraId_ = 1000;
+
+	CameraHalManager();
 
 	static int32_t cameraLocation(const libcamera::Camera *cam);
 
@@ -47,10 +58,11 @@ private:
 
 	CameraDevice *cameraDeviceFromHalId(unsigned int id);
 
-	libcamera::CameraManager *cameraManager_;
+	std::unique_ptr<libcamera::CameraManager> cameraManager_;
+	CameraHalConfig halConfig_;
 
 	const camera_module_callbacks_t *callbacks_;
-	std::vector<std::shared_ptr<CameraDevice>> cameras_;
+	std::vector<std::unique_ptr<CameraDevice>> cameras_;
 	std::map<std::string, unsigned int> cameraIdsMap_;
 	Mutex mutex_;
 

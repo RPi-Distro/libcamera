@@ -12,10 +12,12 @@
 #include <stdint.h>
 #include <string>
 
+#include <libcamera/base/class.h>
+#include <libcamera/base/object.h>
+#include <libcamera/base/signal.h>
+
 #include <libcamera/controls.h>
-#include <libcamera/object.h>
 #include <libcamera/request.h>
-#include <libcamera/signal.h>
 #include <libcamera/stream.h>
 #include <libcamera/transform.h>
 
@@ -70,21 +72,21 @@ protected:
 	std::vector<StreamConfiguration> config_;
 };
 
-class Camera final : public Object, public std::enable_shared_from_this<Camera>
+class Camera final : public Object, public std::enable_shared_from_this<Camera>,
+		     public Extensible
 {
+	LIBCAMERA_DECLARE_PRIVATE()
+
 public:
-	static std::shared_ptr<Camera> create(PipelineHandler *pipe,
+	static std::shared_ptr<Camera> create(std::unique_ptr<Private> d,
 					      const std::string &id,
 					      const std::set<Stream *> &streams);
-
-	Camera(const Camera &) = delete;
-	Camera &operator=(const Camera &) = delete;
 
 	const std::string &id() const;
 
 	Signal<Request *, FrameBuffer *> bufferCompleted;
 	Signal<Request *> requestCompleted;
-	Signal<Camera *> disconnected;
+	Signal<> disconnected;
 
 	int acquire();
 	int release();
@@ -99,16 +101,15 @@ public:
 	std::unique_ptr<Request> createRequest(uint64_t cookie = 0);
 	int queueRequest(Request *request);
 
-	int start();
+	int start(const ControlList *controls = nullptr);
 	int stop();
 
 private:
-	Camera(PipelineHandler *pipe, const std::string &id,
+	LIBCAMERA_DISABLE_COPY(Camera)
+
+	Camera(std::unique_ptr<Private> d, const std::string &id,
 	       const std::set<Stream *> &streams);
 	~Camera();
-
-	class Private;
-	std::unique_ptr<Private> p_;
 
 	friend class PipelineHandler;
 	void disconnect();

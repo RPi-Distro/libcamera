@@ -13,31 +13,51 @@
 
 #include <libcamera/formats.h>
 
+#include "../cam/image.h"
+
 static const QList<libcamera::PixelFormat> supportedFormats{
-	/* Packed (single plane) */
+	/* YUV - packed (single plane) */
 	libcamera::formats::UYVY,
 	libcamera::formats::VYUY,
 	libcamera::formats::YUYV,
 	libcamera::formats::YVYU,
-	/* Semi planar (two planes) */
+	/* YUV - semi planar (two planes) */
 	libcamera::formats::NV12,
 	libcamera::formats::NV21,
 	libcamera::formats::NV16,
 	libcamera::formats::NV61,
 	libcamera::formats::NV24,
 	libcamera::formats::NV42,
-	/* Fully planar (three planes) */
+	/* YUV - fully planar (three planes) */
 	libcamera::formats::YUV420,
 	libcamera::formats::YVU420,
+	/* RGB */
+	libcamera::formats::ABGR8888,
+	libcamera::formats::ARGB8888,
+	libcamera::formats::BGRA8888,
+	libcamera::formats::RGBA8888,
+	libcamera::formats::BGR888,
+	libcamera::formats::RGB888,
+	/* Raw Bayer 8-bit */
+	libcamera::formats::SBGGR8,
+	libcamera::formats::SGBRG8,
+	libcamera::formats::SGRBG8,
+	libcamera::formats::SRGGB8,
+	/* Raw Bayer 10-bit packed */
+	libcamera::formats::SBGGR10_CSI2P,
+	libcamera::formats::SGBRG10_CSI2P,
+	libcamera::formats::SGRBG10_CSI2P,
+	libcamera::formats::SRGGB10_CSI2P,
+	/* Raw Bayer 12-bit packed */
+	libcamera::formats::SBGGR12_CSI2P,
+	libcamera::formats::SGBRG12_CSI2P,
+	libcamera::formats::SGRBG12_CSI2P,
+	libcamera::formats::SRGGB12_CSI2P,
 };
 
 ViewFinderGL::ViewFinderGL(QWidget *parent)
-	: QOpenGLWidget(parent), buffer_(nullptr), yuvData_(nullptr),
-	  vertexShader_(nullptr), fragmentShader_(nullptr),
-	  vertexBuffer_(QOpenGLBuffer::VertexBuffer),
-	  textureU_(QOpenGLTexture::Target2D),
-	  textureV_(QOpenGLTexture::Target2D),
-	  textureY_(QOpenGLTexture::Target2D)
+	: QOpenGLWidget(parent), buffer_(nullptr), image_(nullptr),
+	  vertexBuffer_(QOpenGLBuffer::VertexBuffer)
 {
 }
 
@@ -52,22 +72,27 @@ const QList<libcamera::PixelFormat> &ViewFinderGL::nativeFormats() const
 }
 
 int ViewFinderGL::setFormat(const libcamera::PixelFormat &format,
-			    const QSize &size)
+			    const QSize &size, unsigned int stride)
 {
-	/* If the fragment is created remove it and create a new one. */
-	if (fragmentShader_) {
+	if (format != format_) {
+		/*
+		 * If the fragment already exists, remove it and create a new
+		 * one for the new format.
+		 */
 		if (shaderProgram_.isLinked()) {
 			shaderProgram_.release();
-			shaderProgram_.removeShader(fragmentShader_);
-			delete fragmentShader_;
+			shaderProgram_.removeShader(fragmentShader_.get());
+			fragmentShader_.reset();
 		}
+
+		if (!selectFormat(format))
+			return -1;
+
+		format_ = format;
 	}
 
-	if (!selectFormat(format))
-		return -1;
-
-	format_ = format;
 	size_ = size;
+	stride_ = stride;
 
 	updateGeometry();
 	return 0;
@@ -78,6 +103,7 @@ void ViewFinderGL::stop()
 	if (buffer_) {
 		renderComplete(buffer_);
 		buffer_ = nullptr;
+		image_ = nullptr;
 	}
 }
 
@@ -88,17 +114,12 @@ QImage ViewFinderGL::getCurrentImage()
 	return grabFramebuffer();
 }
 
-void ViewFinderGL::render(libcamera::FrameBuffer *buffer, MappedBuffer *map)
+void ViewFinderGL::render(libcamera::FrameBuffer *buffer, Image *image)
 {
-	if (buffer->planes().size() != 1) {
-		qWarning() << "Multi-planar buffers are not supported";
-		return;
-	}
-
 	if (buffer_)
 		renderComplete(buffer_);
 
-	yuvData_ = static_cast<unsigned char *>(map->memory);
+	image_ = image;
 	update();
 	buffer_ = buffer;
 }
@@ -106,6 +127,12 @@ void ViewFinderGL::render(libcamera::FrameBuffer *buffer, MappedBuffer *map)
 bool ViewFinderGL::selectFormat(const libcamera::PixelFormat &format)
 {
 	bool ret = true;
+
+	/* Set min/mag filters to GL_LINEAR by default. */
+	textureMinMagFilters_ = GL_LINEAR;
+
+	/* Use identity.vert as the default vertex shader. */
+	vertexShaderFile_ = ":identity.vert";
 
 	fragmentShaderDefines_.clear();
 
@@ -172,6 +199,114 @@ bool ViewFinderGL::selectFormat(const libcamera::PixelFormat &format)
 		fragmentShaderDefines_.append("#define YUV_PATTERN_YVYU");
 		fragmentShaderFile_ = ":YUV_packed.frag";
 		break;
+	case libcamera::formats::ABGR8888:
+		fragmentShaderDefines_.append("#define RGB_PATTERN rgb");
+		fragmentShaderFile_ = ":RGB.frag";
+		break;
+	case libcamera::formats::ARGB8888:
+		fragmentShaderDefines_.append("#define RGB_PATTERN bgr");
+		fragmentShaderFile_ = ":RGB.frag";
+		break;
+	case libcamera::formats::BGRA8888:
+		fragmentShaderDefines_.append("#define RGB_PATTERN gba");
+		fragmentShaderFile_ = ":RGB.frag";
+		break;
+	case libcamera::formats::RGBA8888:
+		fragmentShaderDefines_.append("#define RGB_PATTERN abg");
+		fragmentShaderFile_ = ":RGB.frag";
+		break;
+	case libcamera::formats::BGR888:
+		fragmentShaderDefines_.append("#define RGB_PATTERN rgb");
+		fragmentShaderFile_ = ":RGB.frag";
+		break;
+	case libcamera::formats::RGB888:
+		fragmentShaderDefines_.append("#define RGB_PATTERN bgr");
+		fragmentShaderFile_ = ":RGB.frag";
+		break;
+	case libcamera::formats::SBGGR8:
+		firstRed_.setX(1.0);
+		firstRed_.setY(1.0);
+		vertexShaderFile_ = ":bayer_8.vert";
+		fragmentShaderFile_ = ":bayer_8.frag";
+		textureMinMagFilters_ = GL_NEAREST;
+		break;
+	case libcamera::formats::SGBRG8:
+		firstRed_.setX(0.0);
+		firstRed_.setY(1.0);
+		vertexShaderFile_ = ":bayer_8.vert";
+		fragmentShaderFile_ = ":bayer_8.frag";
+		textureMinMagFilters_ = GL_NEAREST;
+		break;
+	case libcamera::formats::SGRBG8:
+		firstRed_.setX(1.0);
+		firstRed_.setY(0.0);
+		vertexShaderFile_ = ":bayer_8.vert";
+		fragmentShaderFile_ = ":bayer_8.frag";
+		textureMinMagFilters_ = GL_NEAREST;
+		break;
+	case libcamera::formats::SRGGB8:
+		firstRed_.setX(0.0);
+		firstRed_.setY(0.0);
+		vertexShaderFile_ = ":bayer_8.vert";
+		fragmentShaderFile_ = ":bayer_8.frag";
+		textureMinMagFilters_ = GL_NEAREST;
+		break;
+	case libcamera::formats::SBGGR10_CSI2P:
+		firstRed_.setX(1.0);
+		firstRed_.setY(1.0);
+		fragmentShaderDefines_.append("#define RAW10P");
+		fragmentShaderFile_ = ":bayer_1x_packed.frag";
+		textureMinMagFilters_ = GL_NEAREST;
+		break;
+	case libcamera::formats::SGBRG10_CSI2P:
+		firstRed_.setX(0.0);
+		firstRed_.setY(1.0);
+		fragmentShaderDefines_.append("#define RAW10P");
+		fragmentShaderFile_ = ":bayer_1x_packed.frag";
+		textureMinMagFilters_ = GL_NEAREST;
+		break;
+	case libcamera::formats::SGRBG10_CSI2P:
+		firstRed_.setX(1.0);
+		firstRed_.setY(0.0);
+		fragmentShaderDefines_.append("#define RAW10P");
+		fragmentShaderFile_ = ":bayer_1x_packed.frag";
+		textureMinMagFilters_ = GL_NEAREST;
+		break;
+	case libcamera::formats::SRGGB10_CSI2P:
+		firstRed_.setX(0.0);
+		firstRed_.setY(0.0);
+		fragmentShaderDefines_.append("#define RAW10P");
+		fragmentShaderFile_ = ":bayer_1x_packed.frag";
+		textureMinMagFilters_ = GL_NEAREST;
+		break;
+	case libcamera::formats::SBGGR12_CSI2P:
+		firstRed_.setX(1.0);
+		firstRed_.setY(1.0);
+		fragmentShaderDefines_.append("#define RAW12P");
+		fragmentShaderFile_ = ":bayer_1x_packed.frag";
+		textureMinMagFilters_ = GL_NEAREST;
+		break;
+	case libcamera::formats::SGBRG12_CSI2P:
+		firstRed_.setX(0.0);
+		firstRed_.setY(1.0);
+		fragmentShaderDefines_.append("#define RAW12P");
+		fragmentShaderFile_ = ":bayer_1x_packed.frag";
+		textureMinMagFilters_ = GL_NEAREST;
+		break;
+	case libcamera::formats::SGRBG12_CSI2P:
+		firstRed_.setX(1.0);
+		firstRed_.setY(0.0);
+		fragmentShaderDefines_.append("#define RAW12P");
+		fragmentShaderFile_ = ":bayer_1x_packed.frag";
+		textureMinMagFilters_ = GL_NEAREST;
+		break;
+	case libcamera::formats::SRGGB12_CSI2P:
+		firstRed_.setX(0.0);
+		firstRed_.setY(0.0);
+		fragmentShaderDefines_.append("#define RAW12P");
+		fragmentShaderFile_ = ":bayer_1x_packed.frag";
+		textureMinMagFilters_ = GL_NEAREST;
+		break;
 	default:
 		ret = false;
 		qWarning() << "[ViewFinderGL]:"
@@ -185,15 +320,15 @@ bool ViewFinderGL::selectFormat(const libcamera::PixelFormat &format)
 bool ViewFinderGL::createVertexShader()
 {
 	/* Create Vertex Shader */
-	vertexShader_ = new QOpenGLShader(QOpenGLShader::Vertex, this);
+	vertexShader_ = std::make_unique<QOpenGLShader>(QOpenGLShader::Vertex, this);
 
 	/* Compile the vertex shader */
-	if (!vertexShader_->compileSourceFile(":YUV.vert")) {
+	if (!vertexShader_->compileSourceFile(vertexShaderFile_)) {
 		qWarning() << "[ViewFinderGL]:" << vertexShader_->log();
 		return false;
 	}
 
-	shaderProgram_.addShader(vertexShader_);
+	shaderProgram_.addShader(vertexShader_.get());
 	return true;
 }
 
@@ -207,7 +342,7 @@ bool ViewFinderGL::createFragmentShader()
 	 * program. The #define macros stored in fragmentShaderDefines_, if
 	 * any, are prepended to the source code.
 	 */
-	fragmentShader_ = new QOpenGLShader(QOpenGLShader::Fragment, this);
+	fragmentShader_ = std::make_unique<QOpenGLShader>(QOpenGLShader::Fragment, this);
 
 	QFile file(fragmentShaderFile_);
 	if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -224,7 +359,7 @@ bool ViewFinderGL::createFragmentShader()
 		return false;
 	}
 
-	shaderProgram_.addShader(fragmentShader_);
+	shaderProgram_.addShader(fragmentShader_.get());
 
 	/* Link shader pipeline */
 	if (!shaderProgram_.link()) {
@@ -258,16 +393,19 @@ bool ViewFinderGL::createFragmentShader()
 	textureUniformY_ = shaderProgram_.uniformLocation("tex_y");
 	textureUniformU_ = shaderProgram_.uniformLocation("tex_u");
 	textureUniformV_ = shaderProgram_.uniformLocation("tex_v");
-	textureUniformStepX_ = shaderProgram_.uniformLocation("tex_stepx");
+	textureUniformStep_ = shaderProgram_.uniformLocation("tex_step");
+	textureUniformSize_ = shaderProgram_.uniformLocation("tex_size");
+	textureUniformStrideFactor_ = shaderProgram_.uniformLocation("stride_factor");
+	textureUniformBayerFirstRed_ = shaderProgram_.uniformLocation("tex_bayer_first_red");
 
-	if (!textureY_.isCreated())
-		textureY_.create();
+	/* Create the textures. */
+	for (std::unique_ptr<QOpenGLTexture> &texture : textures_) {
+		if (texture)
+			continue;
 
-	if (!textureU_.isCreated())
-		textureU_.create();
-
-	if (!textureV_.isCreated())
-		textureV_.create();
+		texture = std::make_unique<QOpenGLTexture>(QOpenGLTexture::Target2D);
+		texture->create();
+	}
 
 	return true;
 }
@@ -275,8 +413,10 @@ bool ViewFinderGL::createFragmentShader()
 void ViewFinderGL::configureTexture(QOpenGLTexture &texture)
 {
 	glBindTexture(GL_TEXTURE_2D, texture.textureId());
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
+			textureMinMagFilters_);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+			textureMinMagFilters_);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 }
@@ -287,12 +427,6 @@ void ViewFinderGL::removeShader()
 		shaderProgram_.release();
 		shaderProgram_.removeAllShaders();
 	}
-
-	if (fragmentShader_)
-		delete fragmentShader_;
-
-	if (vertexShader_)
-		delete vertexShader_;
 }
 
 void ViewFinderGL::initializeGL()
@@ -331,6 +465,9 @@ void ViewFinderGL::initializeGL()
 
 void ViewFinderGL::doRender()
 {
+	/* Stride of the first plane, in pixels. */
+	unsigned int stridePixels;
+
 	switch (format_) {
 	case libcamera::formats::NV12:
 	case libcamera::formats::NV21:
@@ -340,119 +477,125 @@ void ViewFinderGL::doRender()
 	case libcamera::formats::NV42:
 		/* Activate texture Y */
 		glActiveTexture(GL_TEXTURE0);
-		configureTexture(textureY_);
+		configureTexture(*textures_[0]);
 		glTexImage2D(GL_TEXTURE_2D,
 			     0,
-			     GL_RED,
-			     size_.width(),
+			     GL_LUMINANCE,
+			     stride_,
 			     size_.height(),
 			     0,
-			     GL_RED,
+			     GL_LUMINANCE,
 			     GL_UNSIGNED_BYTE,
-			     yuvData_);
+			     image_->data(0).data());
 		shaderProgram_.setUniformValue(textureUniformY_, 0);
 
 		/* Activate texture UV/VU */
 		glActiveTexture(GL_TEXTURE1);
-		configureTexture(textureU_);
+		configureTexture(*textures_[1]);
 		glTexImage2D(GL_TEXTURE_2D,
 			     0,
-			     GL_RG,
-			     size_.width() / horzSubSample_,
+			     GL_LUMINANCE_ALPHA,
+			     stride_ / horzSubSample_,
 			     size_.height() / vertSubSample_,
 			     0,
-			     GL_RG,
+			     GL_LUMINANCE_ALPHA,
 			     GL_UNSIGNED_BYTE,
-			     (char *)yuvData_ + size_.width() * size_.height());
+			     image_->data(1).data());
 		shaderProgram_.setUniformValue(textureUniformU_, 1);
+
+		stridePixels = stride_;
 		break;
 
 	case libcamera::formats::YUV420:
 		/* Activate texture Y */
 		glActiveTexture(GL_TEXTURE0);
-		configureTexture(textureY_);
+		configureTexture(*textures_[0]);
 		glTexImage2D(GL_TEXTURE_2D,
 			     0,
-			     GL_RED,
-			     size_.width(),
+			     GL_LUMINANCE,
+			     stride_,
 			     size_.height(),
 			     0,
-			     GL_RED,
+			     GL_LUMINANCE,
 			     GL_UNSIGNED_BYTE,
-			     yuvData_);
+			     image_->data(0).data());
 		shaderProgram_.setUniformValue(textureUniformY_, 0);
 
 		/* Activate texture U */
 		glActiveTexture(GL_TEXTURE1);
-		configureTexture(textureU_);
+		configureTexture(*textures_[1]);
 		glTexImage2D(GL_TEXTURE_2D,
 			     0,
-			     GL_RED,
-			     size_.width() / horzSubSample_,
+			     GL_LUMINANCE,
+			     stride_ / horzSubSample_,
 			     size_.height() / vertSubSample_,
 			     0,
-			     GL_RED,
+			     GL_LUMINANCE,
 			     GL_UNSIGNED_BYTE,
-			     (char *)yuvData_ + size_.width() * size_.height());
+			     image_->data(1).data());
 		shaderProgram_.setUniformValue(textureUniformU_, 1);
 
 		/* Activate texture V */
 		glActiveTexture(GL_TEXTURE2);
-		configureTexture(textureV_);
+		configureTexture(*textures_[2]);
 		glTexImage2D(GL_TEXTURE_2D,
 			     0,
-			     GL_RED,
-			     size_.width() / horzSubSample_,
+			     GL_LUMINANCE,
+			     stride_ / horzSubSample_,
 			     size_.height() / vertSubSample_,
 			     0,
-			     GL_RED,
+			     GL_LUMINANCE,
 			     GL_UNSIGNED_BYTE,
-			     (char *)yuvData_ + size_.width() * size_.height() * 5 / 4);
+			     image_->data(2).data());
 		shaderProgram_.setUniformValue(textureUniformV_, 2);
+
+		stridePixels = stride_;
 		break;
 
 	case libcamera::formats::YVU420:
 		/* Activate texture Y */
 		glActiveTexture(GL_TEXTURE0);
-		configureTexture(textureY_);
+		configureTexture(*textures_[0]);
 		glTexImage2D(GL_TEXTURE_2D,
 			     0,
-			     GL_RED,
-			     size_.width(),
+			     GL_LUMINANCE,
+			     stride_,
 			     size_.height(),
 			     0,
-			     GL_RED,
+			     GL_LUMINANCE,
 			     GL_UNSIGNED_BYTE,
-			     yuvData_);
+			     image_->data(0).data());
 		shaderProgram_.setUniformValue(textureUniformY_, 0);
 
 		/* Activate texture V */
 		glActiveTexture(GL_TEXTURE2);
-		configureTexture(textureV_);
+		configureTexture(*textures_[2]);
 		glTexImage2D(GL_TEXTURE_2D,
 			     0,
-			     GL_RED,
-			     size_.width() / horzSubSample_,
+			     GL_LUMINANCE,
+			     stride_ / horzSubSample_,
 			     size_.height() / vertSubSample_,
 			     0,
-			     GL_RED,
+			     GL_LUMINANCE,
 			     GL_UNSIGNED_BYTE,
-			     (char *)yuvData_ + size_.width() * size_.height());
+			     image_->data(1).data());
 		shaderProgram_.setUniformValue(textureUniformV_, 2);
 
 		/* Activate texture U */
 		glActiveTexture(GL_TEXTURE1);
-		configureTexture(textureU_);
+		configureTexture(*textures_[1]);
 		glTexImage2D(GL_TEXTURE_2D,
 			     0,
-			     GL_RED,
-			     size_.width() / horzSubSample_,
+			     GL_LUMINANCE,
+			     stride_ / horzSubSample_,
 			     size_.height() / vertSubSample_,
 			     0,
-			     GL_RED,
+			     GL_LUMINANCE,
 			     GL_UNSIGNED_BYTE,
-			     (char *)yuvData_ + size_.width() * size_.height() * 5 / 4);
+			     image_->data(2).data());
 		shaderProgram_.setUniformValue(textureUniformU_, 1);
+
+		stridePixels = stride_;
 		break;
 
 	case libcamera::formats::UYVY:
@@ -462,19 +605,19 @@ void ViewFinderGL::doRender()
 		/*
 		 * Packed YUV formats are stored in a RGBA texture to match the
 		 * OpenGL texel size with the 4 bytes repeating pattern in YUV.
-		 * The texture width is thus half of the image with.
+		 * The texture width is thus half of the image_ with.
 		 */
 		glActiveTexture(GL_TEXTURE0);
-		configureTexture(textureY_);
+		configureTexture(*textures_[0]);
 		glTexImage2D(GL_TEXTURE_2D,
 			     0,
 			     GL_RGBA,
-			     size_.width() / 2,
+			     stride_ / 4,
 			     size_.height(),
 			     0,
 			     GL_RGBA,
 			     GL_UNSIGNED_BYTE,
-			     yuvData_);
+			     image_->data(0).data());
 		shaderProgram_.setUniformValue(textureUniformY_, 0);
 
 		/*
@@ -483,13 +626,109 @@ void ViewFinderGL::doRender()
 		 * ([0, 1]). There are exactly width - 1 steps between the
 		 * leftmost and rightmost texels.
 		 */
-		shaderProgram_.setUniformValue(textureUniformStepX_,
-					       1.0f / (size_.width() / 2 - 1));
+		shaderProgram_.setUniformValue(textureUniformStep_,
+					       1.0f / (size_.width() / 2 - 1),
+					       1.0f /* not used */);
+
+		stridePixels = stride_ / 2;
+		break;
+
+	case libcamera::formats::ABGR8888:
+	case libcamera::formats::ARGB8888:
+	case libcamera::formats::BGRA8888:
+	case libcamera::formats::RGBA8888:
+		glActiveTexture(GL_TEXTURE0);
+		configureTexture(*textures_[0]);
+		glTexImage2D(GL_TEXTURE_2D,
+			     0,
+			     GL_RGBA,
+			     stride_ / 4,
+			     size_.height(),
+			     0,
+			     GL_RGBA,
+			     GL_UNSIGNED_BYTE,
+			     image_->data(0).data());
+		shaderProgram_.setUniformValue(textureUniformY_, 0);
+
+		stridePixels = stride_ / 4;
+		break;
+
+	case libcamera::formats::BGR888:
+	case libcamera::formats::RGB888:
+		glActiveTexture(GL_TEXTURE0);
+		configureTexture(*textures_[0]);
+		glTexImage2D(GL_TEXTURE_2D,
+			     0,
+			     GL_RGB,
+			     stride_ / 3,
+			     size_.height(),
+			     0,
+			     GL_RGB,
+			     GL_UNSIGNED_BYTE,
+			     image_->data(0).data());
+		shaderProgram_.setUniformValue(textureUniformY_, 0);
+
+		stridePixels = stride_ / 3;
+		break;
+
+	case libcamera::formats::SBGGR8:
+	case libcamera::formats::SGBRG8:
+	case libcamera::formats::SGRBG8:
+	case libcamera::formats::SRGGB8:
+	case libcamera::formats::SBGGR10_CSI2P:
+	case libcamera::formats::SGBRG10_CSI2P:
+	case libcamera::formats::SGRBG10_CSI2P:
+	case libcamera::formats::SRGGB10_CSI2P:
+	case libcamera::formats::SBGGR12_CSI2P:
+	case libcamera::formats::SGBRG12_CSI2P:
+	case libcamera::formats::SGRBG12_CSI2P:
+	case libcamera::formats::SRGGB12_CSI2P:
+		/*
+		 * Raw Bayer 8-bit, and packed raw Bayer 10-bit/12-bit formats
+		 * are stored in a GL_LUMINANCE texture. The texture width is
+		 * equal to the stride.
+		 */
+		glActiveTexture(GL_TEXTURE0);
+		configureTexture(*textures_[0]);
+		glTexImage2D(GL_TEXTURE_2D,
+			     0,
+			     GL_LUMINANCE,
+			     stride_,
+			     size_.height(),
+			     0,
+			     GL_LUMINANCE,
+			     GL_UNSIGNED_BYTE,
+			     image_->data(0).data());
+		shaderProgram_.setUniformValue(textureUniformY_, 0);
+		shaderProgram_.setUniformValue(textureUniformBayerFirstRed_,
+					       firstRed_);
+		shaderProgram_.setUniformValue(textureUniformSize_,
+					       size_.width(), /* in pixels */
+					       size_.height());
+		shaderProgram_.setUniformValue(textureUniformStep_,
+					       1.0f / (stride_ - 1),
+					       1.0f / (size_.height() - 1));
+
+		/*
+		 * The stride is already taken into account in the shaders, set
+		 * the generic stride factor to 1.0.
+		 */
+		stridePixels = size_.width();
 		break;
 
 	default:
+		stridePixels = size_.width();
 		break;
 	};
+
+	/*
+	 * Compute the stride factor for the vertex shader, to map the
+	 * horizontal texture coordinate range [0.0, 1.0] to the active portion
+	 * of the image.
+	 */
+	shaderProgram_.setUniformValue(textureUniformStrideFactor_,
+				       static_cast<float>(size_.width() - 1) /
+				       (stridePixels - 1));
 }
 
 void ViewFinderGL::paintGL()
@@ -500,7 +739,7 @@ void ViewFinderGL::paintGL()
 				   << "create fragment shader failed.";
 		}
 
-	if (yuvData_) {
+	if (image_) {
 		glClearColor(0.0, 0.0, 0.0, 1.0);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 

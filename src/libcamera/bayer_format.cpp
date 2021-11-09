@@ -7,8 +7,13 @@
 
 #include "libcamera/internal/bayer_format.h"
 
+#include <algorithm>
 #include <map>
+#include <unordered_map>
 
+#include <linux/media-bus-format.h>
+
+#include <libcamera/formats.h>
 #include <libcamera/transform.h>
 
 /**
@@ -41,52 +46,23 @@ namespace libcamera {
  * \brief G then R on the first row, B then G on the second row.
  * \var BayerFormat::RGGB
  * \brief R then G on the first row, G then B on the second row.
+ * \var BayerFormat::MONO
+ * \brief Monochrome image data, there is no colour filter array.
  */
 
 /**
  * \enum BayerFormat::Packing
  * \brief Different types of packing that can be applied to a BayerFormat
  *
- * \var BayerFormat::None
+ * \var BayerFormat::Packing::None
  * \brief No packing
- * \var BayerFormat::CSI2Packed
+ * \var BayerFormat::Packing::CSI2
  * \brief Format uses MIPI CSI-2 style packing
- * \var BayerFormat::IPU3Packed
+ * \var BayerFormat::Packing::IPU3
  * \brief Format uses IPU3 style packing
  */
 
 namespace {
-
-const std::map<V4L2PixelFormat, BayerFormat> v4l2ToBayer{
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SBGGR8), { BayerFormat::BGGR, 8, BayerFormat::None } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SGBRG8), { BayerFormat::GBRG, 8, BayerFormat::None } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SGRBG8), { BayerFormat::GRBG, 8, BayerFormat::None } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SRGGB8), { BayerFormat::RGGB, 8, BayerFormat::None } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SBGGR10), { BayerFormat::BGGR, 10, BayerFormat::None } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SGBRG10), { BayerFormat::GBRG, 10, BayerFormat::None } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SGRBG10), { BayerFormat::GRBG, 10, BayerFormat::None } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SRGGB10), { BayerFormat::RGGB, 10, BayerFormat::None } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SBGGR10P), { BayerFormat::BGGR, 10, BayerFormat::CSI2Packed } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SGBRG10P), { BayerFormat::GBRG, 10, BayerFormat::CSI2Packed } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SGRBG10P), { BayerFormat::GRBG, 10, BayerFormat::CSI2Packed } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SRGGB10P), { BayerFormat::RGGB, 10, BayerFormat::CSI2Packed } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_IPU3_SBGGR10), { BayerFormat::BGGR, 10, BayerFormat::IPU3Packed } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_IPU3_SGBRG10), { BayerFormat::GBRG, 10, BayerFormat::IPU3Packed } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_IPU3_SGRBG10), { BayerFormat::GRBG, 10, BayerFormat::IPU3Packed } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_IPU3_SRGGB10), { BayerFormat::RGGB, 10, BayerFormat::IPU3Packed } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SBGGR12), { BayerFormat::BGGR, 12, BayerFormat::None } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SGBRG12), { BayerFormat::GBRG, 12, BayerFormat::None } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SGRBG12), { BayerFormat::GRBG, 12, BayerFormat::None } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SRGGB12), { BayerFormat::RGGB, 12, BayerFormat::None } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SBGGR12P), { BayerFormat::BGGR, 12, BayerFormat::CSI2Packed } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SGBRG12P), { BayerFormat::GBRG, 12, BayerFormat::CSI2Packed } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SGRBG12P), { BayerFormat::GRBG, 12, BayerFormat::CSI2Packed } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SRGGB12P), { BayerFormat::RGGB, 12, BayerFormat::CSI2Packed } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SBGGR16), { BayerFormat::BGGR, 16, BayerFormat::None } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SGBRG16), { BayerFormat::GBRG, 16, BayerFormat::None } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SGRBG16), { BayerFormat::GRBG, 16, BayerFormat::None } },
-	{ V4L2PixelFormat(V4L2_PIX_FMT_SRGGB16), { BayerFormat::RGGB, 16, BayerFormat::None } },
-};
 
 /* Define a slightly arbitrary ordering so that we can use a std::map. */
 struct BayerFormatComparator {
@@ -109,35 +85,111 @@ struct BayerFormatComparator {
 	}
 };
 
-const std::map<BayerFormat, V4L2PixelFormat, BayerFormatComparator> bayerToV4l2{
-	{ { BayerFormat::BGGR, 8, BayerFormat::None }, V4L2PixelFormat(V4L2_PIX_FMT_SBGGR8) },
-	{ { BayerFormat::GBRG, 8, BayerFormat::None }, V4L2PixelFormat(V4L2_PIX_FMT_SGBRG8) },
-	{ { BayerFormat::GRBG, 8, BayerFormat::None }, V4L2PixelFormat(V4L2_PIX_FMT_SGRBG8) },
-	{ { BayerFormat::RGGB, 8, BayerFormat::None }, V4L2PixelFormat(V4L2_PIX_FMT_SRGGB8) },
-	{ { BayerFormat::BGGR, 10, BayerFormat::None }, V4L2PixelFormat(V4L2_PIX_FMT_SBGGR10) },
-	{ { BayerFormat::GBRG, 10, BayerFormat::None }, V4L2PixelFormat(V4L2_PIX_FMT_SGBRG10) },
-	{ { BayerFormat::GRBG, 10, BayerFormat::None }, V4L2PixelFormat(V4L2_PIX_FMT_SGRBG10) },
-	{ { BayerFormat::RGGB, 10, BayerFormat::None }, V4L2PixelFormat(V4L2_PIX_FMT_SRGGB10) },
-	{ { BayerFormat::BGGR, 10, BayerFormat::CSI2Packed }, V4L2PixelFormat(V4L2_PIX_FMT_SBGGR10P) },
-	{ { BayerFormat::GBRG, 10, BayerFormat::CSI2Packed }, V4L2PixelFormat(V4L2_PIX_FMT_SGBRG10P) },
-	{ { BayerFormat::GRBG, 10, BayerFormat::CSI2Packed }, V4L2PixelFormat(V4L2_PIX_FMT_SGRBG10P) },
-	{ { BayerFormat::RGGB, 10, BayerFormat::CSI2Packed }, V4L2PixelFormat(V4L2_PIX_FMT_SRGGB10P) },
-	{ { BayerFormat::BGGR, 10, BayerFormat::IPU3Packed }, V4L2PixelFormat(V4L2_PIX_FMT_IPU3_SBGGR10) },
-	{ { BayerFormat::GBRG, 10, BayerFormat::IPU3Packed }, V4L2PixelFormat(V4L2_PIX_FMT_IPU3_SGBRG10) },
-	{ { BayerFormat::GRBG, 10, BayerFormat::IPU3Packed }, V4L2PixelFormat(V4L2_PIX_FMT_IPU3_SGRBG10) },
-	{ { BayerFormat::RGGB, 10, BayerFormat::IPU3Packed }, V4L2PixelFormat(V4L2_PIX_FMT_IPU3_SRGGB10) },
-	{ { BayerFormat::BGGR, 12, BayerFormat::None }, V4L2PixelFormat(V4L2_PIX_FMT_SBGGR12) },
-	{ { BayerFormat::GBRG, 12, BayerFormat::None }, V4L2PixelFormat(V4L2_PIX_FMT_SGBRG12) },
-	{ { BayerFormat::GRBG, 12, BayerFormat::None }, V4L2PixelFormat(V4L2_PIX_FMT_SGRBG12) },
-	{ { BayerFormat::RGGB, 12, BayerFormat::None }, V4L2PixelFormat(V4L2_PIX_FMT_SRGGB12) },
-	{ { BayerFormat::BGGR, 12, BayerFormat::CSI2Packed }, V4L2PixelFormat(V4L2_PIX_FMT_SBGGR12P) },
-	{ { BayerFormat::GBRG, 12, BayerFormat::CSI2Packed }, V4L2PixelFormat(V4L2_PIX_FMT_SGBRG12P) },
-	{ { BayerFormat::GRBG, 12, BayerFormat::CSI2Packed }, V4L2PixelFormat(V4L2_PIX_FMT_SGRBG12P) },
-	{ { BayerFormat::RGGB, 12, BayerFormat::CSI2Packed }, V4L2PixelFormat(V4L2_PIX_FMT_SRGGB12P) },
-	{ { BayerFormat::BGGR, 16, BayerFormat::None }, V4L2PixelFormat(V4L2_PIX_FMT_SBGGR16) },
-	{ { BayerFormat::GBRG, 16, BayerFormat::None }, V4L2PixelFormat(V4L2_PIX_FMT_SGBRG16) },
-	{ { BayerFormat::GRBG, 16, BayerFormat::None }, V4L2PixelFormat(V4L2_PIX_FMT_SGRBG16) },
-	{ { BayerFormat::RGGB, 16, BayerFormat::None }, V4L2PixelFormat(V4L2_PIX_FMT_SRGGB16) },
+struct Formats {
+	PixelFormat pixelFormat;
+	V4L2PixelFormat v4l2Format;
+};
+
+const std::map<BayerFormat, Formats, BayerFormatComparator> bayerToFormat{
+	{ { BayerFormat::BGGR, 8, BayerFormat::Packing::None },
+		{ formats::SBGGR8, V4L2PixelFormat(V4L2_PIX_FMT_SBGGR8) } },
+	{ { BayerFormat::GBRG, 8, BayerFormat::Packing::None },
+		{ formats::SGBRG8, V4L2PixelFormat(V4L2_PIX_FMT_SGBRG8) } },
+	{ { BayerFormat::GRBG, 8, BayerFormat::Packing::None },
+		{ formats::SGRBG8, V4L2PixelFormat(V4L2_PIX_FMT_SGRBG8) } },
+	{ { BayerFormat::RGGB, 8, BayerFormat::Packing::None },
+		{ formats::SRGGB8, V4L2PixelFormat(V4L2_PIX_FMT_SRGGB8) } },
+	{ { BayerFormat::BGGR, 10, BayerFormat::Packing::None },
+		{ formats::SBGGR10, V4L2PixelFormat(V4L2_PIX_FMT_SBGGR10) } },
+	{ { BayerFormat::GBRG, 10, BayerFormat::Packing::None },
+		{ formats::SGBRG10, V4L2PixelFormat(V4L2_PIX_FMT_SGBRG10) } },
+	{ { BayerFormat::GRBG, 10, BayerFormat::Packing::None },
+		{ formats::SGRBG10, V4L2PixelFormat(V4L2_PIX_FMT_SGRBG10) } },
+	{ { BayerFormat::RGGB, 10, BayerFormat::Packing::None },
+		{ formats::SRGGB10, V4L2PixelFormat(V4L2_PIX_FMT_SRGGB10) } },
+	{ { BayerFormat::BGGR, 10, BayerFormat::Packing::CSI2 },
+		{ formats::SBGGR10_CSI2P, V4L2PixelFormat(V4L2_PIX_FMT_SBGGR10P) } },
+	{ { BayerFormat::GBRG, 10, BayerFormat::Packing::CSI2 },
+		{ formats::SGBRG10_CSI2P, V4L2PixelFormat(V4L2_PIX_FMT_SGBRG10P) } },
+	{ { BayerFormat::GRBG, 10, BayerFormat::Packing::CSI2 },
+		{ formats::SGRBG10_CSI2P, V4L2PixelFormat(V4L2_PIX_FMT_SGRBG10P) } },
+	{ { BayerFormat::RGGB, 10, BayerFormat::Packing::CSI2 },
+		{ formats::SRGGB10_CSI2P, V4L2PixelFormat(V4L2_PIX_FMT_SRGGB10P) } },
+	{ { BayerFormat::BGGR, 10, BayerFormat::Packing::IPU3 },
+		{ formats::SBGGR10_IPU3, V4L2PixelFormat(V4L2_PIX_FMT_IPU3_SBGGR10) } },
+	{ { BayerFormat::GBRG, 10, BayerFormat::Packing::IPU3 },
+		{ formats::SGBRG10_IPU3, V4L2PixelFormat(V4L2_PIX_FMT_IPU3_SGBRG10) } },
+	{ { BayerFormat::GRBG, 10, BayerFormat::Packing::IPU3 },
+		{ formats::SGRBG10_IPU3, V4L2PixelFormat(V4L2_PIX_FMT_IPU3_SGRBG10) } },
+	{ { BayerFormat::RGGB, 10, BayerFormat::Packing::IPU3 },
+		{ formats::SRGGB10_IPU3, V4L2PixelFormat(V4L2_PIX_FMT_IPU3_SRGGB10) } },
+	{ { BayerFormat::BGGR, 12, BayerFormat::Packing::None },
+		{ formats::SBGGR12, V4L2PixelFormat(V4L2_PIX_FMT_SBGGR12) } },
+	{ { BayerFormat::GBRG, 12, BayerFormat::Packing::None },
+		{ formats::SGBRG12, V4L2PixelFormat(V4L2_PIX_FMT_SGBRG12) } },
+	{ { BayerFormat::GRBG, 12, BayerFormat::Packing::None },
+		{ formats::SGRBG12, V4L2PixelFormat(V4L2_PIX_FMT_SGRBG12) } },
+	{ { BayerFormat::RGGB, 12, BayerFormat::Packing::None },
+		{ formats::SRGGB12, V4L2PixelFormat(V4L2_PIX_FMT_SRGGB12) } },
+	{ { BayerFormat::BGGR, 12, BayerFormat::Packing::CSI2 },
+		{ formats::SBGGR12_CSI2P, V4L2PixelFormat(V4L2_PIX_FMT_SBGGR12P) } },
+	{ { BayerFormat::GBRG, 12, BayerFormat::Packing::CSI2 },
+		{ formats::SGBRG12_CSI2P, V4L2PixelFormat(V4L2_PIX_FMT_SGBRG12P) } },
+	{ { BayerFormat::GRBG, 12, BayerFormat::Packing::CSI2 },
+		{ formats::SGRBG12_CSI2P, V4L2PixelFormat(V4L2_PIX_FMT_SGRBG12P) } },
+	{ { BayerFormat::RGGB, 12, BayerFormat::Packing::CSI2 },
+		{ formats::SRGGB12_CSI2P, V4L2PixelFormat(V4L2_PIX_FMT_SRGGB12P) } },
+	{ { BayerFormat::BGGR, 16, BayerFormat::Packing::None },
+		{ formats::SBGGR16, V4L2PixelFormat(V4L2_PIX_FMT_SBGGR16) } },
+	{ { BayerFormat::GBRG, 16, BayerFormat::Packing::None },
+		{ formats::SGBRG16, V4L2PixelFormat(V4L2_PIX_FMT_SGBRG16) } },
+	{ { BayerFormat::GRBG, 16, BayerFormat::Packing::None },
+		{ formats::SGRBG16, V4L2PixelFormat(V4L2_PIX_FMT_SGRBG16) } },
+	{ { BayerFormat::RGGB, 16, BayerFormat::Packing::None },
+		{ formats::SRGGB16, V4L2PixelFormat(V4L2_PIX_FMT_SRGGB16) } },
+	{ { BayerFormat::MONO, 8, BayerFormat::Packing::None },
+		{ formats::R8, V4L2PixelFormat(V4L2_PIX_FMT_GREY) } },
+	{ { BayerFormat::MONO, 10, BayerFormat::Packing::None },
+		{ formats::R10, V4L2PixelFormat(V4L2_PIX_FMT_Y10) } },
+	{ { BayerFormat::MONO, 10, BayerFormat::Packing::CSI2 },
+		{ formats::R10_CSI2P, V4L2PixelFormat(V4L2_PIX_FMT_Y10P) } },
+};
+
+const std::unordered_map<unsigned int, BayerFormat> mbusCodeToBayer{
+	{ MEDIA_BUS_FMT_SBGGR8_1X8, { BayerFormat::BGGR, 8, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SGBRG8_1X8, { BayerFormat::GBRG, 8, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SGRBG8_1X8, { BayerFormat::GRBG, 8, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SRGGB8_1X8, { BayerFormat::RGGB, 8, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SBGGR10_ALAW8_1X8, { BayerFormat::BGGR, 8, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SGBRG10_ALAW8_1X8, { BayerFormat::GBRG, 8, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SGRBG10_ALAW8_1X8, { BayerFormat::GRBG, 8, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SRGGB10_ALAW8_1X8, { BayerFormat::RGGB, 8, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SBGGR10_DPCM8_1X8, { BayerFormat::BGGR, 8, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SGBRG10_DPCM8_1X8, { BayerFormat::GBRG, 8, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SGRBG10_DPCM8_1X8, { BayerFormat::GRBG, 8, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SRGGB10_DPCM8_1X8, { BayerFormat::RGGB, 8, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SBGGR10_2X8_PADHI_BE, { BayerFormat::BGGR, 10, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SBGGR10_2X8_PADHI_LE, { BayerFormat::BGGR, 10, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SBGGR10_2X8_PADLO_BE, { BayerFormat::BGGR, 10, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SBGGR10_2X8_PADLO_LE, { BayerFormat::BGGR, 10, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SBGGR10_1X10, { BayerFormat::BGGR, 10, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SGBRG10_1X10, { BayerFormat::GBRG, 10, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SGRBG10_1X10, { BayerFormat::GRBG, 10, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SRGGB10_1X10, { BayerFormat::RGGB, 10, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SBGGR12_1X12, { BayerFormat::BGGR, 12, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SGBRG12_1X12, { BayerFormat::GBRG, 12, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SGRBG12_1X12, { BayerFormat::GRBG, 12, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SRGGB12_1X12, { BayerFormat::RGGB, 12, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SBGGR14_1X14, { BayerFormat::BGGR, 14, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SGBRG14_1X14, { BayerFormat::GBRG, 14, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SGRBG14_1X14, { BayerFormat::GRBG, 14, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SRGGB14_1X14, { BayerFormat::RGGB, 14, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SBGGR16_1X16, { BayerFormat::BGGR, 16, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SGBRG16_1X16, { BayerFormat::GBRG, 16, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SGRBG16_1X16, { BayerFormat::GRBG, 16, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_SRGGB16_1X16, { BayerFormat::RGGB, 16, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_Y8_1X8, { BayerFormat::MONO, 8, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_Y10_1X10, { BayerFormat::MONO, 10, BayerFormat::Packing::None } },
 };
 
 } /* namespace */
@@ -156,17 +208,20 @@ const std::map<BayerFormat, V4L2PixelFormat, BayerFormatComparator> bayerToV4l2{
  */
 
 /**
- * \brief Construct a BayerFormat from a V4L2PixelFormat
- * \param[in] v4l2Format The raw format to convert into a BayerFormat
+ * \brief Retrieve the BayerFormat associated with a media bus code
+ * \param[in] mbusCode The media bus code to convert into a BayerFormat
+ *
+ * The media bus code numeric identifiers are defined by the V4L2 specification.
  */
-BayerFormat::BayerFormat(V4L2PixelFormat v4l2Format)
-	: order(BGGR), packing(None)
+const BayerFormat &BayerFormat::fromMbusCode(unsigned int mbusCode)
 {
-	const auto it = v4l2ToBayer.find(v4l2Format);
-	if (it == v4l2ToBayer.end())
-		bitDepth = 0;
+	static BayerFormat empty;
+
+	const auto it = mbusCodeToBayer.find(mbusCode);
+	if (it == mbusCodeToBayer.end())
+		return empty;
 	else
-		*this = it->second;
+		return it->second;
 }
 
 /**
@@ -187,22 +242,40 @@ std::string BayerFormat::toString() const
 		"BGGR",
 		"GBRG",
 		"GRBG",
-		"RGGB"
+		"RGGB",
+		"MONO"
 	};
-	if (isValid() && order <= RGGB)
+	if (isValid() && order <= MONO)
 		result = orderStrings[order];
 	else
 		return "INVALID";
 
 	result += "-" + std::to_string(bitDepth);
 
-	if (packing == CSI2Packed)
+	if (packing == Packing::CSI2)
 		result += "-CSI2P";
-	else if (packing == IPU3Packed)
+	else if (packing == Packing::IPU3)
 		result += "-IPU3P";
 
 	return result;
 }
+
+/**
+ * \brief Compare two BayerFormats for equality
+ * \return True if order, bitDepth and packing are equal, or false otherwise
+ */
+bool operator==(const BayerFormat &lhs, const BayerFormat &rhs)
+{
+	return lhs.order == rhs.order && lhs.bitDepth == rhs.bitDepth &&
+	       lhs.packing == rhs.packing;
+}
+
+/**
+ * \fn bool operator!=(const BayerFormat &lhs, const BayerFormat &rhs)
+ * \brief Compare two BayerFormats for inequality
+ * \return True if either order, bitdepth or packing are not equal, or false
+ * otherwise
+ */
 
 /**
  * \brief Convert a BayerFormat into the corresponding V4L2PixelFormat
@@ -210,11 +283,57 @@ std::string BayerFormat::toString() const
  */
 V4L2PixelFormat BayerFormat::toV4L2PixelFormat() const
 {
-	const auto it = bayerToV4l2.find(*this);
-	if (it != bayerToV4l2.end())
-		return it->second;
+	const auto it = bayerToFormat.find(*this);
+	if (it != bayerToFormat.end())
+		return it->second.v4l2Format;
 
 	return V4L2PixelFormat();
+}
+
+/**
+ * \brief Convert \a v4l2Format to the corresponding BayerFormat
+ * \param[in] v4l2Format The raw format to convert into a BayerFormat
+ * \return The BayerFormat corresponding to \a v4l2Format
+ */
+BayerFormat BayerFormat::fromV4L2PixelFormat(V4L2PixelFormat v4l2Format)
+{
+	auto it = std::find_if(bayerToFormat.begin(), bayerToFormat.end(),
+			       [v4l2Format](const auto &i) {
+				       return i.second.v4l2Format == v4l2Format;
+			       });
+	if (it != bayerToFormat.end())
+		return it->first;
+
+	return BayerFormat();
+}
+
+/**
+ * \brief Convert a BayerFormat into the corresponding PixelFormat
+ * \return The PixelFormat corresponding to this BayerFormat
+ */
+PixelFormat BayerFormat::toPixelFormat() const
+{
+	const auto it = bayerToFormat.find(*this);
+	if (it != bayerToFormat.end())
+		return it->second.pixelFormat;
+
+	return PixelFormat();
+}
+
+/**
+ * \brief Convert a PixelFormat into the corresponding BayerFormat
+ * \return The BayerFormat corresponding to this PixelFormat
+ */
+BayerFormat BayerFormat::fromPixelFormat(PixelFormat format)
+{
+	const auto it = std::find_if(bayerToFormat.begin(), bayerToFormat.end(),
+				     [format](const auto &i) {
+					     return i.second.pixelFormat == format;
+				     });
+	if (it != bayerToFormat.end())
+		return it->first;
+
+	return BayerFormat();
 }
 
 /**
@@ -227,15 +346,16 @@ V4L2PixelFormat BayerFormat::toV4L2PixelFormat() const
  * The transformed image would have a GRBG order. The bit depth and modifiers
  * are not affected.
  *
- * Note that transpositions are ignored as the order of a transpose with
- * respect to the flips would have to be defined, and sensors are not expected
- * to support transposition.
+ * Horizontal and vertical flips are applied before transpose.
  *
  * \return The transformed Bayer format
  */
 BayerFormat BayerFormat::transform(Transform t) const
 {
 	BayerFormat result = *this;
+
+	if (order == MONO)
+		return result;
 
 	/*
 	 * Observe that flipping bit 0 of the Order enum performs a horizontal
@@ -246,6 +366,11 @@ BayerFormat BayerFormat::transform(Transform t) const
 		result.order = static_cast<Order>(result.order ^ 1);
 	if (!!(t & Transform::VFlip))
 		result.order = static_cast<Order>(result.order ^ 2);
+
+	if (!!(t & Transform::Transpose) && result.order == 1)
+		result.order = static_cast<Order>(2);
+	else if (!!(t & Transform::Transpose) && result.order == 2)
+		result.order = static_cast<Order>(1);
 
 	return result;
 }

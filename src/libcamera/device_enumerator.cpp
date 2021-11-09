@@ -6,12 +6,13 @@
  */
 
 #include "libcamera/internal/device_enumerator.h"
-#include "libcamera/internal/device_enumerator_sysfs.h"
-#include "libcamera/internal/device_enumerator_udev.h"
 
 #include <string.h>
 
-#include "libcamera/internal/log.h"
+#include <libcamera/base/log.h>
+
+#include "libcamera/internal/device_enumerator_sysfs.h"
+#include "libcamera/internal/device_enumerator_udev.h"
 #include "libcamera/internal/media_device.h"
 
 /**
@@ -243,10 +244,10 @@ std::unique_ptr<MediaDevice> DeviceEnumerator::createDevice(const std::string &d
  *
  * Store the media device in the internal list for later matching with
  * pipeline handlers. \a media shall be created with createDevice() first.
- * This method shall be called after all members of the entities of the
+ * This function shall be called after all members of the entities of the
  * media graph have been confirmed to be initialized.
  */
-void DeviceEnumerator::addDevice(std::unique_ptr<MediaDevice> &&media)
+void DeviceEnumerator::addDevice(std::unique_ptr<MediaDevice> media)
 {
 	LOG(DeviceEnumerator, Debug)
 		<< "Added device " << media->deviceNode() << ": " << media->driver();
@@ -287,7 +288,7 @@ void DeviceEnumerator::removeDevice(const std::string &deviceNode)
 	LOG(DeviceEnumerator, Debug)
 		<< "Media device for node " << deviceNode << " removed.";
 
-	media->disconnected.emit(media.get());
+	media->disconnected.emit();
 }
 
 /**
