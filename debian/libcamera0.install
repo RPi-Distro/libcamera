@@ -1,5 +1,6 @@
 usr/lib/*/*.so.*
 usr/lib/*/*/*.so
 #usr/libexec
+usr/lib/*/v4l2-compat.so
 usr/lib/*/*/*_ipa_proxy
 usr/share
