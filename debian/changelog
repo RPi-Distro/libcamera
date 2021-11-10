@@ -1,3 +1,9 @@
+libcamera (0~git20211108+1b30992b623e-2) unstable; urgency=medium
+
+  * Add missing Python build dependencies.
+
+ -- Andrej Shadura <andrew.shadura@collabora.co.uk>  Wed, 10 Nov 2021 12:34:27 +0100
+
 libcamera (0~git20211108+1b30992b623e-1) unstable; urgency=medium
 
   * New upstream snapshot.
