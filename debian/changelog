@@ -1,3 +1,13 @@
+libcamera (0~git20211108+1b30992b623e-3) unstable; urgency=medium
+
+  [ Andrej Shadura ]
+  * Add upstream metadata.
+
+  [ Dorota Czaplejewicz ]
+  * Remove soname patch as the upstream already sets it.
+
+ -- Andrej Shadura <andrew.shadura@collabora.co.uk>  Wed, 10 Nov 2021 12:55:10 +0100
+
 libcamera (0~git20211108+1b30992b623e-2) unstable; urgency=medium
 
   * Add missing Python build dependencies.
