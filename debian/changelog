@@ -1,3 +1,10 @@
+libcamera (0~git20211108+1b30992b623e-4) unstable; urgency=medium
+
+  [ Christopher Obbard ]
+  * Don't treat compilation warnings as errors (Closes: #1012786).
+
+ -- Andrej Shadura <andrew.shadura@collabora.co.uk>  Tue, 14 Jun 2022 14:07:18 +0200
+
 libcamera (0~git20211108+1b30992b623e-3) unstable; urgency=medium
 
   [ Andrej Shadura ]
