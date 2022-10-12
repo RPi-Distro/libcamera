@@ -1,0 +1,35 @@
+Description: fix expressions not considered constant on ppc64el with GCC
+ On ppc64el, GCC seems to be unable to determine the result of some long double
+ expressions at compile time. This makes libcamera fail to build from source on
+ ppc64el.
+ Make sure we only use constexpr on expressions that are considered constant on
+ all architectures.
+Author: Olivier Gayot <olivier.gayot@canonical.com>
+Bug-Ubuntu: https://launchpad.net/bugs/1992331
+Bug-Debian: https://bugs.debian.org/1021544
+Forwarded: https://lists.libcamera.org/pipermail/libcamera-devel/2022-October/034764.html
+Last-Update: 2022-10-10
+---
+This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
+Index: libcamera-0~git20211108+1b30992b623e/src/ipa/raspberrypi/raspberrypi.cpp
+===================================================================
+--- libcamera-0~git20211108+1b30992b623e.orig/src/ipa/raspberrypi/raspberrypi.cpp	2022-10-10 08:24:22.091329072 +0000
++++ libcamera-0~git20211108+1b30992b623e/src/ipa/raspberrypi/raspberrypi.cpp	2022-10-10 08:45:31.686454143 +0000
+@@ -61,7 +61,7 @@
+ /* Configure the sensor with these values initially. */
+ constexpr double defaultAnalogueGain = 1.0;
+ constexpr Duration defaultExposureTime = 20.0ms;
+-constexpr Duration defaultMinFrameDuration = 1.0s / 30.0;
++constexpr Duration defaultMinFrameDuration = 1s / 30.0;
+ constexpr Duration defaultMaxFrameDuration = 250.0s;
+ 
+ /*
+@@ -70,7 +70,7 @@
+  * we rate-limit the controller Prepare() and Process() calls to lower than or
+  * equal to this rate.
+  */
+-constexpr Duration controllerMinFrameDuration = 1.0s / 60.0;
++constexpr Duration controllerMinFrameDuration = 1s / 60.0;
+ 
+ LOG_DEFINE_CATEGORY(IPARPI)
+ 
