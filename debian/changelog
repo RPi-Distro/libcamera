@@ -1,3 +1,12 @@
+libcamera (0~git20211108+1b30992b623e-5) unstable; urgency=medium
+
+  * Team upload.
+
+  [ Olivier Gayot ]
+  * Add patch that fixes FTBFS on ppc64el + GCC (Closes: #1021544, LP: #1992331)
+
+ -- Benjamin Drung <bdrung@debian.org>  Wed, 12 Oct 2022 11:43:40 +0200
+
 libcamera (0~git20211108+1b30992b623e-4) unstable; urgency=medium
 
   [ Christopher Obbard ]
