@@ -4,11 +4,15 @@
  *
  * framebuffer.h - Internal frame buffer handling
  */
-#ifndef __LIBCAMERA_INTERNAL_FRAMEBUFFER_H__
-#define __LIBCAMERA_INTERNAL_FRAMEBUFFER_H__
+
+#pragma once
+
+#include <memory>
+#include <utility>
 
 #include <libcamera/base/class.h>
 
+#include <libcamera/fence.h>
 #include <libcamera/framebuffer.h>
 
 namespace libcamera {
@@ -18,16 +22,27 @@ class FrameBuffer::Private : public Extensible::Private
 	LIBCAMERA_DECLARE_PUBLIC(FrameBuffer)
 
 public:
-	Private();
+	Private(const std::vector<Plane> &planes, uint64_t cookie = 0);
+	virtual ~Private();
 
 	void setRequest(Request *request) { request_ = request; }
 	bool isContiguous() const { return isContiguous_; }
 
+	Fence *fence() const { return fence_.get(); }
+	void setFence(std::unique_ptr<Fence> fence) { fence_ = std::move(fence); }
+
+	void cancel() { metadata_.status = FrameMetadata::FrameCancelled; }
+
+	FrameMetadata &metadata() { return metadata_; }
+
 private:
+	std::vector<Plane> planes_;
+	FrameMetadata metadata_;
+	uint64_t cookie_;
+
+	std::unique_ptr<Fence> fence_;
 	Request *request_;
 	bool isContiguous_;
 };
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_INTERNAL_FRAMEBUFFER_H__ */

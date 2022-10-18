@@ -4,8 +4,8 @@
  *
  * camera_session.h - Camera capture session
  */
-#ifndef __CAM_CAMERA_SESSION_H__
-#define __CAM_CAMERA_SESSION_H__
+
+#pragma once
 
 #include <memory>
 #include <stdint.h>
@@ -23,6 +23,7 @@
 
 #include "options.h"
 
+class CaptureScript;
 class FrameSink;
 
 class CameraSession
@@ -60,6 +61,8 @@ private:
 	std::shared_ptr<libcamera::Camera> camera_;
 	std::unique_ptr<libcamera::CameraConfiguration> config_;
 
+	std::unique_ptr<CaptureScript> script_;
+
 	std::map<const libcamera::Stream *, std::string> streamNames_;
 	std::unique_ptr<FrameSink> sink_;
 	unsigned int cameraIndex_;
@@ -74,5 +77,3 @@ private:
 	std::unique_ptr<libcamera::FrameBufferAllocator> allocator_;
 	std::vector<std::unique_ptr<libcamera::Request>> requests_;
 };
-
-#endif /* __CAM_CAMERA_SESSION_H__ */

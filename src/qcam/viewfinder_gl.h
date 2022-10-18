@@ -5,8 +5,8 @@
  * viewfinder_GL.h - OpenGL Viewfinder for rendering by OpenGL shader
  *
  */
-#ifndef __VIEWFINDER_GL_H__
-#define __VIEWFINDER_GL_H__
+
+#pragma once
 
 #include <array>
 #include <memory>
@@ -39,6 +39,7 @@ public:
 	const QList<libcamera::PixelFormat> &nativeFormats() const override;
 
 	int setFormat(const libcamera::PixelFormat &format, const QSize &size,
+		      const libcamera::ColorSpace &colorSpace,
 		      unsigned int stride) override;
 	void render(libcamera::FrameBuffer *buffer, Image *image) override;
 	void stop() override;
@@ -56,6 +57,7 @@ protected:
 
 private:
 	bool selectFormat(const libcamera::PixelFormat &format);
+	void selectColorSpace(const libcamera::ColorSpace &colorSpace);
 
 	void configureTexture(QOpenGLTexture &texture);
 	bool createFragmentShader();
@@ -66,6 +68,7 @@ private:
 	/* Captured image size, format and buffer */
 	libcamera::FrameBuffer *buffer_;
 	libcamera::PixelFormat format_;
+	libcamera::ColorSpace colorSpace_;
 	QSize size_;
 	unsigned int stride_;
 	Image *image_;
@@ -103,5 +106,3 @@ private:
 
 	QMutex mutex_; /* Prevent concurrent access to image_ */
 };
-
-#endif /* __VIEWFINDER_GL_H__ */

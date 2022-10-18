@@ -5,6 +5,10 @@
  * libcamera Gstreamer element API tests
  */
 
+#include <libcamera/libcamera.h>
+
+#include <libcamera/base/utils.h>
+
 #include "gstreamer_test.h"
 
 #include "test.h"
@@ -23,7 +27,7 @@ const char *__asan_default_options()
 }
 }
 
-GstreamerTest::GstreamerTest()
+GstreamerTest::GstreamerTest(unsigned int numStreams)
 	: pipeline_(nullptr), libcameraSrc_(nullptr)
 {
 	/*
@@ -65,7 +69,37 @@ GstreamerTest::GstreamerTest()
 		return;
 	}
 
+	/*
+	 * Atleast one camera should be available with numStreams streams,
+	 * otherwise skip the test entirely.
+	 */
+	if (!checkMinCameraStreamsAndSetCameraName(numStreams)) {
+		status_ = TestSkip;
+		return;
+	}
+
 	status_ = TestPass;
+}
+
+bool GstreamerTest::checkMinCameraStreamsAndSetCameraName(unsigned int numStreams)
+{
+	libcamera::CameraManager cm;
+	bool cameraFound = false;
+
+	cm.start();
+
+	for (auto &camera : cm.cameras()) {
+		if (camera->streams().size() < numStreams)
+			continue;
+
+		cameraFound = true;
+		cameraName_ = camera->id();
+		break;
+	}
+
+	cm.stop();
+
+	return cameraFound;
 }
 
 GstreamerTest::~GstreamerTest()
@@ -82,12 +116,13 @@ int GstreamerTest::createPipeline()
 	pipeline_ = gst_pipeline_new("test-pipeline");
 
 	if (!libcameraSrc_ || !pipeline_) {
-		g_printerr("Unable to create create pipeline %p.%p\n",
+		g_printerr("Unable to create pipeline %p.%p\n",
 			   libcameraSrc_, pipeline_);
 
 		return TestFail;
 	}
 
+	g_object_set(libcameraSrc_, "camera-name", cameraName_.c_str(), NULL);
 	g_object_ref_sink(libcameraSrc_);
 
 	return TestPass;

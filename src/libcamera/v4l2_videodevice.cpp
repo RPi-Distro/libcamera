@@ -23,9 +23,9 @@
 
 #include <libcamera/base/event_notifier.h>
 #include <libcamera/base/log.h>
+#include <libcamera/base/shared_fd.h>
+#include <libcamera/base/unique_fd.h>
 #include <libcamera/base/utils.h>
-
-#include <libcamera/file_descriptor.h>
 
 #include "libcamera/internal/formats.h"
 #include "libcamera/internal/framebuffer.h"
@@ -202,6 +202,19 @@ V4L2BufferCache::~V4L2BufferCache()
 }
 
 /**
+ * \brief Check if all the entries in the cache are unused
+ */
+bool V4L2BufferCache::isEmpty() const
+{
+	for (auto const &entry : cache_) {
+		if (!entry.free_)
+			return false;
+	}
+
+	return true;
+}
+
+/**
  * \brief Find the best V4L2 buffer for a FrameBuffer
  * \param[in] buffer The FrameBuffer
  *
@@ -282,7 +295,7 @@ bool V4L2BufferCache::Entry::operator==(const FrameBuffer &buffer) const
 		return false;
 
 	for (unsigned int i = 0; i < planes.size(); i++)
-		if (planes_[i].fd != planes[i].fd.fd() ||
+		if (planes_[i].fd != planes[i].fd.get() ||
 		    planes_[i].length != planes[i].length)
 			return false;
 	return true;
@@ -384,6 +397,21 @@ bool V4L2BufferCache::Entry::operator==(const FrameBuffer &buffer) const
  */
 
 /**
+ * \var V4L2DeviceFormat::colorSpace
+ * \brief The color space of the pixels
+ *
+ * The color space of the image. When setting the format this may be
+ * unset, in which case the driver gets to use its default color space.
+ * After being set, this value should contain the color space that
+ * was actually used. If this value is unset, then the color space chosen
+ * by the driver could not be represented by the ColorSpace class (and
+ * should probably be added).
+ *
+ * It is up to the pipeline handler or application to check if the
+ * resulting color space is acceptable.
+ */
+
+/**
  * \var V4L2DeviceFormat::planes
  * \brief The per-plane memory size information
  *
@@ -405,8 +433,22 @@ bool V4L2BufferCache::Entry::operator==(const FrameBuffer &buffer) const
 const std::string V4L2DeviceFormat::toString() const
 {
 	std::stringstream ss;
-	ss << size.toString() << "-" << fourcc.toString();
+	ss << *this;
+
 	return ss.str();
+}
+
+/**
+ * \brief Insert a text representation of a V4L2DeviceFormat into an output
+ * stream
+ * \param[in] out The output stream
+ * \param[in] f The V4L2DeviceFormat
+ * \return The output stream \a out
+ */
+std::ostream &operator<<(std::ostream &out, const V4L2DeviceFormat &f)
+{
+	out << f.size << "-" << f.fourcc;
+	return out;
 }
 
 /**
@@ -492,7 +534,8 @@ const std::string V4L2DeviceFormat::toString() const
  */
 V4L2VideoDevice::V4L2VideoDevice(const std::string &deviceNode)
 	: V4L2Device(deviceNode), formatInfo_(nullptr), cache_(nullptr),
-	  fdBufferNotifier_(nullptr), streaming_(false)
+	  fdBufferNotifier_(nullptr), state_(State::Stopped),
+	  watchdogDuration_(0.0)
 {
 	/*
 	 * We default to an MMAP based CAPTURE video device, however this will
@@ -511,6 +554,7 @@ V4L2VideoDevice::V4L2VideoDevice(const std::string &deviceNode)
 V4L2VideoDevice::V4L2VideoDevice(const MediaEntity *entity)
 	: V4L2VideoDevice(entity->deviceNode())
 {
+	watchdog_.timeout.connect(this, &V4L2VideoDevice::watchdogExpired);
 }
 
 V4L2VideoDevice::~V4L2VideoDevice()
@@ -589,13 +633,9 @@ int V4L2VideoDevice::open()
 		<< "Opened device " << caps_.bus_info() << ": "
 		<< caps_.driver() << ": " << caps_.card();
 
-	ret = getFormat(&format_);
-	if (ret) {
-		LOG(V4L2, Error) << "Failed to get format";
+	ret = initFormats();
+	if (ret)
 		return ret;
-	}
-
-	formatInfo_ = &PixelFormatInfo::info(format_.fourcc);
 
 	return 0;
 }
@@ -612,31 +652,27 @@ int V4L2VideoDevice::open()
  * its type from the capabilities. This can be used to force a given device type
  * for memory-to-memory devices.
  *
- * The file descriptor \a handle is duplicated, and the caller is responsible
- * for closing the \a handle when it has no further use for it. The close()
- * function will close the duplicated file descriptor, leaving \a handle
- * untouched.
+ * The file descriptor \a handle is duplicated, no reference to the original
+ * handle is kept.
  *
  * \return 0 on success or a negative error code otherwise
  */
-int V4L2VideoDevice::open(int handle, enum v4l2_buf_type type)
+int V4L2VideoDevice::open(SharedFD handle, enum v4l2_buf_type type)
 {
 	int ret;
-	int newFd;
 
-	newFd = dup(handle);
-	if (newFd < 0) {
+	UniqueFD newFd = handle.dup();
+	if (!newFd.isValid()) {
 		ret = -errno;
 		LOG(V4L2, Error) << "Failed to duplicate file handle: "
 				 << strerror(-ret);
 		return ret;
 	}
 
-	ret = V4L2Device::setFd(newFd);
+	ret = V4L2Device::setFd(std::move(newFd));
 	if (ret < 0) {
 		LOG(V4L2, Error) << "Failed to set file handle: "
 				 << strerror(-ret);
-		::close(newFd);
 		return ret;
 	}
 
@@ -686,7 +722,24 @@ int V4L2VideoDevice::open(int handle, enum v4l2_buf_type type)
 		<< "Opened device " << caps_.bus_info() << ": "
 		<< caps_.driver() << ": " << caps_.card();
 
-	ret = getFormat(&format_);
+	ret = initFormats();
+	if (ret)
+		return ret;
+
+	return 0;
+}
+
+int V4L2VideoDevice::initFormats()
+{
+	const std::vector<V4L2PixelFormat> &deviceFormats = enumPixelformats(0);
+	if (deviceFormats.empty()) {
+		LOG(V4L2, Error) << "Failed to initialize device formats";
+		return -EINVAL;
+	}
+
+	pixelFormats_ = { deviceFormats.begin(), deviceFormats.end() };
+
+	int ret = getFormat(&format_);
 	if (ret) {
 		LOG(V4L2, Error) << "Failed to get format";
 		return ret;
@@ -861,6 +914,13 @@ int V4L2VideoDevice::trySetFormatMeta(V4L2DeviceFormat *format, bool set)
 	return 0;
 }
 
+template<typename T>
+std::optional<ColorSpace> V4L2VideoDevice::toColorSpace(const T &v4l2Format)
+{
+	V4L2PixelFormat fourcc{ v4l2Format.pixelformat };
+	return V4L2Device::toColorSpace(v4l2Format, PixelFormatInfo::info(fourcc).colourEncoding);
+}
+
 int V4L2VideoDevice::getFormatMultiplane(V4L2DeviceFormat *format)
 {
 	struct v4l2_format v4l2Format = {};
@@ -878,6 +938,7 @@ int V4L2VideoDevice::getFormatMultiplane(V4L2DeviceFormat *format)
 	format->size.height = pix->height;
 	format->fourcc = V4L2PixelFormat(pix->pixelformat);
 	format->planesCount = pix->num_planes;
+	format->colorSpace = toColorSpace(*pix);
 
 	for (unsigned int i = 0; i < format->planesCount; ++i) {
 		format->planes[i].bpl = pix->plane_fmt[i].bytesperline;
@@ -899,6 +960,12 @@ int V4L2VideoDevice::trySetFormatMultiplane(V4L2DeviceFormat *format, bool set)
 	pix->pixelformat = format->fourcc;
 	pix->num_planes = format->planesCount;
 	pix->field = V4L2_FIELD_NONE;
+	if (format->colorSpace) {
+		fromColorSpace(format->colorSpace, *pix);
+
+		if (caps_.isVideoCapture())
+			pix->flags |= V4L2_PIX_FMT_FLAG_SET_CSC;
+	}
 
 	ASSERT(pix->num_planes <= std::size(pix->plane_fmt));
 
@@ -927,6 +994,7 @@ int V4L2VideoDevice::trySetFormatMultiplane(V4L2DeviceFormat *format, bool set)
 		format->planes[i].bpl = pix->plane_fmt[i].bytesperline;
 		format->planes[i].size = pix->plane_fmt[i].sizeimage;
 	}
+	format->colorSpace = toColorSpace(*pix);
 
 	return 0;
 }
@@ -950,6 +1018,7 @@ int V4L2VideoDevice::getFormatSingleplane(V4L2DeviceFormat *format)
 	format->planesCount = 1;
 	format->planes[0].bpl = pix->bytesperline;
 	format->planes[0].size = pix->sizeimage;
+	format->colorSpace = toColorSpace(*pix);
 
 	return 0;
 }
@@ -966,6 +1035,13 @@ int V4L2VideoDevice::trySetFormatSingleplane(V4L2DeviceFormat *format, bool set)
 	pix->pixelformat = format->fourcc;
 	pix->bytesperline = format->planes[0].bpl;
 	pix->field = V4L2_FIELD_NONE;
+	if (format->colorSpace) {
+		fromColorSpace(format->colorSpace, *pix);
+
+		if (caps_.isVideoCapture())
+			pix->flags |= V4L2_PIX_FMT_FLAG_SET_CSC;
+	}
+
 	ret = ioctl(set ? VIDIOC_S_FMT : VIDIOC_TRY_FMT, &v4l2Format);
 	if (ret) {
 		LOG(V4L2, Error)
@@ -984,6 +1060,7 @@ int V4L2VideoDevice::trySetFormatSingleplane(V4L2DeviceFormat *format, bool set)
 	format->planesCount = 1;
 	format->planes[0].bpl = pix->bytesperline;
 	format->planes[0].size = pix->sizeimage;
+	format->colorSpace = toColorSpace(*pix);
 
 	return 0;
 }
@@ -1325,12 +1402,12 @@ std::unique_ptr<FrameBuffer> V4L2VideoDevice::createBuffer(unsigned int index)
 
 	std::vector<FrameBuffer::Plane> planes;
 	for (unsigned int nplane = 0; nplane < numPlanes; nplane++) {
-		FileDescriptor fd = exportDmabufFd(buf.index, nplane);
+		UniqueFD fd = exportDmabufFd(buf.index, nplane);
 		if (!fd.isValid())
 			return nullptr;
 
 		FrameBuffer::Plane plane;
-		plane.fd = std::move(fd);
+		plane.fd = SharedFD(std::move(fd));
 		/*
 		 * V4L2 API doesn't provide dmabuf offset information of plane.
 		 * Set 0 as a placeholder offset.
@@ -1359,7 +1436,7 @@ std::unique_ptr<FrameBuffer> V4L2VideoDevice::createBuffer(unsigned int index)
 		ASSERT(numPlanes == 1u);
 
 		planes.resize(formatInfo_->numPlanes());
-		const FileDescriptor &fd = planes[0].fd;
+		const SharedFD &fd = planes[0].fd;
 		size_t offset = 0;
 
 		for (auto [i, plane] : utils::enumerate(planes)) {
@@ -1385,8 +1462,8 @@ std::unique_ptr<FrameBuffer> V4L2VideoDevice::createBuffer(unsigned int index)
 	return std::make_unique<FrameBuffer>(planes);
 }
 
-FileDescriptor V4L2VideoDevice::exportDmabufFd(unsigned int index,
-					       unsigned int plane)
+UniqueFD V4L2VideoDevice::exportDmabufFd(unsigned int index,
+					 unsigned int plane)
 {
 	struct v4l2_exportbuffer expbuf = {};
 	int ret;
@@ -1400,10 +1477,10 @@ FileDescriptor V4L2VideoDevice::exportDmabufFd(unsigned int index,
 	if (ret < 0) {
 		LOG(V4L2, Error)
 			<< "Failed to export buffer: " << strerror(-ret);
-		return FileDescriptor();
+		return {};
 	}
 
-	return FileDescriptor(std::move(expbuf.fd));
+	return UniqueFD(expbuf.fd);
 }
 
 /**
@@ -1476,6 +1553,9 @@ int V4L2VideoDevice::releaseBuffers()
  * The best available V4L2 buffer is picked for \a buffer using the V4L2 buffer
  * cache.
  *
+ * Note that queueBuffer() will fail if the device is in the process of being
+ * stopped from a streaming state through streamOff().
+ *
  * \return 0 on success or a negative error code otherwise
  */
 int V4L2VideoDevice::queueBuffer(FrameBuffer *buffer)
@@ -1483,6 +1563,11 @@ int V4L2VideoDevice::queueBuffer(FrameBuffer *buffer)
 	struct v4l2_plane v4l2Planes[VIDEO_MAX_PLANES] = {};
 	struct v4l2_buffer buf = {};
 	int ret;
+
+	if (state_ == State::Stopping) {
+		LOG(V4L2, Error) << "Device is in a stopping state.";
+		return -ESHUTDOWN;
+	}
 
 	/*
 	 * Pipeline handlers should not requeue buffers after releasing the
@@ -1524,9 +1609,9 @@ int V4L2VideoDevice::queueBuffer(FrameBuffer *buffer)
 	if (buf.memory == V4L2_MEMORY_DMABUF) {
 		if (multiPlanar) {
 			for (unsigned int p = 0; p < numV4l2Planes; ++p)
-				v4l2Planes[p].m.fd = planes[p].fd.fd();
+				v4l2Planes[p].m.fd = planes[p].fd.get();
 		} else {
-			buf.m.fd = planes[0].fd.fd();
+			buf.m.fd = planes[0].fd.get();
 		}
 	}
 
@@ -1537,6 +1622,11 @@ int V4L2VideoDevice::queueBuffer(FrameBuffer *buffer)
 
 	if (V4L2_TYPE_IS_OUTPUT(buf.type)) {
 		const FrameMetadata &metadata = buffer->metadata();
+
+		for (const auto &plane : metadata.planes()) {
+			if (!plane.bytesused)
+				LOG(V4L2, Warning) << "byteused == 0 is deprecated";
+		}
 
 		if (numV4l2Planes != planes.size()) {
 			/*
@@ -1585,7 +1675,14 @@ int V4L2VideoDevice::queueBuffer(FrameBuffer *buffer)
 			buf.length = planes[0].length;
 		}
 
-		buf.sequence = metadata.sequence;
+		/*
+		 * Timestamps are to be supplied if the device is a mem-to-mem
+		 * device. The drivers will have V4L2_BUF_FLAG_TIMESTAMP_COPY
+		 * set hence these timestamps will be copied from the output
+		 * buffers to capture buffers. If the device is not mem-to-mem,
+		 * there is no harm in setting the timestamps as they will be
+		 * ignored (and over-written).
+		 */
 		buf.timestamp.tv_sec = metadata.timestamp / 1000000000;
 		buf.timestamp.tv_usec = (metadata.timestamp / 1000) % 1000000;
 	}
@@ -1600,8 +1697,11 @@ int V4L2VideoDevice::queueBuffer(FrameBuffer *buffer)
 		return ret;
 	}
 
-	if (queuedBuffers_.empty())
+	if (queuedBuffers_.empty()) {
 		fdBufferNotifier_->setEnabled(true);
+		if (watchdogDuration_)
+			watchdog_.start(std::chrono::duration_cast<std::chrono::milliseconds>(watchdogDuration_));
+	}
 
 	queuedBuffers_[buf.index] = buffer;
 
@@ -1669,7 +1769,7 @@ FrameBuffer *V4L2VideoDevice::dequeueBuffer()
 	 * not find it in the queuedBuffers_ list.
 	 *
 	 * Whilst this kernel bug has been fixed in mainline, ensure that we
-	 * safely ingore buffers which are unexpected to prevetn crashes on
+	 * safely ignore buffers which are unexpected to prevent crashes on
 	 * older kernels.
 	 */
 	auto it = queuedBuffers_.find(buf.index);
@@ -1685,21 +1785,43 @@ FrameBuffer *V4L2VideoDevice::dequeueBuffer()
 	FrameBuffer *buffer = it->second;
 	queuedBuffers_.erase(it);
 
-	if (queuedBuffers_.empty())
+	if (queuedBuffers_.empty()) {
 		fdBufferNotifier_->setEnabled(false);
+		watchdog_.stop();
+	} else if (watchdogDuration_) {
+		/*
+		 * Restart the watchdog timer if there are buffers still queued
+		 * in the device.
+		 */
+		watchdog_.start(std::chrono::duration_cast<std::chrono::milliseconds>(watchdogDuration_));
+	}
 
-	buffer->metadata_.status = buf.flags & V4L2_BUF_FLAG_ERROR
-				 ? FrameMetadata::FrameError
-				 : FrameMetadata::FrameSuccess;
-	buffer->metadata_.sequence = buf.sequence;
-	buffer->metadata_.timestamp = buf.timestamp.tv_sec * 1000000000ULL
-				    + buf.timestamp.tv_usec * 1000ULL;
+	FrameMetadata &metadata = buffer->_d()->metadata();
+
+	metadata.status = buf.flags & V4L2_BUF_FLAG_ERROR
+			? FrameMetadata::FrameError
+			: FrameMetadata::FrameSuccess;
+	metadata.sequence = buf.sequence;
+	metadata.timestamp = buf.timestamp.tv_sec * 1000000000ULL
+			   + buf.timestamp.tv_usec * 1000ULL;
 
 	if (V4L2_TYPE_IS_OUTPUT(buf.type))
 		return buffer;
 
+	/*
+	 * Detect kernel drivers which do not reset the sequence number to zero
+	 * on stream start.
+	 */
+	if (!firstFrame_) {
+		if (buf.sequence)
+			LOG(V4L2, Warning)
+				<< "Zero sequence expected for first frame (got "
+				<< buf.sequence << ")";
+		firstFrame_ = buf.sequence;
+	}
+	metadata.sequence -= firstFrame_.value();
+
 	unsigned int numV4l2Planes = multiPlanar ? buf.length : 1;
-	FrameMetadata &metadata = buffer->metadata_;
 
 	if (numV4l2Planes != buffer->planes().size()) {
 		/*
@@ -1774,6 +1896,8 @@ int V4L2VideoDevice::streamOn()
 {
 	int ret;
 
+	firstFrame_.reset();
+
 	ret = ioctl(VIDIOC_STREAMON, &bufferType_);
 	if (ret < 0) {
 		LOG(V4L2, Error)
@@ -1781,7 +1905,9 @@ int V4L2VideoDevice::streamOn()
 		return ret;
 	}
 
-	streaming_ = true;
+	state_ = State::Streaming;
+	if (watchdogDuration_ && !queuedBuffers_.empty())
+		watchdog_.start(std::chrono::duration_cast<std::chrono::milliseconds>(watchdogDuration_));
 
 	return 0;
 }
@@ -1803,8 +1929,11 @@ int V4L2VideoDevice::streamOff()
 {
 	int ret;
 
-	if (!streaming_ && queuedBuffers_.empty())
+	if (state_ != State::Streaming && queuedBuffers_.empty())
 		return 0;
+
+	if (watchdogDuration_.count())
+		watchdog_.stop();
 
 	ret = ioctl(VIDIOC_STREAMOFF, &bufferType_);
 	if (ret < 0) {
@@ -1813,19 +1942,69 @@ int V4L2VideoDevice::streamOff()
 		return ret;
 	}
 
+	state_ = State::Stopping;
+
 	/* Send back all queued buffers. */
 	for (auto it : queuedBuffers_) {
 		FrameBuffer *buffer = it.second;
+		FrameMetadata &metadata = buffer->_d()->metadata();
 
-		buffer->metadata_.status = FrameMetadata::FrameCancelled;
+		cache_->put(it.first);
+		metadata.status = FrameMetadata::FrameCancelled;
 		bufferReady.emit(buffer);
 	}
 
+	ASSERT(cache_->isEmpty());
+
 	queuedBuffers_.clear();
 	fdBufferNotifier_->setEnabled(false);
-	streaming_ = false;
+	state_ = State::Stopped;
 
 	return 0;
+}
+
+/**
+ * \brief Set the dequeue timeout value
+ * \param[in] timeout The timeout value to be used
+ *
+ * Sets a timeout value, given by \a timeout, that will be used by a watchdog
+ * timer to ensure buffer dequeue events are periodically occurring when the
+ * device is streaming. The watchdog timer is only active when the device is
+ * streaming, so it is not necessary to disable it when the device stops
+ * streaming. The timeout value can be safely updated at any time.
+ *
+ * If the timer expires, the \ref V4L2VideoDevice::dequeueTimeout signal is
+ * emitted. This can typically be used by pipeline handlers to be notified of
+ * stalled devices.
+ *
+ * Set \a timeout to 0 to disable the watchdog timer.
+ */
+void V4L2VideoDevice::setDequeueTimeout(utils::Duration timeout)
+{
+	watchdogDuration_ = timeout;
+
+	watchdog_.stop();
+	if (watchdogDuration_ && state_ == State::Streaming && !queuedBuffers_.empty())
+		watchdog_.start(std::chrono::duration_cast<std::chrono::milliseconds>(timeout));
+}
+
+/**
+ * \var V4L2VideoDevice::dequeueTimeout
+ * \brief A Signal emitted when the dequeue watchdog timer expires
+ */
+
+/**
+ * \brief Slot to handle an expired dequeue timer
+ *
+ * When this slot is called, the time between successive dequeue events is over
+ * the required timeout. Emit the \ref V4L2VideoDevice::dequeueTimeout signal.
+ */
+void V4L2VideoDevice::watchdogExpired()
+{
+	LOG(V4L2, Warning)
+		<< "Dequeue timer of " << watchdogDuration_ << " has expired!";
+
+	dequeueTimeout.emit();
 }
 
 /**
@@ -1845,6 +2024,40 @@ V4L2VideoDevice::fromEntityName(const MediaDevice *media,
 		return nullptr;
 
 	return std::make_unique<V4L2VideoDevice>(mediaEntity);
+}
+
+/**
+ * \brief Convert \a PixelFormat to a V4L2PixelFormat supported by the device
+ * \param[in] pixelFormat The PixelFormat to convert
+ *
+ * Convert \a pixelformat to a V4L2 FourCC that is known to be supported by
+ * the video device.
+ *
+ * A V4L2VideoDevice may support different V4L2 pixel formats that map the same
+ * PixelFormat. This is the case of the contiguous and non-contiguous variants
+ * of multiplanar formats, and with the V4L2 MJPEG and JPEG pixel formats.
+ * Converting a PixelFormat to a V4L2PixelFormat may thus have multiple answers.
+ *
+ * This function converts the \a pixelFormat using the list of V4L2 pixel
+ * formats that the V4L2VideoDevice supports. This guarantees that the returned
+ * V4L2PixelFormat will be valid for the device. If multiple matches are still
+ * possible, contiguous variants are preferred. If the \a pixelFormat is not
+ * supported by the device, the function returns an invalid V4L2PixelFormat.
+ *
+ * \return The V4L2PixelFormat corresponding to \a pixelFormat if supported by
+ * the device, or an invalid V4L2PixelFormat otherwise
+ */
+V4L2PixelFormat V4L2VideoDevice::toV4L2PixelFormat(const PixelFormat &pixelFormat) const
+{
+	const std::vector<V4L2PixelFormat> &v4l2PixelFormats =
+		V4L2PixelFormat::fromPixelFormat(pixelFormat);
+
+	for (const V4L2PixelFormat &v4l2Format : v4l2PixelFormats) {
+		if (pixelFormats_.count(v4l2Format))
+			return v4l2Format;
+	}
+
+	return {};
 }
 
 /**
@@ -1901,21 +2114,18 @@ V4L2M2MDevice::~V4L2M2MDevice()
  */
 int V4L2M2MDevice::open()
 {
-	int fd;
 	int ret;
 
 	/*
 	 * The output and capture V4L2VideoDevice instances use the same file
-	 * handle for the same device node. The local file handle can be closed
-	 * as the V4L2VideoDevice::open() retains a handle by duplicating the
-	 * fd passed in.
+	 * handle for the same device node.
 	 */
-	fd = syscall(SYS_openat, AT_FDCWD, deviceNode_.c_str(),
-		     O_RDWR | O_NONBLOCK);
-	if (fd < 0) {
+	SharedFD fd(syscall(SYS_openat, AT_FDCWD, deviceNode_.c_str(),
+			    O_RDWR | O_NONBLOCK));
+	if (!fd.isValid()) {
 		ret = -errno;
-		LOG(V4L2, Error)
-			<< "Failed to open V4L2 M2M device: " << strerror(-ret);
+		LOG(V4L2, Error) << "Failed to open V4L2 M2M device: "
+				 << strerror(-ret);
 		return ret;
 	}
 
@@ -1927,13 +2137,10 @@ int V4L2M2MDevice::open()
 	if (ret)
 		goto err;
 
-	::close(fd);
-
 	return 0;
 
 err:
 	close();
-	::close(fd);
 
 	return ret;
 }

@@ -9,7 +9,6 @@
 #include <unistd.h>
 #include <vector>
 
-
 #include <libcamera/base/event_dispatcher.h>
 #include <libcamera/base/thread.h>
 #include <libcamera/base/timer.h>
@@ -19,8 +18,9 @@
 
 #include "test.h"
 
-using namespace std;
 using namespace libcamera;
+using namespace std;
+using namespace std::chrono_literals;
 
 class ProcessTestChild
 {
@@ -56,13 +56,13 @@ protected:
 		proc_.kill();
 
 		/* Test starting the process and retrieving the exit code. */
-		int ret = proc_.start("/proc/self/exe", args);
+		int ret = proc_.start(self(), args);
 		if (ret) {
 			cerr << "failed to start process" << endl;
 			return TestFail;
 		}
 
-		timeout.start(2000);
+		timeout.start(2000ms);
 		while (timeout.isRunning() && exitStatus_ == Process::NotExited)
 			dispatcher->processEvents();
 
@@ -106,5 +106,7 @@ int main(int argc, char **argv)
 		return child.run(status);
 	}
 
-	return ProcessTest().execute();
+	ProcessTest test;
+	test.setArgs(argc, argv);
+	return test.execute();
 }

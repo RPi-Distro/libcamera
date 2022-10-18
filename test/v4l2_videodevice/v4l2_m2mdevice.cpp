@@ -19,8 +19,9 @@
 
 #include "test.h"
 
-using namespace std;
 using namespace libcamera;
+using namespace std;
+using namespace std::chrono_literals;
 
 class V4L2M2MDeviceTest : public Test
 {
@@ -94,6 +95,11 @@ protected:
 		V4L2VideoDevice *capture = vim2m_->capture();
 		V4L2VideoDevice *output = vim2m_->output();
 
+		if (capture->controls().empty() || output->controls().empty()) {
+			cerr << "VIM2M device has no control" << endl;
+			return TestFail;
+		}
+
 		V4L2DeviceFormat format = {};
 		if (capture->getFormat(&format)) {
 			cerr << "Failed to get capture format" << endl;
@@ -155,7 +161,7 @@ protected:
 		}
 
 		Timer timeout;
-		timeout.start(5000);
+		timeout.start(5000ms);
 		while (timeout.isRunning()) {
 			dispatcher->processEvents();
 			if (captureFrames_ > 30)

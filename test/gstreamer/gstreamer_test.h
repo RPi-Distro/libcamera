@@ -5,22 +5,17 @@
  * gstreamer_test.cpp - GStreamer test base class
  */
 
-#ifndef __LIBCAMERA_GSTREAMER_TEST_H__
-#define __LIBCAMERA_GSTREAMER_TEST_H__
+#pragma once
 
 #include <iostream>
 #include <unistd.h>
-
-#include <libcamera/base/utils.h>
-
-#include "libcamera/internal/source_paths.h"
 
 #include <gst/gst.h>
 
 class GstreamerTest
 {
 public:
-	GstreamerTest();
+	GstreamerTest(unsigned int numStreams = 1);
 	virtual ~GstreamerTest();
 
 protected:
@@ -29,9 +24,11 @@ protected:
 	int processEvent();
 	void printError(GstMessage *msg);
 
+	std::string cameraName_;
 	GstElement *pipeline_;
 	GstElement *libcameraSrc_;
 	int status_;
-};
 
-#endif /* __LIBCAMERA_GSTREAMER_TEST_H__ */
+private:
+	bool checkMinCameraStreamsAndSetCameraName(unsigned int numStreams);
+};

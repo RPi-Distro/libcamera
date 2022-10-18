@@ -4,8 +4,8 @@
  *
  * event_dispatcher_poll.h - Poll-based event dispatcher
  */
-#ifndef __LIBCAMERA_BASE_EVENT_DISPATCHER_POLL_H__
-#define __LIBCAMERA_BASE_EVENT_DISPATCHER_POLL_H__
+
+#pragma once
 
 #include <list>
 #include <map>
@@ -14,6 +14,7 @@
 #include <libcamera/base/private.h>
 
 #include <libcamera/base/event_dispatcher.h>
+#include <libcamera/base/unique_fd.h>
 
 struct pollfd;
 
@@ -50,11 +51,9 @@ private:
 
 	std::map<int, EventNotifierSetPoll> notifiers_;
 	std::list<Timer *> timers_;
-	int eventfd_;
+	UniqueFD eventfd_;
 
 	bool processingEvents_;
 };
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_BASE_EVENT_DISPATCHER_POLL_H__ */

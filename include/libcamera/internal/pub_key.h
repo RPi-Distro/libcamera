@@ -4,14 +4,16 @@
  *
  * pub_key.h - Public key signature verification
  */
-#ifndef __LIBCAMERA_INTERNAL_PUB_KEY_H__
-#define __LIBCAMERA_INTERNAL_PUB_KEY_H__
+
+#pragma once
 
 #include <stdint.h>
 
 #include <libcamera/base/span.h>
 
-#if HAVE_GNUTLS
+#if HAVE_CRYPTO
+struct evp_pkey_st;
+#elif HAVE_GNUTLS
 struct gnutls_pubkey_st;
 #endif
 
@@ -28,11 +30,11 @@ public:
 
 private:
 	bool valid_;
-#if HAVE_GNUTLS
+#if HAVE_CRYPTO
+	struct evp_pkey_st *pubkey_;
+#elif HAVE_GNUTLS
 	struct gnutls_pubkey_st *pubkey_;
 #endif
 };
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_INTERNAL_PUB_KEY_H__ */

@@ -1,11 +1,11 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 /*
- * Copyright (C) 2020, Raspberry Pi (Trading) Ltd.
+ * Copyright (C) 2020, Raspberry Pi Ltd
  *
  * delayed_controls.h - Helper to deal with controls that take effect with a delay
  */
-#ifndef __LIBCAMERA_INTERNAL_DELAYED_CONTROLS_H__
-#define __LIBCAMERA_INTERNAL_DELAYED_CONTROLS_H__
+
+#pragma once
 
 #include <stdint.h>
 #include <unordered_map>
@@ -51,7 +51,7 @@ private:
 		bool updated;
 	};
 
-	/* \todo: Make the listSize configurable at instance creation time. */
+	/* \todo Make the listSize configurable at instance creation time. */
 	static constexpr int listSize = 16;
 	class ControlRingBuffer : public std::array<Info, listSize>
 	{
@@ -72,9 +72,6 @@ private:
 	std::unordered_map<const ControlId *, ControlParams> controlParams_;
 	unsigned int maxDelay_;
 
-	bool running_;
-	uint32_t firstSequence_;
-
 	uint32_t queueCount_;
 	uint32_t writeCount_;
 	/* \todo Evaluate if we should index on ControlId * or unsigned int */
@@ -82,5 +79,3 @@ private:
 };
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_INTERNAL_DELAYED_CONTROLS_H__ */

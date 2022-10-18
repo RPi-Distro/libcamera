@@ -23,6 +23,7 @@
 
 using namespace libcamera;
 using namespace std;
+using namespace std::chrono_literals;
 
 namespace {
 
@@ -117,7 +118,7 @@ private:
 		EventDispatcher *dispatcher = Thread::current()->eventDispatcher();
 
 		Timer timer;
-		timer.start(100);
+		timer.start(100ms);
 		while (timer.isRunning())
 			dispatcher->processEvents();
 
@@ -178,7 +179,7 @@ private:
 				continue;
 
 			string pname("/proc/" + string(ptr->d_name) + "/comm");
-			if (File::exists(pname.c_str())) {
+			if (File::exists(pname)) {
 				ifstream pfile(pname.c_str());
 				string comm;
 				getline(pfile, comm);

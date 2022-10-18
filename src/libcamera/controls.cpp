@@ -527,7 +527,7 @@ ControlInfo::ControlInfo(Span<const ControlValue> values,
 ControlInfo::ControlInfo(std::set<bool> values, bool def)
 	: min_(false), max_(true), def_(def), values_({ false, true })
 {
-	assert(values.count(def) && values.size() == 2);
+	ASSERT(values.count(def) && values.size() == 2);
 }
 
 /**
@@ -908,7 +908,7 @@ ControlList::ControlList(const ControlInfoMap &infoMap,
 void ControlList::merge(const ControlList &source)
 {
 	/**
-	 * \todo: ASSERT that the current and source ControlList are derived
+	 * \todo ASSERT that the current and source ControlList are derived
 	 * from a compatible ControlIdMap, to prevent undefined behaviour due to
 	 * id collisions.
 	 *
@@ -933,17 +933,6 @@ void ControlList::merge(const ControlList &source)
 
 /**
  * \brief Check if the list contains a control with the specified \a id
- * \param[in] id The control ID
- *
- * \return True if the list contains a matching control, false otherwise
- */
-bool ControlList::contains(const ControlId &id) const
-{
-	return controls_.find(id.id()) != controls_.end();
-}
-
-/**
- * \brief Check if the list contains a control with the specified \a id
  * \param[in] id The control numerical ID
  *
  * \return True if the list contains a matching control, false otherwise
@@ -954,22 +943,20 @@ bool ControlList::contains(unsigned int id) const
 }
 
 /**
- * \fn template<typename T> T ControlList::get(const Control<T> &ctrl) const
+ * \fn ControlList::get(const Control<T> &ctrl) const
  * \brief Get the value of control \a ctrl
  * \param[in] ctrl The control
  *
- * The behaviour is undefined if the control \a ctrl is not present in the
- * list. Use ControlList::contains() to test for the presence of a control in
- * the list before retrieving its value.
+ * Beside getting the value of a control, this function can also be used to
+ * check if a control is present in the ControlList by converting the returned
+ * std::optional<T> to bool (or calling its has_value() function).
  *
- * The control value type shall match the type T, otherwise the behaviour is
- * undefined.
- *
- * \return The control value
+ * \return A std::optional<T> containing the control value, or std::nullopt if
+ * the control \a ctrl is not present in the list
  */
 
 /**
- * \fn template<typename T, typename V> void ControlList::set(const Control<T> &ctrl, const V &value)
+ * \fn ControlList::set(const Control<T> &ctrl, const V &value)
  * \brief Set the control \a ctrl value to \a value
  * \param[in] ctrl The control
  * \param[in] value The control value
@@ -983,8 +970,7 @@ bool ControlList::contains(unsigned int id) const
  */
 
 /**
- * \fn template<typename T, typename V> \
- * void ControlList::set(const Control<T> &ctrl, const std::initializer_list<V> &value)
+ * \fn ControlList::set(const Control<Span<T, Size>> &ctrl, const std::initializer_list<V> &value)
  * \copydoc ControlList::set(const Control<T> &ctrl, const V &value)
  */
 

@@ -49,9 +49,9 @@ public:
 		ipc_.readyRead.connect(this, &UnixSocketTestIPCSlave::readyRead);
 	}
 
-	int run(int fd)
+	int run(UniqueFD fd)
 	{
-		if (ipc_.bind(fd)) {
+		if (ipc_.bind(std::move(fd))) {
 			cerr << "Failed to connect to IPC channel" << endl;
 			return EXIT_FAILURE;
 		}
@@ -173,7 +173,7 @@ protected:
 
 	int run()
 	{
-		ipc_ = std::make_unique<IPCPipeUnixSocket>("", "/proc/self/exe");
+		ipc_ = std::make_unique<IPCPipeUnixSocket>("", self().c_str());
 		if (!ipc_->isConnected()) {
 			cerr << "Failed to create IPCPipe" << endl;
 			return TestFail;
@@ -222,10 +222,12 @@ int main(int argc, char **argv)
 {
 	/* IPCPipeUnixSocket passes IPA module path in argv[1] */
 	if (argc == 3) {
-		int ipcfd = std::stoi(argv[2]);
+		UniqueFD ipcfd = UniqueFD(std::stoi(argv[2]));
 		UnixSocketTestIPCSlave slave;
-		return slave.run(ipcfd);
+		return slave.run(std::move(ipcfd));
 	}
 
-	return UnixSocketTestIPC().execute();
+	UnixSocketTestIPC test;
+	test.setArgs(argc, argv);
+	return test.execute();
 }

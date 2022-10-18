@@ -5,14 +5,16 @@
  * ipa_context.h - IPU3 IPA Context
  *
  */
-#ifndef __LIBCAMERA_IPU3_IPA_CONTEXT_H__
-#define __LIBCAMERA_IPU3_IPA_CONTEXT_H__
+
+#pragma once
 
 #include <linux/intel-ipu3.h>
 
 #include <libcamera/base/utils.h>
 
 #include <libcamera/geometry.h>
+
+#include <libipa/fc_queue.h>
 
 namespace libcamera {
 
@@ -26,14 +28,29 @@ struct IPASessionConfiguration {
 	} grid;
 
 	struct {
+		ipu3_uapi_grid_config afGrid;
+	} af;
+
+	struct {
 		utils::Duration minShutterSpeed;
 		utils::Duration maxShutterSpeed;
 		double minAnalogueGain;
 		double maxAnalogueGain;
 	} agc;
+
+	struct {
+		int32_t defVBlank;
+		utils::Duration lineDuration;
+	} sensor;
 };
 
-struct IPAFrameContext {
+struct IPAActiveState {
+	struct {
+		uint32_t focus;
+		double maxVariance;
+		bool stable;
+	} af;
+
 	struct {
 		uint32_t exposure;
 		double gain;
@@ -45,6 +62,8 @@ struct IPAFrameContext {
 			double green;
 			double blue;
 		} gains;
+
+		double temperatureK;
 	} awb;
 
 	struct {
@@ -53,13 +72,20 @@ struct IPAFrameContext {
 	} toneMapping;
 };
 
+struct IPAFrameContext : public FrameContext {
+	struct {
+		uint32_t exposure;
+		double gain;
+	} sensor;
+};
+
 struct IPAContext {
 	IPASessionConfiguration configuration;
-	IPAFrameContext frameContext;
+	IPAActiveState activeState;
+
+	FCQueue<IPAFrameContext> frameContexts;
 };
 
 } /* namespace ipa::ipu3 */
 
 } /* namespace libcamera*/
-
-#endif /* __LIBCAMERA_IPU3_IPA_CONTEXT_H__ */

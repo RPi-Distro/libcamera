@@ -1,12 +1,11 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 /*
- * Copyright (C) 2020, Raspberry Pi (Trading) Limited
+ * Copyright (C) 2020, Raspberry Pi Ltd
  *
  * transform.h - 2D plane transforms
  */
 
-#ifndef __LIBCAMERA_TRANSFORM_H__
-#define __LIBCAMERA_TRANSFORM_H__
+#pragma once
 
 #include <string>
 
@@ -74,5 +73,3 @@ Transform transformFromRotation(int angle, bool *success = nullptr);
 const char *transformToString(Transform t);
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_TRANSFORM_H__ */

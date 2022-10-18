@@ -4,8 +4,8 @@
  *
  * control_serializer.h - Control (de)serializer
  */
-#ifndef __LIBCAMERA_INTERNAL_CONTROL_SERIALIZER_H__
-#define __LIBCAMERA_INTERNAL_CONTROL_SERIALIZER_H__
+
+#pragma once
 
 #include <map>
 #include <memory>
@@ -47,9 +47,9 @@ private:
 	static void store(const ControlValue &value, ByteStreamBuffer &buffer);
 	static void store(const ControlInfo &info, ByteStreamBuffer &buffer);
 
-	ControlValue loadControlValue(ControlType type, ByteStreamBuffer &buffer,
+	ControlValue loadControlValue(ByteStreamBuffer &buffer,
 				      bool isArray = false, unsigned int count = 1);
-	ControlInfo loadControlInfo(ControlType type, ByteStreamBuffer &buffer);
+	ControlInfo loadControlInfo(ByteStreamBuffer &buffer);
 
 	unsigned int serial_;
 	unsigned int serialSeed_;
@@ -60,5 +60,3 @@ private:
 };
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_INTERNAL_CONTROL_SERIALIZER_H__ */

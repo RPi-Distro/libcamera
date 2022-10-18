@@ -1,17 +1,19 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
- * Copyright (C) 2019, Raspberry Pi (Trading) Limited
+ * Copyright (C) 2019, Raspberry Pi Ltd
  *
  * controller.cpp - ISP controller
  */
 
+#include <assert.h>
+
+#include <libcamera/base/file.h>
 #include <libcamera/base/log.h>
 
-#include "algorithm.hpp"
-#include "controller.hpp"
+#include "libcamera/internal/yaml_parser.h"
 
-#include <boost/property_tree/json_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
+#include "algorithm.h"
+#include "controller.h"
 
 using namespace RPiController;
 using namespace libcamera;
@@ -19,85 +21,125 @@ using namespace libcamera;
 LOG_DEFINE_CATEGORY(RPiController)
 
 Controller::Controller()
-	: switch_mode_called_(false) {}
-
-Controller::Controller(char const *json_filename)
-	: switch_mode_called_(false)
+	: switchModeCalled_(false)
 {
-	Read(json_filename);
-	Initialise();
 }
 
 Controller::~Controller() {}
 
-void Controller::Read(char const *filename)
+int Controller::read(char const *filename)
 {
-	boost::property_tree::ptree root;
-	boost::property_tree::read_json(filename, root);
-	for (auto const &key_and_value : root) {
-		Algorithm *algo = CreateAlgorithm(key_and_value.first.c_str());
-		if (algo) {
-			algo->Read(key_and_value.second);
-			algorithms_.push_back(AlgorithmPtr(algo));
-		} else
-			LOG(RPiController, Warning)
-				<< "No algorithm found for \"" << key_and_value.first << "\"";
+	File file(filename);
+	if (!file.open(File::OpenModeFlag::ReadOnly)) {
+		LOG(RPiController, Warning)
+			<< "Failed to open tuning file '" << filename << "'";
+		return -EINVAL;
 	}
+
+	std::unique_ptr<YamlObject> root = YamlParser::parse(file);
+	double version = (*root)["version"].get<double>(1.0);
+
+	if (version < 2.0) {
+		LOG(RPiController, Warning)
+			<< "This format of the tuning file will be deprecated soon!"
+			<< " Please use the convert_tuning.py utility to update to version 2.0.";
+
+		for (auto const &[key, value] : root->asDict()) {
+			int ret = createAlgorithm(key, value);
+			if (ret)
+				return ret;
+		}
+	} else if (version < 3.0) {
+		if (!root->contains("algorithms")) {
+			LOG(RPiController, Error)
+				<< "Tuning file " << filename
+				<< " does not have an \"algorithms\" list!";
+			return -EINVAL;
+		}
+
+		for (auto const &rootAlgo : (*root)["algorithms"].asList())
+			for (auto const &[key, value] : rootAlgo.asDict()) {
+				int ret = createAlgorithm(key, value);
+				if (ret)
+					return ret;
+			}
+	} else {
+		LOG(RPiController, Error)
+			<< "Unrecognised version " << version
+			<< " for the tuning file " << filename;
+		return -EINVAL;
+	}
+
+	return 0;
 }
 
-Algorithm *Controller::CreateAlgorithm(char const *name)
+int Controller::createAlgorithm(const std::string &name, const YamlObject &params)
 {
-	auto it = GetAlgorithms().find(std::string(name));
-	return it != GetAlgorithms().end() ? (*it->second)(this) : nullptr;
+	auto it = getAlgorithms().find(name);
+	if (it == getAlgorithms().end()) {
+		LOG(RPiController, Warning)
+			<< "No algorithm found for \"" << name << "\"";
+		return 0;
+	}
+
+	Algorithm *algo = (*it->second)(this);
+	int ret = algo->read(params);
+	if (ret)
+		return ret;
+
+	algorithms_.push_back(AlgorithmPtr(algo));
+	return 0;
 }
 
-void Controller::Initialise()
+void Controller::initialise()
 {
 	for (auto &algo : algorithms_)
-		algo->Initialise();
+		algo->initialise();
 }
 
-void Controller::SwitchMode(CameraMode const &camera_mode, Metadata *metadata)
+void Controller::switchMode(CameraMode const &cameraMode, Metadata *metadata)
 {
 	for (auto &algo : algorithms_)
-		algo->SwitchMode(camera_mode, metadata);
-	switch_mode_called_ = true;
+		algo->switchMode(cameraMode, metadata);
+	switchModeCalled_ = true;
 }
 
-void Controller::Prepare(Metadata *image_metadata)
+void Controller::prepare(Metadata *imageMetadata)
 {
-	assert(switch_mode_called_);
+	assert(switchModeCalled_);
 	for (auto &algo : algorithms_)
-		if (!algo->IsPaused())
-			algo->Prepare(image_metadata);
+		if (!algo->isPaused())
+			algo->prepare(imageMetadata);
 }
 
-void Controller::Process(StatisticsPtr stats, Metadata *image_metadata)
+void Controller::process(StatisticsPtr stats, Metadata *imageMetadata)
 {
-	assert(switch_mode_called_);
+	assert(switchModeCalled_);
 	for (auto &algo : algorithms_)
-		if (!algo->IsPaused())
-			algo->Process(stats, image_metadata);
+		if (!algo->isPaused())
+			algo->process(stats, imageMetadata);
 }
 
-Metadata &Controller::GetGlobalMetadata()
+Metadata &Controller::getGlobalMetadata()
 {
-	return global_metadata_;
+	return globalMetadata_;
 }
 
-Algorithm *Controller::GetAlgorithm(std::string const &name) const
+Algorithm *Controller::getAlgorithm(std::string const &name) const
 {
-	// The passed name must be the entire algorithm name, or must match the
-	// last part of it with a period (.) just before.
-	size_t name_len = name.length();
+	/*
+	 * The passed name must be the entire algorithm name, or must match the
+	 * last part of it with a period (.) just before.
+	 */
+	size_t nameLen = name.length();
 	for (auto &algo : algorithms_) {
-		char const *algo_name = algo->Name();
-		size_t algo_name_len = strlen(algo_name);
-		if (algo_name_len >= name_len &&
+		char const *algoName = algo->name();
+		size_t algoNameLen = strlen(algoName);
+		if (algoNameLen >= nameLen &&
 		    strcasecmp(name.c_str(),
-			       algo_name + algo_name_len - name_len) == 0 &&
-		    (name_len == algo_name_len ||
-		     algo_name[algo_name_len - name_len - 1] == '.'))
+			       algoName + algoNameLen - nameLen) == 0 &&
+		    (nameLen == algoNameLen ||
+		     algoName[algoNameLen - nameLen - 1] == '.'))
 			return algo.get();
 	}
 	return nullptr;

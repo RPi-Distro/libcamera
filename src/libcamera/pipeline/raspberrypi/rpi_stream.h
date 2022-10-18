@@ -1,18 +1,17 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 /*
- * Copyright (C) 2020, Raspberry Pi (Trading) Ltd.
+ * Copyright (C) 2020, Raspberry Pi Ltd
  *
  * rpi_stream.h - Raspberry Pi device stream abstraction class.
  */
-#ifndef __LIBCAMERA_PIPELINE_RPI_STREAM_H__
-#define __LIBCAMERA_PIPELINE_RPI_STREAM_H__
+
+#pragma once
 
 #include <queue>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
-#include <libcamera/ipa/raspberrypi.h>
 #include <libcamera/ipa/raspberrypi_ipa_interface.h>
 #include <libcamera/stream.h>
 
@@ -45,7 +44,7 @@ public:
 	V4L2VideoDevice *dev() const;
 	std::string name() const;
 	bool isImporter() const;
-	void reset();
+	void resetBuffers();
 
 	void setExternal(bool external);
 	bool isExternal() const;
@@ -177,5 +176,3 @@ public:
 } /* namespace RPi */
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_PIPELINE_RPI_STREAM_H__ */

@@ -4,8 +4,8 @@
  *
  * main.h - Cam application
  */
-#ifndef __CAM_MAIN_H__
-#define __CAM_MAIN_H__
+
+#pragma once
 
 enum {
 	OptCamera = 'c',
@@ -17,10 +17,10 @@ enum {
 	OptList = 'l',
 	OptListProperties = 'p',
 	OptMonitor = 'm',
+	OptSDL = 'S',
 	OptStream = 's',
 	OptListControls = 256,
 	OptStrictFormats = 257,
 	OptMetadata = 258,
+	OptCaptureScript = 259,
 };
-
-#endif /* __CAM_MAIN_H__ */

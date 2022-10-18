@@ -4,8 +4,8 @@
  *
  * awb.h - IPU3 AWB control algorithm
  */
-#ifndef __LIBCAMERA_IPU3_ALGORITHMS_AWB_H__
-#define __LIBCAMERA_IPU3_ALGORITHMS_AWB_H__
+
+#pragma once
 
 #include <vector>
 
@@ -39,8 +39,12 @@ public:
 	~Awb();
 
 	int configure(IPAContext &context, const IPAConfigInfo &configInfo) override;
-	void prepare(IPAContext &context, ipu3_uapi_params *params) override;
-	void process(IPAContext &context, const ipu3_uapi_stats_3a *stats) override;
+	void prepare(IPAContext &context, const uint32_t frame,
+		     IPAFrameContext &frameContext,
+		     ipu3_uapi_params *params) override;
+	void process(IPAContext &context, const uint32_t frame,
+		     IPAFrameContext &frameContext,
+		     const ipu3_uapi_stats_3a *stats) override;
 
 private:
 	/* \todo Make these structs available to all the ISPs ? */
@@ -72,6 +76,7 @@ private:
 	void awbGreyWorld();
 	uint32_t estimateCCT(double red, double green, double blue);
 	static constexpr uint16_t threshold(float value);
+	static constexpr uint16_t gainValue(double gain);
 
 	std::vector<RGB> zones_;
 	Accumulator awbStats_[kAwbStatsSizeX * kAwbStatsSizeY];
@@ -86,4 +91,3 @@ private:
 } /* namespace ipa::ipu3::algorithms */
 
 } /* namespace libcamera*/
-#endif /* __LIBCAMERA_IPU3_ALGORITHMS_AWB_H__ */

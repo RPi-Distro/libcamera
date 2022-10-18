@@ -9,7 +9,7 @@ collectively as V4L2 (`Video for Linux 2`_) and the `Media Controller`_ API
 which provide an interface to interact and control media devices.
 
 Included in this subsystem are drivers for camera sensors, CSI2 (Camera
-Serial Interface) recievers, and ISPs (Image Signal Processors)
+Serial Interface) receivers, and ISPs (Image Signal Processors)
 
 The usage of these drivers to provide a functioning camera stack is a
 responsibility that lies in userspace which is commonly implemented separately
@@ -17,8 +17,8 @@ by vendors without a common architecture or API for application developers.
 
 libcamera provides a complete camera stack for Linux based systems to abstract
 functionality desired by camera application developers and process the
-configuration of hardware and image control algorithms requried to obtain
-desireable results from the camera.
+configuration of hardware and image control algorithms required to obtain
+desirable results from the camera.
 
 .. _Video for Linux 2: https://www.linuxtv.org/downloads/v4l-dvb-apis-new/userspace-api/v4l/v4l2.html
 .. _Media Controller: https://www.linuxtv.org/downloads/v4l-dvb-apis-new/userspace-api/mediactl/media-controller.html
@@ -67,7 +67,7 @@ through an adaptation layer integrating libcamera into a larger framework.
     Adaptation Layer                                 |
      /    +--------------+  +--------------+         |          +--------------+
      |    |    V4L2      |  |  gstreamer   |         |          |   Android    |
-     |    | Compatability|  |   element    |         |          |   Camera     |
+     |    | Compatibility|  |   element    |         |          |   Camera     |
      |    |  (preload)   |  |(libcamerasrc)|         |          |     HAL      |
      \    +--------------+  +--------------+         |          +--------------+
                                                      |
@@ -150,11 +150,11 @@ Architecture
 ------------
 
 While offering a unified API towards upper layers, and presenting itself as a
-single library, libcamera isn’t monolithic. It exposes multiple components
+single library, libcamera isn't monolithic. It exposes multiple components
 through its public API and is built around a set of separate helpers internally.
-Hardware abstractractions are handled through the use of device-specific
-components where required and dynamically loadable plugins are used to separate
-image processing algorithms from the core libcamera codebase.
+Hardware abstractions are handled through the use of device-specific components
+where required and dynamically loadable plugins are used to separate image
+processing algorithms from the core libcamera codebase.
 
 ::
 
@@ -214,14 +214,14 @@ Camera Manager
 
   Read the `Camera Manager API`_ documentation for more details.
 
-.. _Camera Manager API: http://libcamera.org/api-html/classlibcamera_1_1CameraManager.html
+.. _Camera Manager API: https://libcamera.org/api-html/classlibcamera_1_1CameraManager.html
 
 Camera Device
   The Camera class represents a single item of camera hardware that is capable
   of producing one or more image streams, and provides the API to interact with
   the underlying device.
 
-  If a system has multiple instances of the same hardware attached, each has it's
+  If a system has multiple instances of the same hardware attached, each has its
   own instance of the camera class.
 
   The API exposes full control of the device to upper layers of libcamera through
@@ -231,7 +231,7 @@ Camera Device
 
   Read the `Camera API`_ documentation for more details.
 
-..  _Camera API: http://libcamera.org/api-html/classlibcamera_1_1Camera.html
+.. _Camera API: https://libcamera.org/api-html/classlibcamera_1_1Camera.html
 
 Pipeline Handler
   The Pipeline Handler manages the complex pipelines exposed by the kernel
@@ -254,7 +254,7 @@ Pipeline Handler
   More details can be found in the `PipelineHandler API`_ documentation, and the
   `Pipeline Handler Writers Guide`_.
 
-.. _PipelineHandler API: http://libcamera.org/api-html/classlibcamera_1_1PipelineHandler.html
+.. _PipelineHandler API: https://libcamera.org/api-html/classlibcamera_1_1PipelineHandler.html
 
 Image Processing Algorithms
   An image processing algorithm (IPA) component is a loadable plugin that

@@ -4,15 +4,17 @@
  *
  * pipeline_handler.h - Pipeline handler infrastructure
  */
-#ifndef __LIBCAMERA_INTERNAL_PIPELINE_HANDLER_H__
-#define __LIBCAMERA_INTERNAL_PIPELINE_HANDLER_H__
+
+#pragma once
 
 #include <memory>
+#include <queue>
 #include <set>
 #include <string>
 #include <sys/types.h>
 #include <vector>
 
+#include <libcamera/base/mutex.h>
 #include <libcamera/base/object.h>
 
 #include <libcamera/controls.h>
@@ -43,8 +45,8 @@ public:
 	MediaDevice *acquireMediaDevice(DeviceEnumerator *enumerator,
 					const DeviceMatch &dm);
 
-	bool lock();
-	void unlock();
+	bool acquire();
+	void release();
 
 	virtual CameraConfiguration *generateConfiguration(Camera *camera,
 		const StreamRoles &roles) = 0;
@@ -54,9 +56,10 @@ public:
 				       std::vector<std::unique_ptr<FrameBuffer>> *buffers) = 0;
 
 	virtual int start(Camera *camera, const ControlList *controls) = 0;
-	virtual void stop(Camera *camera) = 0;
+	void stop(Camera *camera);
 	bool hasPendingRequests(const Camera *camera) const;
 
+	void registerRequest(Request *request);
 	void queueRequest(Request *request);
 
 	bool completeBuffer(Request *request, FrameBuffer *buffer);
@@ -69,54 +72,70 @@ protected:
 	void hotplugMediaDevice(MediaDevice *media);
 
 	virtual int queueRequestDevice(Camera *camera, Request *request) = 0;
+	virtual void stopDevice(Camera *camera) = 0;
 
 	CameraManager *manager_;
 
 private:
+	void unlockMediaDevices();
+
 	void mediaDeviceDisconnected(MediaDevice *media);
 	virtual void disconnect();
+
+	void doQueueRequest(Request *request);
+	void doQueueRequests();
 
 	std::vector<std::shared_ptr<MediaDevice>> mediaDevices_;
 	std::vector<std::weak_ptr<Camera>> cameras_;
 
+	std::queue<Request *> waitingRequests_;
+
 	const char *name_;
 
-	friend class PipelineHandlerFactory;
+	Mutex lock_;
+	unsigned int useCount_ LIBCAMERA_TSA_GUARDED_BY(lock_);
+
+	friend class PipelineHandlerFactoryBase;
 };
 
-class PipelineHandlerFactory
+class PipelineHandlerFactoryBase
 {
 public:
-	PipelineHandlerFactory(const char *name);
-	virtual ~PipelineHandlerFactory() = default;
+	PipelineHandlerFactoryBase(const char *name);
+	virtual ~PipelineHandlerFactoryBase() = default;
 
-	std::shared_ptr<PipelineHandler> create(CameraManager *manager);
+	std::shared_ptr<PipelineHandler> create(CameraManager *manager) const;
 
 	const std::string &name() const { return name_; }
 
-	static void registerType(PipelineHandlerFactory *factory);
-	static std::vector<PipelineHandlerFactory *> &factories();
+	static std::vector<PipelineHandlerFactoryBase *> &factories();
 
 private:
-	virtual PipelineHandler *createInstance(CameraManager *manager) = 0;
+	static void registerType(PipelineHandlerFactoryBase *factory);
+
+	virtual std::unique_ptr<PipelineHandler>
+	createInstance(CameraManager *manager) const = 0;
 
 	std::string name_;
 };
 
-#define REGISTER_PIPELINE_HANDLER(handler)				\
-class handler##Factory final : public PipelineHandlerFactory		\
-{									\
-public:									\
-	handler##Factory() : PipelineHandlerFactory(#handler) {}	\
-									\
-private:								\
-	PipelineHandler *createInstance(CameraManager *manager)		\
-	{								\
-		return new handler(manager);				\
-	}								\
-};									\
-static handler##Factory global_##handler##Factory;
+template<typename _PipelineHandler>
+class PipelineHandlerFactory final : public PipelineHandlerFactoryBase
+{
+public:
+	PipelineHandlerFactory(const char *name)
+		: PipelineHandlerFactoryBase(name)
+	{
+	}
+
+	std::unique_ptr<PipelineHandler>
+	createInstance(CameraManager *manager) const override
+	{
+		return std::make_unique<_PipelineHandler>(manager);
+	}
+};
+
+#define REGISTER_PIPELINE_HANDLER(handler) \
+static PipelineHandlerFactory<handler> global_##handler##Factory(#handler);
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_INTERNAL_PIPELINE_HANDLER_H__ */

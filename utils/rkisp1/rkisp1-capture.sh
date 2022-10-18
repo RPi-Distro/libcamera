@@ -14,6 +14,37 @@
 # - raw2rgbpnm (from git://git.retiisi.org.uk/~sailus/raw2rgbpnm.git)
 # - yavta (from git://git.ideasonboard.org/yavta.git)
 
+# Return the entity connected to a given pad
+# $1: The pad, expressed as "entity":index
+mc_remote_entity() {
+	local entity="${1%:*}"
+	local pad="${1#*:}"
+
+	${mediactl} -p | awk '
+/^- entity / {
+	in_entity=0
+}
+
+/^- entity [0-9]+: '"${entity}"' / {
+	in_entity=1
+}
+
+/^[ \t]+pad/ {
+	in_pad=0
+}
+
+/^[ \t]+pad'"${pad}"': / {
+	in_pad=1
+}
+
+/^[ \t]+(<-|->) "[^"]+"/ {
+	if (in_entity && in_pad) {
+		print gensub(/^[^"]+"([^"]+)":([0-9]+).*$/, "\\1", "g")
+		exit
+	}
+}'
+}
+
 # Locate the sensor entity
 find_sensor() {
 	local bus
@@ -26,6 +57,17 @@ find_sensor() {
 	fi
 
 	echo "$sensor_name $bus"
+}
+
+# Locate the CSI-2 receiver
+find_csi2_rx() {
+	local sensor_name=$1
+	local csi2_rx
+
+	csi2_rx=$(mc_remote_entity "$sensor_name:0")
+	if [ "$csi2_rx" != rkisp1_isp ] ; then
+		echo "$csi2_rx"
+	fi
 }
 
 # Locate the media device
@@ -51,7 +93,7 @@ get_sensor_format() {
 	local format
 	local sensor=$1
 
-	format=$($mediactl --get-v4l2 "'$sensor':0" | sed 's/\[\([^ ]*\).*/\1/')
+	format=$($mediactl --get-v4l2 "'$sensor':0" | grep 'fmt:' | sed 's/.*\(fmt:\S*\).*/\1/')
 	sensor_mbus_code=$(echo $format | sed 's/fmt:\([A-Z0-9_]*\).*/\1/')
 	sensor_size=$(echo $format | sed 's/[^\/]*\/\([0-9x]*\).*/\1/')
 
@@ -63,15 +105,27 @@ configure_pipeline() {
 	local format="fmt:$sensor_mbus_code/$sensor_size"
 	local capture_mbus_code=$1
 	local capture_size=$2
+	local csi2_rx
 
 	echo "Configuring pipeline for $sensor in $format"
 
+	csi2_rx=$(find_csi2_rx "$sensor")
+
 	$mediactl -r
 
-	$mediactl -l "'$sensor':0 -> 'rkisp1_isp':0 [1]"
+	if [ -n "$csi2_rx" ] ; then
+		$mediactl -l "'$sensor':0 -> '$csi2_rx':0 [1]"
+		$mediactl -l "'$csi2_rx':1 -> 'rkisp1_isp':0 [1]"
+	else
+		$mediactl -l "'$sensor':0 -> 'rkisp1_isp':0 [1]"
+	fi
 	$mediactl -l "'rkisp1_isp':2 -> 'rkisp1_resizer_mainpath':0 [1]"
 
 	$mediactl -V "\"$sensor\":0 [$format]"
+	if [ -n "$csi2_rx" ] ; then
+		$mediactl -V "'$csi2_rx':0 [$format]"
+		$mediactl -V "'$csi2_rx':1 [$format]"
+	fi
 	$mediactl -V "'rkisp1_isp':0 [$format crop:(0,0)/$sensor_size]"
 	$mediactl -V "'rkisp1_isp':2 [fmt:$capture_mbus_code/$sensor_size crop:(0,0)/$sensor_size]"
 	$mediactl -V "'rkisp1_resizer_mainpath':0 [fmt:$capture_mbus_code/$sensor_size crop:(0,0)/$sensor_size]"
@@ -88,6 +142,7 @@ capture_frames() {
 
 	if [[ $save_file -eq 1 ]]; then
 		file_op="--file=/tmp/frame-#.bin"
+		rm -f /tmp/frame-*.bin
 	fi
 
 	yavta -c$frame_count -n5 -I -f $capture_format -s $capture_size \
@@ -170,7 +225,7 @@ mediactl="media-ctl -d $mdev"
 
 get_sensor_format "$sensor"
 if [[ $raw == true ]] ; then
-	capture_format=$(echo $sensor_mbus_code | sed 's/_[0-9X]$//')
+	capture_format=$(echo $sensor_mbus_code | sed 's/_[0-9X]*$//')
 	capture_mbus_code=$sensor_mbus_code
 else
 	capture_format=YUYV

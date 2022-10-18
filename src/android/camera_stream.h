@@ -4,22 +4,20 @@
  *
  * camera_stream.h - Camera HAL stream
  */
-#ifndef __ANDROID_CAMERA_STREAM_H__
-#define __ANDROID_CAMERA_STREAM_H__
 
-#include <condition_variable>
+#pragma once
+
 #include <memory>
-#include <mutex>
 #include <queue>
 #include <vector>
 
 #include <hardware/camera3.h>
 
+#include <libcamera/base/mutex.h>
 #include <libcamera/base/thread.h>
 
 #include <libcamera/camera.h>
 #include <libcamera/framebuffer.h>
-#include <libcamera/framebuffer_allocator.h>
 #include <libcamera/geometry.h>
 #include <libcamera/pixel_format.h>
 
@@ -27,6 +25,7 @@
 #include "post_processor.h"
 
 class CameraDevice;
+class PlatformFrameBufferAllocator;
 
 class CameraStream
 {
@@ -115,7 +114,9 @@ public:
 	};
 	CameraStream(CameraDevice *const cameraDevice,
 		     libcamera::CameraConfiguration *config, Type type,
-		     camera3_stream_t *camera3Stream, unsigned int index);
+		     camera3_stream_t *camera3Stream,
+		     CameraStream *const sourceStream,
+		     unsigned int index);
 	CameraStream(CameraStream &&other);
 	~CameraStream();
 
@@ -123,6 +124,7 @@ public:
 	camera3_stream_t *camera3Stream() const { return camera3Stream_; }
 	const libcamera::StreamConfiguration &configuration() const;
 	libcamera::Stream *stream() const;
+	CameraStream *sourceStream() const { return sourceStream_; }
 
 	int configure();
 	int process(Camera3RequestDescriptor::StreamBuffer *streamBuffer);
@@ -154,10 +156,12 @@ private:
 		PostProcessor *postProcessor_;
 
 		libcamera::Mutex mutex_;
-		std::condition_variable cv_;
+		libcamera::ConditionVariable cv_;
 
-		std::queue<Camera3RequestDescriptor::StreamBuffer *> requests_;
-		State state_ = State::Stopped;
+		std::queue<Camera3RequestDescriptor::StreamBuffer *> requests_
+			LIBCAMERA_TSA_GUARDED_BY(mutex_);
+
+		State state_ LIBCAMERA_TSA_GUARDED_BY(mutex_) = State::Stopped;
 	};
 
 	int waitFence(int fence);
@@ -166,18 +170,18 @@ private:
 	const libcamera::CameraConfiguration *config_;
 	const Type type_;
 	camera3_stream_t *camera3Stream_;
+	CameraStream *const sourceStream_;
 	const unsigned int index_;
 
-	std::unique_ptr<libcamera::FrameBufferAllocator> allocator_;
-	std::vector<libcamera::FrameBuffer *> buffers_;
+	std::unique_ptr<PlatformFrameBufferAllocator> allocator_;
+	std::vector<std::unique_ptr<libcamera::FrameBuffer>> allocatedBuffers_;
+	std::vector<libcamera::FrameBuffer *> buffers_ LIBCAMERA_TSA_GUARDED_BY(mutex_);
 	/*
 	 * The class has to be MoveConstructible as instances are stored in
 	 * an std::vector in CameraDevice.
 	 */
-	std::unique_ptr<std::mutex> mutex_;
+	std::unique_ptr<libcamera::Mutex> mutex_;
 	std::unique_ptr<PostProcessor> postProcessor_;
 
 	std::unique_ptr<PostProcessorWorker> worker_;
 };
-
-#endif /* __ANDROID_CAMERA_STREAM__ */

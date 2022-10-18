@@ -4,12 +4,13 @@
  *
  * kms_sink.h - KMS Sink
  */
-#ifndef __CAM_KMS_SINK_H__
-#define __CAM_KMS_SINK_H__
+
+#pragma once
 
 #include <list>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -38,8 +39,9 @@ private:
 	class Request
 	{
 	public:
-		Request(DRM::AtomicRequest *drmRequest, libcamera::Request *camRequest)
-			: drmRequest_(drmRequest), camRequest_(camRequest)
+		Request(std::unique_ptr<DRM::AtomicRequest> drmRequest,
+			libcamera::Request *camRequest)
+			: drmRequest_(std::move(drmRequest)), camRequest_(camRequest)
 		{
 		}
 
@@ -47,7 +49,13 @@ private:
 		libcamera::Request *camRequest_;
 	};
 
+	int selectPipeline(const libcamera::PixelFormat &format);
 	int configurePipeline(const libcamera::PixelFormat &format);
+	bool testModeSet(DRM::FrameBuffer *drmBuffer,
+			 const libcamera::Rectangle &src,
+			 const libcamera::Rectangle &dst);
+	bool setupComposition(DRM::FrameBuffer *drmBuffer);
+
 	void requestComplete(DRM::AtomicRequest *request);
 
 	DRM::Device dev_;
@@ -60,6 +68,11 @@ private:
 	libcamera::PixelFormat format_;
 	libcamera::Size size_;
 	unsigned int stride_;
+	std::optional<unsigned int> colorEncoding_;
+	std::optional<unsigned int> colorRange_;
+
+	libcamera::Rectangle src_;
+	libcamera::Rectangle dst_;
 
 	std::map<libcamera::FrameBuffer *, std::unique_ptr<DRM::FrameBuffer>> buffers_;
 
@@ -68,5 +81,3 @@ private:
 	std::unique_ptr<Request> queued_;
 	std::unique_ptr<Request> active_;
 };
-
-#endif /* __CAM_KMS_SINK_H__ */

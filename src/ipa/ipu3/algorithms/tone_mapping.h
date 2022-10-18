@@ -4,8 +4,8 @@
  *
  * tone_mapping.h - IPU3 ToneMapping and Gamma control
  */
-#ifndef __LIBCAMERA_IPU3_ALGORITHMS_TONE_MAPPING_H__
-#define __LIBCAMERA_IPU3_ALGORITHMS_TONE_MAPPING_H__
+
+#pragma once
 
 #include "algorithm.h"
 
@@ -19,8 +19,11 @@ public:
 	ToneMapping();
 
 	int configure(IPAContext &context, const IPAConfigInfo &configInfo) override;
-	void prepare(IPAContext &context, ipu3_uapi_params *params) override;
-	void process(IPAContext &context, const ipu3_uapi_stats_3a *stats) override;
+	void prepare(IPAContext &context, const uint32_t frame,
+		     IPAFrameContext &frameContext, ipu3_uapi_params *params) override;
+	void process(IPAContext &context, const uint32_t frame,
+		     IPAFrameContext &frameContext,
+		     const ipu3_uapi_stats_3a *stats) override;
 
 private:
 	double gamma_;
@@ -29,5 +32,3 @@ private:
 } /* namespace ipa::ipu3::algorithms */
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_IPU3_ALGORITHMS_TONE_MAPPING_H__ */

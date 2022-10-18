@@ -95,21 +95,51 @@ LOG_DEFINE_CATEGORY(SimplePipeline)
  * valid pipeline configurations are found, a Camera is registered for the
  * SimpleCameraData instance.
  *
+ * Pipeline Traversal
+ * ------------------
+ *
+ * During the breadth-first search, the pipeline is traversed from entity to
+ * entity, by following media graph links from source to sink, starting at the
+ * camera sensor.
+ *
+ * When reaching an entity (on its sink side), if the entity is a V4L2 subdev
+ * that supports the streams API, the subdev internal routes are followed to
+ * find the connected source pads. Otherwise all of the entity's source pads
+ * are considered to continue the graph traversal. The pipeline handler
+ * currently considers the default internal routes only and doesn't attempt to
+ * setup custom routes. This can be extended if needed.
+ *
+ * The shortest path between the camera sensor and a video node is stored in
+ * SimpleCameraData::entities_ as a list of SimpleCameraData::Entity structures,
+ * ordered along the data path from the camera sensor to the video node. The
+ * Entity structure stores a pointer to the MediaEntity, as well as information
+ * about how it is connected in that particular path for later usage when
+ * configuring the pipeline.
+ *
  * Pipeline Configuration
  * ----------------------
  *
  * The simple pipeline handler configures the pipeline by propagating V4L2
  * subdev formats from the camera sensor to the video node. The format is first
- * set on the camera sensor's output, using the native camera sensor
- * resolution. Then, on every link in the pipeline, the format is retrieved on
- * the link source and set unmodified on the link sink.
+ * set on the camera sensor's output, picking a resolution supported by the
+ * sensor that best matches the needs of the requested streams. Then, on every
+ * link in the pipeline, the format is retrieved on the link source and set
+ * unmodified on the link sink.
  *
- * When initializating the camera data, this above procedure is repeated for
- * every media bus format supported by the camera sensor. Upon reaching the
- * video node, the pixel formats compatible with the media bus format are
- * enumerated. Each of those pixel formats corresponds to one possible pipeline
- * configuration, stored as an instance of SimpleCameraData::Configuration in
- * the SimpleCameraData::formats_ map.
+ * The best sensor resolution is selected using a heuristic that tries to
+ * minimize the required bus and memory bandwidth, as the simple pipeline
+ * handler is typically used on smaller, less powerful systems. To avoid the
+ * need to upscale, the pipeline handler picks the smallest sensor resolution
+ * large enough to accommodate the need of all streams. Resolutions that
+ * significantly restrict the field of view are ignored.
+ *
+ * When initializating the camera data, the above format propagation procedure
+ * is repeated for every media bus format and size supported by the camera
+ * sensor. Upon reaching the video node, the pixel formats compatible with the
+ * media bus format are enumerated. Each combination of the input media bus
+ * format, output pixel format and output size are recorded in an instance of
+ * the SimpleCameraData::Configuration structure, stored in the
+ * SimpleCameraData::configs_ vector.
  *
  * Format Conversion and Scaling
  * -----------------------------
@@ -161,6 +191,7 @@ namespace {
 
 static const SimplePipelineInfo supportedDevices[] = {
 	{ "imx7-csi", { { "pxp", 1 } } },
+	{ "mxc-isi", {} },
 	{ "qcom-camss", {} },
 	{ "sun6i-csi", {} },
 };
@@ -192,6 +223,11 @@ public:
 		/* The media entity, always valid. */
 		MediaEntity *entity;
 		/*
+		 * Whether or not the entity is a subdev that supports the
+		 * routing API.
+		 */
+		bool supportsRouting;
+		/*
 		 * The local sink pad connected to the upstream entity, null for
 		 * the camera sensor at the beginning of the pipeline.
 		 */
@@ -202,14 +238,15 @@ public:
 		 */
 		const MediaPad *source;
 		/*
-		 * The link to the downstream entity, null for the video node at
-		 * the end of the pipeline.
+		 * The link on the source pad, to the downstream entity, null
+		 * for the video node at the end of the pipeline.
 		 */
-		MediaLink *link;
+		MediaLink *sourceLink;
 	};
 
 	struct Configuration {
 		uint32_t code;
+		Size sensorSize;
 		PixelFormat captureFormat;
 		Size captureSize;
 		std::vector<PixelFormat> outputFormats;
@@ -227,7 +264,7 @@ public:
 	V4L2VideoDevice *video_;
 
 	std::vector<Configuration> configs_;
-	std::map<PixelFormat, const Configuration *> formats_;
+	std::map<PixelFormat, std::vector<const Configuration *>> formats_;
 
 	std::unique_ptr<SimpleConverter> converter_;
 	std::vector<std::unique_ptr<FrameBuffer>> converterBuffers_;
@@ -235,6 +272,9 @@ public:
 	std::queue<std::map<unsigned int, FrameBuffer *>> converterQueue_;
 
 private:
+	void tryPipeline(unsigned int code, const Size &size);
+	static std::vector<const MediaPad *> routedSourcePads(MediaPad *sink);
+
 	void converterInputDone(FrameBuffer *buffer);
 	void converterOutputDone(FrameBuffer *buffer);
 };
@@ -279,7 +319,7 @@ public:
 			       std::vector<std::unique_ptr<FrameBuffer>> *buffers) override;
 
 	int start(Camera *camera, const ControlList *controls) override;
-	void stop(Camera *camera) override;
+	void stopDevice(Camera *camera) override;
 
 	bool match(DeviceEnumerator *enumerator) override;
 
@@ -305,6 +345,7 @@ private:
 	}
 
 	std::vector<MediaEntity *> locateSensors();
+	static int resetRoutingTable(V4L2Subdevice *subdev);
 
 	const MediaPad *acquirePipeline(SimpleCameraData *data);
 	void releasePipeline(SimpleCameraData *data);
@@ -359,17 +400,40 @@ SimpleCameraData::SimpleCameraData(SimplePipelineHandler *pipe,
 			break;
 		}
 
-		/* The actual breadth-first search algorithm. */
 		visited.insert(entity);
-		for (MediaPad *pad : entity->pads()) {
-			if (!(pad->flags() & MEDIA_PAD_FL_SOURCE))
-				continue;
 
+		/*
+		 * Add direct downstream entities to the search queue. If the
+		 * current entity supports the subdev internal routing API,
+		 * restrict the search to downstream entities reachable through
+		 * active routes.
+		 */
+
+		std::vector<const MediaPad *> pads;
+		bool supportsRouting = false;
+
+		if (sinkPad) {
+			pads = routedSourcePads(sinkPad);
+			if (!pads.empty())
+				supportsRouting = true;
+		}
+
+		if (pads.empty()) {
+			for (const MediaPad *pad : entity->pads()) {
+				if (!(pad->flags() & MEDIA_PAD_FL_SOURCE))
+					continue;
+				pads.push_back(pad);
+			}
+		}
+
+		for (const MediaPad *pad : pads) {
 			for (MediaLink *link : pad->links()) {
 				MediaEntity *next = link->sink()->entity();
 				if (visited.find(next) == visited.end()) {
 					queue.push({ next, link->sink() });
-					parents.insert({ next, { entity, sinkPad, pad, link } });
+
+					Entity e{ entity, supportsRouting, sinkPad, pad, link };
+					parents.insert({ next, e });
 				}
 			}
 		}
@@ -383,7 +447,7 @@ SimpleCameraData::SimpleCameraData(SimplePipelineHandler *pipe,
 	 * to the sensor. Store all the entities in the pipeline, from the
 	 * camera sensor to the video node, in entities_.
 	 */
-	entities_.push_front({ entity, sinkPad, nullptr, nullptr });
+	entities_.push_front({ entity, false, sinkPad, nullptr, nullptr });
 
 	for (auto it = parents.find(entity); it != parents.end();
 	     it = parents.find(entity)) {
@@ -451,55 +515,12 @@ int SimpleCameraData::init()
 		return ret;
 
 	/*
-	 * Enumerate the possible pipeline configurations. For each media bus
-	 * format supported by the sensor, propagate the formats through the
-	 * pipeline, and enumerate the corresponding possible V4L2 pixel
-	 * formats on the video node.
+	 * Generate the list of possible pipeline configurations by trying each
+	 * media bus format and size supported by the sensor.
 	 */
 	for (unsigned int code : sensor_->mbusCodes()) {
-		V4L2SubdeviceFormat format{ code, sensor_->resolution() };
-
-		ret = setupFormats(&format, V4L2Subdevice::TryFormat);
-		if (ret < 0) {
-			LOG(SimplePipeline, Debug)
-				<< "Media bus code " << utils::hex(code, 4)
-				<< " not supported for this pipeline";
-			/* Try next mbus_code supported by the sensor */
-			continue;
-		}
-
-		V4L2VideoDevice::Formats videoFormats =
-			video_->formats(format.mbus_code);
-
-		LOG(SimplePipeline, Debug)
-			<< "Adding configuration for " << format.size.toString()
-			<< " in pixel formats [ "
-			<< utils::join(videoFormats, ", ",
-				       [](const auto &f) {
-					       return f.first.toString();
-				       })
-			<< " ]";
-
-		for (const auto &videoFormat : videoFormats) {
-			PixelFormat pixelFormat = videoFormat.first.toPixelFormat();
-			if (!pixelFormat)
-				continue;
-
-			Configuration config;
-			config.code = code;
-			config.captureFormat = pixelFormat;
-			config.captureSize = format.size;
-
-			if (!converter_) {
-				config.outputFormats = { pixelFormat };
-				config.outputSizes = config.captureSize;
-			} else {
-				config.outputFormats = converter_->formats(pixelFormat);
-				config.outputSizes = converter_->sizes(format.size);
-			}
-
-			configs_.push_back(config);
-		}
+		for (const Size &size : sensor_->sizes(code))
+			tryPipeline(code, size);
 	}
 
 	if (configs_.empty()) {
@@ -507,21 +528,81 @@ int SimpleCameraData::init()
 		return -EINVAL;
 	}
 
-	/*
-	 * Map the pixel formats to configurations. Any previously stored value
-	 * is overwritten, as the pipeline handler currently doesn't care about
-	 * how a particular PixelFormat is achieved.
-	 */
+	/* Map the pixel formats to configurations. */
 	for (const Configuration &config : configs_) {
-		formats_[config.captureFormat] = &config;
+		formats_[config.captureFormat].push_back(&config);
 
 		for (PixelFormat fmt : config.outputFormats)
-			formats_[fmt] = &config;
+			formats_[fmt].push_back(&config);
 	}
 
 	properties_ = sensor_->properties();
 
 	return 0;
+}
+
+/*
+ * Generate a list of supported pipeline configurations for a sensor media bus
+ * code and size.
+ *
+ * First propagate the media bus code and size through the pipeline from the
+ * camera sensor to the video node. Then, query the video node for all supported
+ * pixel formats compatible with the media bus code. For each pixel format, store
+ * a full pipeline configuration in the configs_ vector.
+ */
+void SimpleCameraData::tryPipeline(unsigned int code, const Size &size)
+{
+	/*
+	 * Propagate the format through the pipeline, and enumerate the
+	 * corresponding possible V4L2 pixel formats on the video node.
+	 */
+	V4L2SubdeviceFormat format{};
+	format.mbus_code = code;
+	format.size = size;
+
+	int ret = setupFormats(&format, V4L2Subdevice::TryFormat);
+	if (ret < 0) {
+		/* Pipeline configuration failed, skip this configuration. */
+		format.mbus_code = code;
+		format.size = size;
+		LOG(SimplePipeline, Debug)
+			<< "Sensor format " << format
+			<< " not supported for this pipeline";
+		return;
+	}
+
+	V4L2VideoDevice::Formats videoFormats = video_->formats(format.mbus_code);
+
+	LOG(SimplePipeline, Debug)
+		<< "Adding configuration for " << format.size
+		<< " in pixel formats [ "
+		<< utils::join(videoFormats, ", ",
+			       [](const auto &f) {
+				       return f.first.toString();
+			       })
+		<< " ]";
+
+	for (const auto &videoFormat : videoFormats) {
+		PixelFormat pixelFormat = videoFormat.first.toPixelFormat();
+		if (!pixelFormat)
+			continue;
+
+		Configuration config;
+		config.code = code;
+		config.sensorSize = size;
+		config.captureFormat = pixelFormat;
+		config.captureSize = format.size;
+
+		if (!converter_) {
+			config.outputFormats = { pixelFormat };
+			config.outputSizes = config.captureSize;
+		} else {
+			config.outputFormats = converter_->formats(pixelFormat);
+			config.outputSizes = converter_->sizes(format.size);
+		}
+
+		configs_.push_back(config);
+	}
 }
 
 int SimpleCameraData::setupLinks()
@@ -533,15 +614,32 @@ int SimpleCameraData::setupLinks()
 	 * multiple sink links to be enabled together, even on different sink
 	 * pads. We must thus start by disabling all sink links (but the one we
 	 * want to enable) before enabling the pipeline link.
+	 *
+	 * The entities_ list stores entities along with their source link. We
+	 * need to process the link in the context of the sink entity, so
+	 * record the source link of the current entity as the sink link of the
+	 * next entity, and skip the first entity in the loop.
 	 */
-	for (SimpleCameraData::Entity &e : entities_) {
-		if (!e.link)
-			break;
+	MediaLink *sinkLink = nullptr;
 
-		MediaEntity *remote = e.link->sink()->entity();
-		for (MediaPad *pad : remote->pads()) {
+	for (SimpleCameraData::Entity &e : entities_) {
+		if (!sinkLink) {
+			sinkLink = e.sourceLink;
+			continue;
+		}
+
+		for (MediaPad *pad : e.entity->pads()) {
+			/*
+			 * If the entity supports the V4L2 internal routing API,
+			 * assume that it may carry multiple independent streams
+			 * concurrently, and only disable links on the sink and
+			 * source pads used by the pipeline.
+			 */
+			if (e.supportsRouting && pad != e.sink && pad != e.source)
+				continue;
+
 			for (MediaLink *link : pad->links()) {
-				if (link == e.link)
+				if (link == sinkLink)
 					continue;
 
 				if ((link->flags() & MEDIA_LNK_FL_ENABLED) &&
@@ -553,11 +651,13 @@ int SimpleCameraData::setupLinks()
 			}
 		}
 
-		if (!(e.link->flags() & MEDIA_LNK_FL_ENABLED)) {
-			ret = e.link->setEnabled(true);
+		if (!(sinkLink->flags() & MEDIA_LNK_FL_ENABLED)) {
+			ret = sinkLink->setEnabled(true);
 			if (ret < 0)
 				return ret;
 		}
+
+		sinkLink = e.sourceLink;
 	}
 
 	return 0;
@@ -578,10 +678,10 @@ int SimpleCameraData::setupFormats(V4L2SubdeviceFormat *format,
 		return ret;
 
 	for (const Entity &e : entities_) {
-		if (!e.link)
+		if (!e.sourceLink)
 			break;
 
-		MediaLink *link = e.link;
+		MediaLink *link = e.sourceLink;
 		MediaPad *source = link->source();
 		MediaPad *sink = link->sink();
 
@@ -605,10 +705,10 @@ int SimpleCameraData::setupFormats(V4L2SubdeviceFormat *format,
 				LOG(SimplePipeline, Debug)
 					<< "Source '" << source->entity()->name()
 					<< "':" << source->index()
-					<< " produces " << sourceFormat.toString()
+					<< " produces " << sourceFormat
 					<< ", sink '" << sink->entity()->name()
 					<< "':" << sink->index()
-					<< " requires " << format->toString();
+					<< " requires " << *format;
 				return -EINVAL;
 			}
 		}
@@ -618,7 +718,7 @@ int SimpleCameraData::setupFormats(V4L2SubdeviceFormat *format,
 			<< "':" << source->index()
 			<< " -> '" << sink->entity()->name()
 			<< "':" << sink->index()
-			<< " configured with format " << format->toString();
+			<< " configured with format " << *format;
 	}
 
 	return 0;
@@ -727,6 +827,43 @@ void SimpleCameraData::converterOutputDone(FrameBuffer *buffer)
 		pipe->completeRequest(request);
 }
 
+/* Retrieve all source pads connected to a sink pad through active routes. */
+std::vector<const MediaPad *> SimpleCameraData::routedSourcePads(MediaPad *sink)
+{
+	MediaEntity *entity = sink->entity();
+	std::unique_ptr<V4L2Subdevice> subdev =
+		std::make_unique<V4L2Subdevice>(entity);
+
+	int ret = subdev->open();
+	if (ret < 0)
+		return {};
+
+	V4L2Subdevice::Routing routing = {};
+	ret = subdev->getRouting(&routing, V4L2Subdevice::ActiveFormat);
+	if (ret < 0)
+		return {};
+
+	std::vector<const MediaPad *> pads;
+
+	for (const struct v4l2_subdev_route &route : routing) {
+		if (sink->index() != route.sink_pad ||
+		    !(route.flags & V4L2_SUBDEV_ROUTE_FL_ACTIVE))
+			continue;
+
+		const MediaPad *pad = entity->getPadByIndex(route.source_pad);
+		if (!pad) {
+			LOG(SimplePipeline, Warning)
+				<< "Entity " << entity->name()
+				<< " has invalid route source pad "
+				<< route.source_pad;
+		}
+
+		pads.push_back(pad);
+	}
+
+	return pads;
+}
+
 /* -----------------------------------------------------------------------------
  * Camera Configuration
  */
@@ -756,21 +893,69 @@ CameraConfiguration::Status SimpleCameraConfiguration::validate()
 		status = Adjusted;
 	}
 
+	/* Find the largest stream size. */
+	Size maxStreamSize;
+	for (const StreamConfiguration &cfg : config_)
+		maxStreamSize.expandTo(cfg.size);
+
+	LOG(SimplePipeline, Debug)
+		<< "Largest stream size is " << maxStreamSize;
+
 	/*
-	 * Pick a configuration for the pipeline based on the pixel format for
-	 * the streams (ordered from highest to lowest priority). Default to
-	 * the first pipeline configuration if no streams requests a supported
-	 * pixel format.
+	 * Find the best configuration for the pipeline using a heuristic.
+	 * First select the pixel format based on the streams (which are
+	 * considered ordered from highest to lowest priority). Default to the
+	 * first pipeline configuration if no streams request a supported pixel
+	 * format.
 	 */
-	pipeConfig_ = data_->formats_.begin()->second;
+	const std::vector<const SimpleCameraData::Configuration *> *configs =
+		&data_->formats_.begin()->second;
 
 	for (const StreamConfiguration &cfg : config_) {
 		auto it = data_->formats_.find(cfg.pixelFormat);
 		if (it != data_->formats_.end()) {
-			pipeConfig_ = it->second;
+			configs = &it->second;
 			break;
 		}
 	}
+
+	/*
+	 * \todo Pick the best sensor output media bus format when the
+	 * requested pixel format can be produced from multiple sensor media
+	 * bus formats.
+	 */
+
+	/*
+	 * Then pick, among the possible configuration for the pixel format,
+	 * the smallest sensor resolution that can accommodate all streams
+	 * without upscaling.
+	 */
+	const SimpleCameraData::Configuration *maxPipeConfig = nullptr;
+	pipeConfig_ = nullptr;
+
+	for (const SimpleCameraData::Configuration *pipeConfig : *configs) {
+		const Size &size = pipeConfig->captureSize;
+
+		if (size.width >= maxStreamSize.width &&
+		    size.height >= maxStreamSize.height) {
+			if (!pipeConfig_ || size < pipeConfig_->captureSize)
+				pipeConfig_ = pipeConfig;
+		}
+
+		if (!maxPipeConfig || maxPipeConfig->captureSize < size)
+			maxPipeConfig = pipeConfig;
+	}
+
+	/* If no configuration was large enough, select the largest one. */
+	if (!pipeConfig_)
+		pipeConfig_ = maxPipeConfig;
+
+	LOG(SimplePipeline, Debug)
+		<< "Picked "
+		<< V4L2SubdeviceFormat{ pipeConfig_->code, pipeConfig_->sensorSize, {} }
+		<< " -> " << pipeConfig_->captureSize
+		<< "-" << pipeConfig_->captureFormat
+		<< " for max stream size " << maxStreamSize;
 
 	/*
 	 * Adjust the requested streams.
@@ -806,8 +991,8 @@ CameraConfiguration::Status SimpleCameraConfiguration::validate()
 
 		if (!pipeConfig_->outputSizes.contains(cfg.size)) {
 			LOG(SimplePipeline, Debug)
-				<< "Adjusting size from " << cfg.size.toString()
-				<< " to " << pipeConfig_->captureSize.toString();
+				<< "Adjusting size from " << cfg.size
+				<< " to " << pipeConfig_->captureSize;
 			cfg.size = pipeConfig_->captureSize;
 			status = Adjusted;
 		}
@@ -826,7 +1011,7 @@ CameraConfiguration::Status SimpleCameraConfiguration::validate()
 				return Invalid;
 		} else {
 			V4L2DeviceFormat format;
-			format.fourcc = V4L2PixelFormat::fromPixelFormat(cfg.pixelFormat);
+			format.fourcc = data_->video_->toV4L2PixelFormat(cfg.pixelFormat);
 			format.size = cfg.size;
 
 			int ret = data_->video_->tryFormat(&format);
@@ -864,13 +1049,32 @@ CameraConfiguration *SimplePipelineHandler::generateConfiguration(Camera *camera
 
 	/* Create the formats map. */
 	std::map<PixelFormat, std::vector<SizeRange>> formats;
-	std::transform(data->formats_.begin(), data->formats_.end(),
-		       std::inserter(formats, formats.end()),
-		       [](const auto &format) -> decltype(formats)::value_type {
-			       const PixelFormat &pixelFormat = format.first;
-			       const Size &size = format.second->captureSize;
-			       return { pixelFormat, { size } };
-		       });
+
+	for (const SimpleCameraData::Configuration &cfg : data->configs_) {
+		for (PixelFormat format : cfg.outputFormats)
+			formats[format].push_back(cfg.outputSizes);
+	}
+
+	/* Sort the sizes and merge any consecutive overlapping ranges. */
+	for (auto &[format, sizes] : formats) {
+		std::sort(sizes.begin(), sizes.end(),
+			  [](SizeRange &a, SizeRange &b) {
+				  return a.min < b.min;
+			  });
+
+		auto cur = sizes.begin();
+		auto next = cur;
+
+		while (++next != sizes.end()) {
+			if (cur->max.width >= next->min.width &&
+			    cur->max.height >= next->min.height)
+				cur->max = next->max;
+			else if (++cur != next)
+				*cur = *next;
+		}
+
+		sizes.erase(++cur, sizes.end());
+	}
 
 	/*
 	 * Create the stream configurations. Take the first entry in the formats
@@ -908,14 +1112,16 @@ int SimplePipelineHandler::configure(Camera *camera, CameraConfiguration *c)
 		return ret;
 
 	const SimpleCameraData::Configuration *pipeConfig = config->pipeConfig();
-	V4L2SubdeviceFormat format{ pipeConfig->code, data->sensor_->resolution() };
+	V4L2SubdeviceFormat format{};
+	format.mbus_code = pipeConfig->code;
+	format.size = pipeConfig->sensorSize;
 
 	ret = data->setupFormats(&format, V4L2Subdevice::ActiveFormat);
 	if (ret < 0)
 		return ret;
 
 	/* Configure the video node. */
-	V4L2PixelFormat videoFormat = V4L2PixelFormat::fromPixelFormat(pipeConfig->captureFormat);
+	V4L2PixelFormat videoFormat = video->toV4L2PixelFormat(pipeConfig->captureFormat);
 
 	V4L2DeviceFormat captureFormat;
 	captureFormat.fourcc = videoFormat;
@@ -935,8 +1141,8 @@ int SimplePipelineHandler::configure(Camera *camera, CameraConfiguration *c)
 	    captureFormat.size != pipeConfig->captureSize) {
 		LOG(SimplePipeline, Error)
 			<< "Unable to configure capture in "
-			<< pipeConfig->captureSize.toString() << "-"
-			<< videoFormat.toString();
+			<< pipeConfig->captureSize << "-" << videoFormat
+			<< " (got " << captureFormat << ")";
 		return -EINVAL;
 	}
 
@@ -1036,7 +1242,7 @@ int SimplePipelineHandler::start(Camera *camera, [[maybe_unused]] const ControlL
 	return 0;
 }
 
-void SimplePipelineHandler::stop(Camera *camera)
+void SimplePipelineHandler::stopDevice(Camera *camera)
 {
 	SimpleCameraData *data = cameraData(camera);
 	V4L2VideoDevice *video = data->video_;
@@ -1147,6 +1353,37 @@ std::vector<MediaEntity *> SimplePipelineHandler::locateSensors()
 	return sensors;
 }
 
+int SimplePipelineHandler::resetRoutingTable(V4L2Subdevice *subdev)
+{
+	/* Reset the media entity routing table to its default state. */
+	V4L2Subdevice::Routing routing = {};
+
+	int ret = subdev->getRouting(&routing, V4L2Subdevice::TryFormat);
+	if (ret)
+		return ret;
+
+	ret = subdev->setRouting(&routing, V4L2Subdevice::ActiveFormat);
+	if (ret)
+		return ret;
+
+	/*
+	 * If the routing table is empty we won't be able to meaningfully use
+	 * the subdev.
+	 */
+	if (routing.empty()) {
+		LOG(SimplePipeline, Error)
+			<< "Default routing table of " << subdev->deviceNode()
+			<< " is empty";
+		return -EINVAL;
+	}
+
+	LOG(SimplePipeline, Debug)
+		<< "Routing table of " << subdev->deviceNode()
+		<< " reset to " << routing.toString();
+
+	return 0;
+}
+
 bool SimplePipelineHandler::match(DeviceEnumerator *enumerator)
 {
 	const SimplePipelineInfo *info = nullptr;
@@ -1239,6 +1476,23 @@ bool SimplePipelineHandler::match(DeviceEnumerator *enumerator)
 					<< ": " << strerror(-ret);
 				return false;
 			}
+
+			if (subdev->caps().hasStreams()) {
+				/*
+				 * Reset the routing table to its default state
+				 * to make sure entities are enumerate according
+				 * to the defaul routing configuration.
+				 */
+				ret = resetRoutingTable(subdev.get());
+				if (ret) {
+					LOG(SimplePipeline, Error)
+						<< "Failed to reset routes for "
+						<< subdev->deviceNode() << ": "
+						<< strerror(-ret);
+					return false;
+				}
+			}
+
 			break;
 
 		default:

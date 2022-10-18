@@ -5,13 +5,13 @@
  * geometry.h - Geometry-related classes
  */
 
-#ifndef __LIBCAMERA_GEOMETRY_H__
-#define __LIBCAMERA_GEOMETRY_H__
+#pragma once
 
 #include <algorithm>
+#include <ostream>
 #include <string>
 
-#include <libcamera/compiler.h>
+#include <libcamera/base/compiler.h>
 
 namespace libcamera {
 
@@ -46,6 +46,8 @@ static inline bool operator!=(const Point &lhs, const Point &rhs)
 {
 	return !(lhs == rhs);
 }
+
+std::ostream &operator<<(std::ostream &out, const Point &p);
 
 class Size
 {
@@ -193,6 +195,8 @@ static inline bool operator>=(const Size &lhs, const Size &rhs)
 	return !(lhs < rhs);
 }
 
+std::ostream &operator<<(std::ostream &out, const Size &s);
+
 class SizeRange
 {
 public:
@@ -232,6 +236,8 @@ static inline bool operator!=(const SizeRange &lhs, const SizeRange &rhs)
 {
 	return !(lhs == rhs);
 }
+
+std::ostream &operator<<(std::ostream &out, const SizeRange &sr);
 
 class Rectangle
 {
@@ -292,6 +298,6 @@ static inline bool operator!=(const Rectangle &lhs, const Rectangle &rhs)
 	return !(lhs == rhs);
 }
 
-} /* namespace libcamera */
+std::ostream &operator<<(std::ostream &out, const Rectangle &r);
 
-#endif /* __LIBCAMERA_GEOMETRY_H__ */
+} /* namespace libcamera */

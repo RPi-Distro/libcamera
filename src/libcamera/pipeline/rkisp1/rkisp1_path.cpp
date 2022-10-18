@@ -50,12 +50,13 @@ bool RkISP1Path::init(MediaDevice *media)
 
 StreamConfiguration RkISP1Path::generateConfiguration(const Size &resolution)
 {
-	Size maxResolution = resolution;
-	maxResolution.boundTo(maxResolution_);
+	Size maxResolution = maxResolution_.boundedToAspectRatio(resolution)
+					   .boundedTo(resolution);
+	Size minResolution = minResolution_.expandedToAspectRatio(resolution);
 
 	std::map<PixelFormat, std::vector<SizeRange>> streamFormats;
 	for (const PixelFormat &format : formats_)
-		streamFormats[format] = { { minResolution_, maxResolution } };
+		streamFormats[format] = { { minResolution, maxResolution } };
 
 	StreamFormats formats(streamFormats);
 	StreamConfiguration cfg(formats);
@@ -80,7 +81,7 @@ CameraConfiguration::Status RkISP1Path::validate(StreamConfiguration *cfg)
 	cfg->bufferCount = RKISP1_BUFFER_COUNT;
 
 	V4L2DeviceFormat format;
-	format.fourcc = V4L2PixelFormat::fromPixelFormat(cfg->pixelFormat);
+	format.fourcc = video_->toV4L2PixelFormat(cfg->pixelFormat);
 	format.size = cfg->size;
 
 	int ret = video_->tryFormat(&format);
@@ -118,13 +119,13 @@ int RkISP1Path::configure(const StreamConfiguration &config,
 
 	LOG(RkISP1, Debug)
 		<< "Configured " << name_ << " resizer input pad with "
-		<< ispFormat.toString() << " crop " << rect.toString();
+		<< ispFormat << " crop " << rect;
 
 	ispFormat.size = config.size;
 
 	LOG(RkISP1, Debug)
 		<< "Configuring " << name_ << " resizer output pad with "
-		<< ispFormat.toString();
+		<< ispFormat;
 
 	switch (config.pixelFormat) {
 	case formats::NV12:
@@ -142,11 +143,11 @@ int RkISP1Path::configure(const StreamConfiguration &config,
 
 	LOG(RkISP1, Debug)
 		<< "Configured " << name_ << " resizer output pad with "
-		<< ispFormat.toString();
+		<< ispFormat;
 
 	const PixelFormatInfo &info = PixelFormatInfo::info(config.pixelFormat);
 	V4L2DeviceFormat outputFormat;
-	outputFormat.fourcc = V4L2PixelFormat::fromPixelFormat(config.pixelFormat);
+	outputFormat.fourcc = video_->toV4L2PixelFormat(config.pixelFormat);
 	outputFormat.size = config.size;
 	outputFormat.planesCount = info.numPlanes();
 
@@ -155,7 +156,7 @@ int RkISP1Path::configure(const StreamConfiguration &config,
 		return ret;
 
 	if (outputFormat.size != config.size ||
-	    outputFormat.fourcc != V4L2PixelFormat::fromPixelFormat(config.pixelFormat)) {
+	    outputFormat.fourcc != video_->toV4L2PixelFormat(config.pixelFormat)) {
 		LOG(RkISP1, Error)
 			<< "Unable to configure capture in " << config.toString();
 		return -EINVAL;

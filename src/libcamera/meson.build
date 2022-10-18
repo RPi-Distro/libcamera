@@ -5,16 +5,18 @@ libcamera_sources = files([
     'byte_stream_buffer.cpp',
     'camera.cpp',
     'camera_controls.cpp',
+    'camera_lens.cpp',
     'camera_manager.cpp',
     'camera_sensor.cpp',
     'camera_sensor_properties.cpp',
+    'color_space.cpp',
     'controls.cpp',
     'control_serializer.cpp',
     'control_validator.cpp',
     'delayed_controls.cpp',
     'device_enumerator.cpp',
     'device_enumerator_sysfs.cpp',
-    'file_descriptor.cpp',
+    'fence.cpp',
     'formats.cpp',
     'framebuffer.cpp',
     'framebuffer_allocator.cpp',
@@ -44,6 +46,7 @@ libcamera_sources = files([
     'v4l2_pixelformat.cpp',
     'v4l2_subdevice.cpp',
     'v4l2_videodevice.cpp',
+    'yaml_parser.cpp',
 ])
 
 libcamera_sources += libcamera_public_headers
@@ -55,6 +58,7 @@ includes = [
 ]
 
 libatomic = cc.find_library('atomic', required : false)
+libthreads = dependency('threads')
 
 subdir('base')
 subdir('ipa')
@@ -62,16 +66,30 @@ subdir('pipeline')
 subdir('proxy')
 
 libdl = cc.find_library('dl')
-libgnutls = cc.find_library('gnutls', required : true)
 libudev = dependency('libudev', required : false)
+libyaml = dependency('yaml-0.1', required : false)
 
-if libgnutls.found()
+# Use one of gnutls or libcrypto (provided by OpenSSL), trying gnutls first.
+libcrypto = dependency('gnutls', required : false)
+if libcrypto.found()
     config_h.set('HAVE_GNUTLS', 1)
+else
+    libcrypto = dependency('libcrypto', required : false)
+    if libcrypto.found()
+        config_h.set('HAVE_CRYPTO', 1)
+    endif
+endif
+
+if not libcrypto.found()
+    warning('Neither gnutls nor libcrypto found, all IPA modules will be isolated')
 endif
 
 if liblttng.found()
+    tracing_enabled = true
     config_h.set('HAVE_TRACING', 1)
     libcamera_sources += files(['tracepoints.cpp'])
+else
+    tracing_enabled = false
 endif
 
 if libudev.found()
@@ -79,6 +97,17 @@ if libudev.found()
     libcamera_sources += files([
         'device_enumerator_udev.cpp',
     ])
+endif
+
+# Fallback to a subproject if libyaml isn't found, as it's not packaged in AOSP.
+if not libyaml.found()
+    cmake = import('cmake')
+
+    libyaml_vars = cmake.subproject_options()
+    libyaml_vars.add_cmake_defines({'CMAKE_POSITION_INDEPENDENT_CODE': 'ON'})
+    libyaml_vars.append_compile_args('c', '-Wno-unused-value')
+    libyaml_wrap = cmake.subproject('libyaml', options : libyaml_vars)
+    libyaml = libyaml_wrap.dependency('yaml')
 endif
 
 control_sources = []
@@ -93,11 +122,11 @@ endforeach
 
 libcamera_sources += control_sources
 
-gen_version = meson.source_root() / 'utils' / 'gen-version.sh'
+gen_version = meson.project_source_root() / 'utils' / 'gen-version.sh'
 
 # Use vcs_tag() and not configure_file() or run_command(), to ensure that the
 # version gets updated with every ninja build and not just at meson setup time.
-version_cpp = vcs_tag(command : [gen_version, meson.build_root(), meson.source_root()],
+version_cpp = vcs_tag(command : [gen_version, meson.project_build_root(), meson.project_source_root()],
                       input : 'version.cpp.in',
                       output : 'version.cpp',
                       fallback : meson.project_version())
@@ -117,10 +146,11 @@ libcamera_deps = [
     libatomic,
     libcamera_base,
     libcamera_base_private,
+    libcrypto,
     libdl,
-    libgnutls,
     liblttng,
     libudev,
+    libyaml,
 ]
 
 # We add '/' to the build_rpath as a 'safe' path to act as a boolean flag.
@@ -131,6 +161,7 @@ libcamera_deps = [
 libcamera = shared_library('libcamera',
                            libcamera_sources,
                            version : libcamera_version,
+                           soversion : libcamera_soversion,
                            name_prefix : '',
                            install : true,
                            include_directories : includes,
@@ -157,8 +188,9 @@ libcamera_private = declare_dependency(sources : [
 pkg_mod = import('pkgconfig')
 pkg_mod.generate(libcamera,
                  libraries : libcamera_base_lib,
-                 version : '1.0',
                  description : 'Complex Camera Support Library',
                  subdirs : 'libcamera')
+
+meson.override_dependency('libcamera', libcamera_public)
 
 subdir('proxy/worker')

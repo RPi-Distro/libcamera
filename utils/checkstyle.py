@@ -279,6 +279,8 @@ class ClassRegistry(type):
         newclass = super().__new__(cls, clsname, bases, attrs)
         if bases:
             bases[0].subclasses.append(newclass)
+            bases[0].subclasses.sort(key=lambda x: getattr(x, 'priority', 0),
+                                     reverse=True)
         return newclass
 
 
@@ -568,6 +570,7 @@ class Formatter(metaclass=ClassRegistry):
 
 class CLangFormatter(Formatter):
     patterns = ('*.c', '*.cpp', '*.h')
+    priority = -1
 
     @classmethod
     def format(cls, filename, data):
@@ -640,7 +643,7 @@ class DPointerFormatter(Formatter):
 class IncludeOrderFormatter(Formatter):
     patterns = ('*.cpp', '*.h')
 
-    include_regex = re.compile('^#include ["<]([^">]*)[">]')
+    include_regex = re.compile('^#include (["<])([^">]*)([">])')
 
     @classmethod
     def format(cls, filename, data):
@@ -654,7 +657,21 @@ class IncludeOrderFormatter(Formatter):
             if match:
                 # If the current line is an #include statement, add it to the
                 # includes group and continue to the next line.
-                includes.append((line, match.group(1)))
+                open_token = match.group(1)
+                file_name = match.group(2)
+                close_token = match.group(3)
+
+                # Ensure the "..." include style for internal headers and the
+                # <...> style for all other libcamera headers.
+                if (file_name.startswith('libcamera/internal')):
+                    open_token = '"'
+                    close_token = '"'
+                elif (file_name.startswith('libcamera/')):
+                    open_token = '<'
+                    close_token = '>'
+
+                line = f'#include {open_token}{file_name}{close_token}'
+                includes.append((line, file_name))
                 continue
 
             # The current line is not an #include statement, output the sorted
@@ -743,9 +760,11 @@ def check_file(top_level, commit, filename):
     if len(issues):
         issues = sorted(issues, key=lambda i: i.line_number)
         for issue in issues:
-            print('%s#%u: %s' % (Colours.fg(Colours.Yellow), issue.line_number, issue.msg))
+            print('%s#%u: %s%s' % (Colours.fg(Colours.Yellow), issue.line_number,
+                                   issue.msg, Colours.reset()))
             if issue.line is not None:
-                print('+%s%s' % (issue.line.rstrip(), Colours.reset()))
+                print('%s+%s%s' % (Colours.fg(Colours.Yellow), issue.line.rstrip(),
+                                   Colours.reset()))
 
     return len(formatted_diff) + len(issues)
 

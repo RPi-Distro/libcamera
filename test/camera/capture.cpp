@@ -18,6 +18,7 @@
 
 using namespace libcamera;
 using namespace std;
+using namespace std::chrono_literals;
 
 namespace {
 
@@ -109,7 +110,7 @@ protected:
 			}
 
 			if (request->addBuffer(stream, buffer.get())) {
-				cout << "Failed to associating buffer with request" << endl;
+				cout << "Failed to associate buffer with request" << endl;
 				return TestFail;
 			}
 
@@ -137,7 +138,7 @@ protected:
 		EventDispatcher *dispatcher = Thread::current()->eventDispatcher();
 
 		Timer timer;
-		timer.start(1000);
+		timer.start(1000ms);
 		while (timer.isRunning())
 			dispatcher->processEvents();
 

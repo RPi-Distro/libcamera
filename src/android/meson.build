@@ -3,7 +3,6 @@
 android_deps = [
     dependency('libexif', required : get_option('android')),
     dependency('libjpeg', required : get_option('android')),
-    dependency('yaml-0.1', required : get_option('android')),
     libcamera_private,
 ]
 
@@ -47,7 +46,6 @@ android_hal_sources = files([
     'camera_ops.cpp',
     'camera_request.cpp',
     'camera_stream.cpp',
-    'camera_worker.cpp',
     'jpeg/encoder_libjpeg.cpp',
     'jpeg/exif.cpp',
     'jpeg/post_processor_jpeg.cpp',

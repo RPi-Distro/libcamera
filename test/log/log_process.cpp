@@ -26,8 +26,9 @@
 
 #include "test.h"
 
-using namespace std;
 using namespace libcamera;
+using namespace std;
+using namespace std::chrono_literals;
 
 static const string message("hello from the child");
 
@@ -74,13 +75,13 @@ protected:
 		vector<std::string> args;
 		args.push_back(to_string(exitCode));
 		args.push_back(to_string(num_));
-		int ret = proc_.start("/proc/self/exe", args);
+		int ret = proc_.start(self(), args);
 		if (ret) {
 			cerr << "failed to start process" << endl;
 			return TestFail;
 		}
 
-		timeout.start(200);
+		timeout.start(200ms);
 		while (timeout.isRunning())
 			dispatcher->processEvents();
 
@@ -154,5 +155,7 @@ int main(int argc, char **argv)
 		return child.run(status, num);
 	}
 
-	return LogProcessTest().execute();
+	LogProcessTest test;
+	test.setArgs(argc, argv);
+	return test.execute();
 }

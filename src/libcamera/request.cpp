@@ -5,7 +5,7 @@
  * request.cpp - Capture request handling
  */
 
-#include <libcamera/request.h>
+#include "libcamera/internal/request.h"
 
 #include <map>
 #include <sstream>
@@ -14,6 +14,7 @@
 
 #include <libcamera/camera.h>
 #include <libcamera/control_ids.h>
+#include <libcamera/fence.h>
 #include <libcamera/framebuffer.h>
 #include <libcamera/stream.h>
 
@@ -23,13 +24,282 @@
 #include "libcamera/internal/tracepoints.h"
 
 /**
- * \file request.h
+ * \file libcamera/request.h
  * \brief Describes a frame capture request to be processed by a camera
  */
 
 namespace libcamera {
 
 LOG_DEFINE_CATEGORY(Request)
+
+/**
+ * \class Request::Private
+ * \brief Request private data
+ *
+ * The Request::Private class stores all private data associated with a
+ * request. It implements the d-pointer design pattern to hide core
+ * Request data from the public API, and exposes utility functions to
+ * internal users of the request (namely the PipelineHandler class and its
+ * subclasses).
+ */
+
+/**
+ * \brief Create a Request::Private
+ * \param camera The Camera that creates the request
+ */
+Request::Private::Private(Camera *camera)
+	: camera_(camera), cancelled_(false)
+{
+}
+
+Request::Private::~Private()
+{
+	doCancelRequest();
+}
+
+/**
+ * \fn Request::Private::camera()
+ * \brief Retrieve the camera this request has been queued to
+ * \return The Camera this request has been queued to, or nullptr if the
+ * request hasn't been queued
+ */
+
+/**
+ * \brief Check if a request has buffers yet to be completed
+ *
+ * \return True if the request has buffers pending for completion, false
+ * otherwise
+ */
+bool Request::Private::hasPendingBuffers() const
+{
+	return !pending_.empty();
+}
+
+/**
+ * \brief Complete a buffer for the request
+ * \param[in] buffer The buffer that has completed
+ *
+ * A request tracks the status of all buffers it contains through a set of
+ * pending buffers. This function removes the \a buffer from the set to mark it
+ * as complete. All buffers associate with the request shall be marked as
+ * complete by calling this function once and once only before reporting the
+ * request as complete with the complete() function.
+ *
+ * \return True if all buffers contained in the request have completed, false
+ * otherwise
+ */
+bool Request::Private::completeBuffer(FrameBuffer *buffer)
+{
+	LIBCAMERA_TRACEPOINT(request_complete_buffer, this, buffer);
+
+	int ret = pending_.erase(buffer);
+	ASSERT(ret == 1);
+
+	buffer->_d()->setRequest(nullptr);
+
+	if (buffer->metadata().status == FrameMetadata::FrameCancelled)
+		cancelled_ = true;
+
+	return !hasPendingBuffers();
+}
+
+/**
+ * \brief Complete a queued request
+ *
+ * Mark the request as complete by updating its status to RequestComplete,
+ * unless buffers have been cancelled in which case the status is set to
+ * RequestCancelled.
+ */
+void Request::Private::complete()
+{
+	Request *request = _o<Request>();
+
+	ASSERT(request->status() == RequestPending);
+	ASSERT(!hasPendingBuffers());
+
+	request->status_ = cancelled_ ? RequestCancelled : RequestComplete;
+
+	LOG(Request, Debug) << request->toString();
+
+	LIBCAMERA_TRACEPOINT(request_complete, this);
+}
+
+void Request::Private::doCancelRequest()
+{
+	Request *request = _o<Request>();
+
+	for (FrameBuffer *buffer : pending_) {
+		buffer->_d()->cancel();
+		camera_->bufferCompleted.emit(request, buffer);
+	}
+
+	cancelled_ = true;
+	pending_.clear();
+	notifiers_.clear();
+	timer_.reset();
+}
+
+/**
+ * \brief Cancel a queued request
+ *
+ * Mark the request and its associated buffers as cancelled and complete it.
+ *
+ * Set each pending buffer in error state and emit the buffer completion signal
+ * before completing the Request.
+ */
+void Request::Private::cancel()
+{
+	LIBCAMERA_TRACEPOINT(request_cancel, this);
+
+	Request *request = _o<Request>();
+	ASSERT(request->status() == RequestPending);
+
+	doCancelRequest();
+}
+
+/**
+ * \brief Reset the request internal data to default values
+ *
+ * After calling this function, all request internal data will have default
+ * values as if the Request::Private instance had just been constructed.
+ */
+void Request::Private::reset()
+{
+	sequence_ = 0;
+	cancelled_ = false;
+	prepared_ = false;
+	pending_.clear();
+	notifiers_.clear();
+	timer_.reset();
+}
+
+/*
+ * Helper function to save some lines of code and make sure prepared_ is set
+ * to true before emitting the signal.
+ */
+void Request::Private::emitPrepareCompleted()
+{
+	prepared_ = true;
+	prepared.emit();
+}
+
+/**
+ * \brief Prepare the Request to be queued to the device
+ * \param[in] timeout Optional expiration timeout
+ *
+ * Prepare a Request to be queued to the hardware device by ensuring it is
+ * ready for the incoming memory transfers.
+ *
+ * This currently means waiting on each frame buffer acquire fence to be
+ * signalled. An optional expiration timeout can be specified. If not all the
+ * fences have been signalled correctly before the timeout expires the Request
+ * is cancelled.
+ *
+ * The function immediately emits the prepared signal if all the prepare
+ * operations have been completed synchronously. If instead the prepare
+ * operations require to wait the completion of asynchronous events, such as
+ * fences notifications or timer expiration, the prepared signal is emitted upon
+ * the asynchronous event completion.
+ *
+ * As we currently only handle fences, the function emits the prepared signal
+ * immediately if there are no fences to wait on. Otherwise the prepared signal
+ * is emitted when all fences have been signalled or the optional timeout has
+ * expired.
+ *
+ * If not all the fences have been correctly signalled or the optional timeout
+ * has expired the Request will be cancelled and the Request::prepared signal
+ * emitted.
+ *
+ * The intended user of this function is the PipelineHandler base class, which
+ * 'prepares' a Request before queuing it to the hardware device.
+ */
+void Request::Private::prepare(std::chrono::milliseconds timeout)
+{
+	/* Create and connect one notifier for each synchronization fence. */
+	for (FrameBuffer *buffer : pending_) {
+		const Fence *fence = buffer->_d()->fence();
+		if (!fence)
+			continue;
+
+		std::unique_ptr<EventNotifier> notifier =
+			std::make_unique<EventNotifier>(fence->fd().get(),
+							EventNotifier::Read);
+
+		notifier->activated.connect(this, [this, buffer] {
+							notifierActivated(buffer);
+					    });
+
+		notifiers_[buffer] = std::move(notifier);
+	}
+
+	if (notifiers_.empty()) {
+		emitPrepareCompleted();
+		return;
+	}
+
+	/*
+	 * In case a timeout is specified, create a timer and set it up.
+	 *
+	 * The timer must be created here instead of in the Request constructor,
+	 * in order to be bound to the pipeline handler thread.
+	 */
+	if (timeout != 0ms) {
+		timer_ = std::make_unique<Timer>();
+		timer_->timeout.connect(this, &Request::Private::timeout);
+		timer_->start(timeout);
+	}
+}
+
+/**
+ * \var Request::Private::prepared
+ * \brief Request preparation completed Signal
+ *
+ * The signal is emitted once the request preparation has completed and is ready
+ * to be queued. The Request might complete with errors in which case it is
+ * cancelled.
+ *
+ * The intended slot for this signal is the PipelineHandler::doQueueRequests()
+ * function which queues Request after they have been prepared or cancel them
+ * if they have failed preparing.
+ */
+
+void Request::Private::notifierActivated(FrameBuffer *buffer)
+{
+	/* Close the fence if successfully signalled. */
+	ASSERT(buffer);
+	buffer->releaseFence();
+
+	/* Remove the entry from the map and check if other fences are pending. */
+	auto it = notifiers_.find(buffer);
+	ASSERT(it != notifiers_.end());
+	notifiers_.erase(it);
+
+	Request *request = _o<Request>();
+	LOG(Request, Debug)
+		<< "Request " << request->cookie() << " buffer " << buffer
+		<< " fence signalled";
+
+	if (!notifiers_.empty())
+		return;
+
+	/* All fences completed, delete the timer and emit the prepared signal. */
+	timer_.reset();
+	emitPrepareCompleted();
+}
+
+void Request::Private::timeout()
+{
+	/* A timeout can only happen if there are fences not yet signalled. */
+	ASSERT(!notifiers_.empty());
+	notifiers_.clear();
+
+	Request *request = _o<Request>();
+	LOG(Request, Debug) << "Request prepare timeout: " << request->cookie();
+
+	cancel();
+
+	emitPrepareCompleted();
+}
 
 /**
  * \enum Request::Status
@@ -75,14 +345,14 @@ LOG_DEFINE_CATEGORY(Request)
  * completely opaque to libcamera.
  */
 Request::Request(Camera *camera, uint64_t cookie)
-	: camera_(camera), sequence_(0), cookie_(cookie),
-	  status_(RequestPending), cancelled_(false)
+	: Extensible(std::make_unique<Private>(camera)),
+	  cookie_(cookie), status_(RequestPending)
 {
 	controls_ = new ControlList(controls::controls,
 				    camera->_d()->validator());
 
 	/**
-	 * \todo: Add a validator for metadata controls.
+	 * \todo Add a validator for metadata controls.
 	 */
 	metadata_ = new ControlList(controls::controls);
 
@@ -113,20 +383,19 @@ void Request::reuse(ReuseFlag flags)
 {
 	LIBCAMERA_TRACEPOINT(request_reuse, this);
 
-	pending_.clear();
+	_d()->reset();
+
 	if (flags & ReuseBuffers) {
 		for (auto pair : bufferMap_) {
 			FrameBuffer *buffer = pair.second;
 			buffer->_d()->setRequest(this);
-			pending_.insert(buffer);
+			_d()->pending_.insert(buffer);
 		}
 	} else {
 		bufferMap_.clear();
 	}
 
-	sequence_ = 0;
 	status_ = RequestPending;
-	cancelled_ = false;
 
 	controls_->clear();
 	metadata_->clear();
@@ -162,6 +431,7 @@ void Request::reuse(ReuseFlag flags)
  * \brief Add a FrameBuffer with its associated Stream to the Request
  * \param[in] stream The stream the buffer belongs to
  * \param[in] buffer The FrameBuffer to add to the request
+ * \param[in] fence The optional fence
  *
  * A reference to the buffer is stored in the request. The caller is responsible
  * for ensuring that the buffer will remain valid until the request complete
@@ -170,11 +440,27 @@ void Request::reuse(ReuseFlag flags)
  * A request can only contain one buffer per stream. If a buffer has already
  * been added to the request for the same stream, this function returns -EEXIST.
  *
+ * A Fence can be optionally associated with the \a buffer.
+ *
+ * When a valid Fence is provided to this function, \a fence is moved to \a
+ * buffer and this Request will only be queued to the device once the
+ * fences of all its buffers have been correctly signalled.
+ *
+ * If the \a fence associated with \a buffer isn't signalled, the request will
+ * fail after a timeout. The buffer will still contain the fence, which
+ * applications must retrieve with FrameBuffer::releaseFence() before the buffer
+ * can be reused in another request. Attempting to add a buffer that still
+ * contains a fence to a request will result in this function returning -EEXIST.
+ *
+ * \sa FrameBuffer::releaseFence()
+ *
  * \return 0 on success or a negative error code otherwise
  * \retval -EEXIST The request already contains a buffer for the stream
+ *  or the buffer still references a fence
  * \retval -EINVAL The buffer does not reference a valid Stream
  */
-int Request::addBuffer(const Stream *stream, FrameBuffer *buffer)
+int Request::addBuffer(const Stream *stream, FrameBuffer *buffer,
+		       std::unique_ptr<Fence> fence)
 {
 	if (!stream) {
 		LOG(Request, Error) << "Invalid stream reference";
@@ -188,8 +474,20 @@ int Request::addBuffer(const Stream *stream, FrameBuffer *buffer)
 	}
 
 	buffer->_d()->setRequest(this);
-	pending_.insert(buffer);
+	_d()->pending_.insert(buffer);
 	bufferMap_[stream] = buffer;
+
+	/*
+	 * Make sure the fence has been extracted from the buffer
+	 * to avoid waiting on a stale fence.
+	 */
+	if (buffer->_d()->fence()) {
+		LOG(Request, Error) << "Can't add buffer that still references a fence";
+		return -EEXIST;
+	}
+
+	if (fence && fence->isValid())
+		buffer->_d()->setFence(std::move(fence));
 
 	return 0;
 }
@@ -227,13 +525,12 @@ FrameBuffer *Request::findBuffer(const Stream *stream) const
  */
 
 /**
- * \fn Request::sequence()
  * \brief Retrieve the sequence number for the request
  *
  * When requests are queued, they are given a sequential number to track the
  * order in which requests are queued to a camera. This number counts all
- * requests given to a camera through its lifetime, and is not reset to zero
- * between camera stop/start sequences.
+ * requests given to a camera and is reset to zero between camera stop/start
+ * sequences.
  *
  * It can be used to support debugging and identifying the flow of requests
  * through a pipeline, but does not guarantee to represent the sequence number
@@ -242,6 +539,10 @@ FrameBuffer *Request::findBuffer(const Stream *stream) const
  *
  * \return The request sequence number
  */
+uint32_t Request::sequence() const
+{
+	return _d()->sequence_;
+}
 
 /**
  * \fn Request::cookie()
@@ -263,81 +564,14 @@ FrameBuffer *Request::findBuffer(const Stream *stream) const
  */
 
 /**
- * \fn Request::hasPendingBuffers()
  * \brief Check if a request has buffers yet to be completed
  *
  * \return True if the request has buffers pending for completion, false
  * otherwise
  */
-
-/**
- * \brief Complete a queued request
- *
- * Mark the request as complete by updating its status to RequestComplete,
- * unless buffers have been cancelled in which case the status is set to
- * RequestCancelled.
- */
-void Request::complete()
+bool Request::hasPendingBuffers() const
 {
-	ASSERT(status_ == RequestPending);
-	ASSERT(!hasPendingBuffers());
-
-	status_ = cancelled_ ? RequestCancelled : RequestComplete;
-
-	LOG(Request, Debug) << toString();
-
-	LIBCAMERA_TRACEPOINT(request_complete, this);
-}
-
-/**
- * \brief Cancel a queued request
- *
- * Mark the request and its associated buffers as cancelled and complete it.
- *
- * Set each pending buffer in error state and emit the buffer completion signal
- * before completing the Request.
- */
-void Request::cancel()
-{
-	LIBCAMERA_TRACEPOINT(request_cancel, this);
-
-	ASSERT(status_ == RequestPending);
-
-	for (FrameBuffer *buffer : pending_) {
-		buffer->cancel();
-		camera_->bufferCompleted.emit(this, buffer);
-	}
-
-	pending_.clear();
-	cancelled_ = true;
-}
-
-/**
- * \brief Complete a buffer for the request
- * \param[in] buffer The buffer that has completed
- *
- * A request tracks the status of all buffers it contains through a set of
- * pending buffers. This function removes the \a buffer from the set to mark it
- * as complete. All buffers associate with the request shall be marked as
- * complete by calling this function once and once only before reporting the
- * request as complete with the complete() function.
- *
- * \return True if all buffers contained in the request have completed, false
- * otherwise
- */
-bool Request::completeBuffer(FrameBuffer *buffer)
-{
-	LIBCAMERA_TRACEPOINT(request_complete_buffer, this, buffer);
-
-	int ret = pending_.erase(buffer);
-	ASSERT(ret == 1);
-
-	buffer->_d()->setRequest(nullptr);
-
-	if (buffer->metadata().status == FrameMetadata::FrameCancelled)
-		cancelled_ = true;
-
-	return !hasPendingBuffers();
+	return !_d()->pending_.empty();
 }
 
 /**
@@ -351,16 +585,28 @@ bool Request::completeBuffer(FrameBuffer *buffer)
 std::string Request::toString() const
 {
 	std::stringstream ss;
+	ss << *this;
 
+	return ss.str();
+}
+
+/**
+ * \brief Insert a text representation of a Request into an output stream
+ * \param[in] out The output stream
+ * \param[in] r The Request
+ * \return The output stream \a out
+ */
+std::ostream &operator<<(std::ostream &out, const Request &r)
+{
 	/* Pending, Completed, Cancelled(X). */
 	static const char *statuses = "PCX";
 
 	/* Example Output: Request(55:P:1/2:6523524) */
-	ss << "Request(" << sequence_ << ":" << statuses[status_] << ":"
-	   << pending_.size() << "/" << bufferMap_.size() << ":"
-	   << cookie_ << ")";
+	out << "Request(" << r.sequence() << ":" << statuses[r.status()] << ":"
+	    << r._d()->pending_.size() << "/" << r.buffers().size() << ":"
+	    << r.cookie() << ")";
 
-	return ss.str();
+	return out;
 }
 
 } /* namespace libcamera */

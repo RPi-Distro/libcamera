@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 /*
- * Copyright (C) 2020, Raspberry Pi (Trading) Limited
+ * Copyright (C) 2020, Raspberry Pi Ltd
  *
  * dma_heaps.h - Helper class for dma-heap allocations.
  */
@@ -35,7 +35,6 @@ LOG_DECLARE_CATEGORY(RPI)
 namespace RPi {
 
 DmaHeap::DmaHeap()
-	: dmaHeapHandle_(-1)
 {
 	for (const char *name : heapNames) {
 		int ret = ::open(name, O_RDWR, 0);
@@ -46,49 +45,44 @@ DmaHeap::DmaHeap()
 			continue;
 		}
 
-		dmaHeapHandle_ = ret;
+		dmaHeapHandle_ = UniqueFD(ret);
 		break;
 	}
 
-	if (dmaHeapHandle_ < 0)
+	if (!dmaHeapHandle_.isValid())
 		LOG(RPI, Error) << "Could not open any dmaHeap device";
 }
 
-DmaHeap::~DmaHeap()
-{
-	if (dmaHeapHandle_ > -1)
-		::close(dmaHeapHandle_);
-}
+DmaHeap::~DmaHeap() = default;
 
-FileDescriptor DmaHeap::alloc(const char *name, std::size_t size)
+UniqueFD DmaHeap::alloc(const char *name, std::size_t size)
 {
 	int ret;
 
 	if (!name)
-		return FileDescriptor();
+		return {};
 
 	struct dma_heap_allocation_data alloc = {};
 
 	alloc.len = size;
 	alloc.fd_flags = O_CLOEXEC | O_RDWR;
 
-	ret = ::ioctl(dmaHeapHandle_, DMA_HEAP_IOCTL_ALLOC, &alloc);
-
+	ret = ::ioctl(dmaHeapHandle_.get(), DMA_HEAP_IOCTL_ALLOC, &alloc);
 	if (ret < 0) {
 		LOG(RPI, Error) << "dmaHeap allocation failure for "
 				<< name;
-		return FileDescriptor();
+		return {};
 	}
 
-	ret = ::ioctl(alloc.fd, DMA_BUF_SET_NAME, name);
+	UniqueFD allocFd(alloc.fd);
+	ret = ::ioctl(allocFd.get(), DMA_BUF_SET_NAME, name);
 	if (ret < 0) {
 		LOG(RPI, Error) << "dmaHeap naming failure for "
 				<< name;
-		::close(alloc.fd);
-		return FileDescriptor();
+		return {};
 	}
 
-	return FileDescriptor(std::move(alloc.fd));
+	return allocFd;
 }
 
 } /* namespace RPi */

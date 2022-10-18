@@ -7,6 +7,7 @@
 
 #include <iostream>
 #include <map>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -223,6 +224,14 @@ protected:
 
 		if (dirs != elements) {
 			cerr << "utils::split() test failed" << endl;
+			return TestFail;
+		}
+
+		const auto &split = utils::split(path, ":");
+		dirs = std::vector<std::string>{ split.begin(), split.end() };
+
+		if (dirs != elements) {
+			cerr << "utils::split() LegacyInputIterator test failed" << endl;
 			return TestFail;
 		}
 

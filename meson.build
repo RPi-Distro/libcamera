@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: CC0-1.0
 
 project('libcamera', 'c', 'cpp',
-    meson_version : '>= 0.55',
-    version : '0.0.0',
+    meson_version : '>= 0.56',
+    version : '0.0.1',
     default_options : [
         'werror=true',
         'warning_level=2',
@@ -17,15 +17,48 @@ project('libcamera', 'c', 'cpp',
 # git version tag, the build metadata (e.g. +211-c94a24f4) is omitted from
 # libcamera_git_version.
 libcamera_git_version = run_command('utils/gen-version.sh',
-                                    meson.build_root(),
-                                    meson.source_root()).stdout().strip()
+                                    meson.project_build_root(),
+                                    meson.project_source_root(),
+                                    check: false).stdout().strip()
 if libcamera_git_version == ''
     libcamera_git_version = meson.project_version()
 endif
 
 libcamera_version = libcamera_git_version.split('+')[0]
 
-# This script gererates the .tarball-version file on a 'meson dist' command.
+# A shallow clone, or a clone without a reachable tag equivalent to the
+# meson.project_version() could leave the project in a mis-described state.
+# Produce a warning in this event, and fix to a best effort.
+if libcamera_version != meson.project_version()
+    warning('The sources disagree about the version: '
+            + libcamera_version + ' != ' + meson.project_version())
+
+    summary({'libcamera git version' : libcamera_git_version,
+             'Source version match' : false,
+            },
+            bool_yn : true, section : 'Versions')
+
+    libcamera_git_version = libcamera_git_version.replace(libcamera_version,
+                                                          meson.project_version())
+    libcamera_version = meson.project_version()
+
+    # Append a marker to show we have modified this version string
+    libcamera_git_version += '-nvm'
+endif
+
+# Until we make ABI compatible releases, the full libcamera version is used as
+# the soname. No ABI/API compatibility is guaranteed between releases (x.y.z).
+#
+# When automatic ABI based detection is used to increment the version, this
+# will bump the minor number (x.y).
+#
+# When we declare a stable ABI/API we will provide a 1.0 release and the
+# soversion at that point will be the 'major' release value (x).
+libcamera_soversion = libcamera_version
+
+summary({ 'Sources': libcamera_git_version, }, section : 'Versions')
+
+# This script generates the .tarball-version file on a 'meson dist' command.
 meson.add_dist_script('utils/run-dist.sh')
 
 # Configure the build environment.
@@ -43,7 +76,7 @@ endif
 
 common_arguments = [
     '-Wshadow',
-    '-include', 'config.h',
+    '-include', meson.current_build_dir() / 'config.h',
 ]
 
 c_arguments = []
@@ -72,15 +105,16 @@ if cc.get_id() == 'clang'
 
     cpp_arguments += [
         '-Wextra-semi',
+        '-Wthread-safety',
     ]
 endif
 
 if cc.get_id() == 'gcc'
-    if cc.version().version_compare('<7')
-        error('gcc version is too old, libcamera requires 7.0 or newer')
+    if cc.version().version_compare('<8')
+        error('gcc version is too old, libcamera requires 8.0 or newer')
     endif
 
-    # On gcc 7 and 8, the file system library is provided in a separate static
+    # On gcc 8, the file system library is provided in a separate static
     # library.
     if cc.version().version_compare('<9')
         cpp_arguments += [
@@ -90,9 +124,8 @@ if cc.get_id() == 'gcc'
 
     # gcc 7.1 introduced processor-specific ABI breakages related to parameter
     # passing on ARM platforms. This generates a large number of messages
-    # during compilation with gcc >=7.1. Silence them.
-    if (host_machine.cpu_family() == 'arm' and
-        cc.version().version_compare('>=7.1'))
+    # during compilation. Silence them.
+    if host_machine.cpu_family() == 'arm'
         cpp_arguments += [
             '-Wno-psabi',
         ]
@@ -121,7 +154,7 @@ libcamera_includes = include_directories('include')
 py_modules = []
 
 # Libraries used by multiple components
-liblttng = cc.find_library('lttng-ust', required : get_option('tracing'))
+liblttng = dependency('lttng-ust', required : get_option('tracing'))
 
 # Pipeline handlers
 #
@@ -148,7 +181,7 @@ subdir('test')
 
 if not meson.is_cross_build()
     kernel_version_req = '>= 5.0.0'
-    kernel_version = run_command('uname', '-r').stdout().strip()
+    kernel_version = run_command('uname', '-r', check: true).stdout().strip()
     if not kernel_version.version_compare(kernel_version_req)
         warning('The current running kernel version @0@ is too old to run libcamera.'
                 .format(kernel_version))
@@ -160,7 +193,8 @@ endif
 # Create a symlink from the build root to the source root. This is used when
 # running libcamera from the build directory to locate resources in the source
 # directory (such as IPA configuration files).
-run_command('ln', '-fsT', meson.source_root(), meson.build_root() / 'source')
+run_command('ln', '-fsT', meson.project_source_root(), meson.project_build_root() / 'source',
+            check: true)
 
 configure_file(output : 'config.h', configuration : config_h)
 
@@ -171,9 +205,11 @@ py_mod.find_installation('python3', modules: py_modules)
 ## Summarise Configurations
 summary({
             'Enabled pipelines': pipelines,
-            'Enabled IPA modules': ipa_modules,
+            'Enabled IPA modules': enabled_ipa_modules,
+            'Tracing support': tracing_enabled,
             'Android support': android_enabled,
             'GStreamer support': gst_enabled,
+            'Python bindings': pycamera_enabled,
             'V4L2 emulation support': v4l2_enabled,
             'cam application': cam_enabled,
             'qcam application': qcam_enabled,

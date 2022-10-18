@@ -4,14 +4,15 @@
  *
  * stream.h - Video stream for a Camera
  */
-#ifndef __LIBCAMERA_STREAM_H__
-#define __LIBCAMERA_STREAM_H__
+
+#pragma once
 
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include <libcamera/color_space.h>
 #include <libcamera/framebuffer.h>
 #include <libcamera/geometry.h>
 #include <libcamera/pixel_format.h>
@@ -47,6 +48,8 @@ struct StreamConfiguration {
 
 	unsigned int bufferCount;
 
+	std::optional<ColorSpace> colorSpace;
+
 	Stream *stream() const { return stream_; }
 	void setStream(Stream *stream) { stream_ = stream; }
 	const StreamFormats &formats() const { return formats_; }
@@ -81,5 +84,3 @@ protected:
 };
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_STREAM_H__ */

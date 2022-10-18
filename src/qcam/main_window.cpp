@@ -11,12 +11,13 @@
 #include <iomanip>
 #include <string>
 
-#include <QComboBox>
+#include <libcamera/camera_manager.h>
+#include <libcamera/version.h>
+
 #include <QCoreApplication>
 #include <QFileDialog>
 #include <QImage>
 #include <QImageWriter>
-#include <QInputDialog>
 #include <QMutexLocker>
 #include <QStandardPaths>
 #include <QStringList>
@@ -25,10 +26,9 @@
 #include <QToolButton>
 #include <QtDebug>
 
-#include <libcamera/camera_manager.h>
-#include <libcamera/version.h>
-
 #include "../cam/image.h"
+
+#include "cam_select_dialog.h"
 #include "dng_writer.h"
 #ifndef QT_NO_OPENGL
 #include "viewfinder_gl.h"
@@ -119,14 +119,14 @@ MainWindow::MainWindow(CameraManager *cm, const OptionsParser::Options &options)
 	if (renderType == "qt") {
 		ViewFinderQt *viewfinder = new ViewFinderQt(this);
 		connect(viewfinder, &ViewFinderQt::renderComplete,
-			this, &MainWindow::queueRequest);
+			this, &MainWindow::renderComplete);
 		viewfinder_ = viewfinder;
 		setCentralWidget(viewfinder);
 #ifndef QT_NO_OPENGL
 	} else if (renderType == "gles") {
 		ViewFinderGL *viewfinder = new ViewFinderGL(this);
 		connect(viewfinder, &ViewFinderGL::renderComplete,
-			this, &MainWindow::queueRequest);
+			this, &MainWindow::renderComplete);
 		viewfinder_ = viewfinder;
 		setCentralWidget(viewfinder);
 #endif
@@ -142,6 +142,8 @@ MainWindow::MainWindow(CameraManager *cm, const OptionsParser::Options &options)
 	/* Hotplug/unplug support */
 	cm_->cameraAdded.connect(this, &MainWindow::addCamera);
 	cm_->cameraRemoved.connect(this, &MainWindow::removeCamera);
+
+	cameraSelectorDialog_ = new CameraSelectorDialog(cm_, this);
 
 	/* Open the camera and start capture. */
 	ret = openCamera();
@@ -192,14 +194,11 @@ int MainWindow::createToolbars()
 	connect(action, &QAction::triggered, this, &MainWindow::quit);
 
 	/* Camera selector. */
-	cameraCombo_ = new QComboBox();
-	connect(cameraCombo_, QOverload<int>::of(&QComboBox::activated),
+	cameraSelectButton_ = new QPushButton;
+	connect(cameraSelectButton_, &QPushButton::clicked,
 		this, &MainWindow::switchCamera);
 
-	for (const std::shared_ptr<Camera> &cam : cm_->cameras())
-		cameraCombo_->addItem(QString::fromStdString(cam->id()));
-
-	toolbar_->addWidget(cameraCombo_);
+	toolbar_->addWidget(cameraSelectButton_);
 
 	toolbar_->addSeparator();
 
@@ -259,14 +258,18 @@ void MainWindow::updateTitle()
  * Camera Selection
  */
 
-void MainWindow::switchCamera(int index)
+void MainWindow::switchCamera()
 {
 	/* Get and acquire the new camera. */
-	const auto &cameras = cm_->cameras();
-	if (static_cast<unsigned int>(index) >= cameras.size())
+	std::string newCameraId = chooseCamera();
+
+	if (newCameraId.empty())
 		return;
 
-	const std::shared_ptr<Camera> &cam = cameras[index];
+	if (camera_ && newCameraId == camera_->id())
+		return;
+
+	const std::shared_ptr<Camera> &cam = cm_->get(newCameraId);
 
 	if (cam->acquire()) {
 		qInfo() << "Failed to acquire camera" << cam->id().c_str();
@@ -281,32 +284,23 @@ void MainWindow::switchCamera(int index)
 	 */
 	startStopAction_->setChecked(false);
 
-	camera_->release();
+	if (camera_)
+		camera_->release();
+
 	camera_ = cam;
 
 	startStopAction_->setChecked(true);
+
+	/* Display the current cameraId in the toolbar .*/
+	cameraSelectButton_->setText(QString::fromStdString(newCameraId));
 }
 
 std::string MainWindow::chooseCamera()
 {
-	QStringList cameras;
-	bool result;
-
-	/* If only one camera is available, use it automatically. */
-	if (cm_->cameras().size() == 1)
-		return cm_->cameras()[0]->id();
-
-	/* Present a dialog box to pick a camera. */
-	for (const std::shared_ptr<Camera> &cam : cm_->cameras())
-		cameras.append(QString::fromStdString(cam->id()));
-
-	QString id = QInputDialog::getItem(this, "Select Camera",
-					   "Camera:", cameras, 0,
-					   false, &result);
-	if (!result)
+	if (cameraSelectorDialog_->exec() != QDialog::Accepted)
 		return std::string();
 
-	return id.toStdString();
+	return cameraSelectorDialog_->getCameraId();
 }
 
 int MainWindow::openCamera()
@@ -338,8 +332,8 @@ int MainWindow::openCamera()
 		return -EBUSY;
 	}
 
-	/* Set the combo-box entry with the currently selected Camera. */
-	cameraCombo_->setCurrentText(QString::fromStdString(cameraName));
+	/* Set the camera switch button with the currently selected Camera id. */
+	cameraSelectButton_->setText(QString::fromStdString(cameraName));
 
 	return 0;
 }
@@ -446,9 +440,13 @@ int MainWindow::startCapture()
 	else
 		rawStream_ = nullptr;
 
-	/* Configure the viewfinder. */
+	/*
+	 * Configure the viewfinder. If no color space is reported, default to
+	 * sYCC.
+	 */
 	ret = viewfinder_->setFormat(vfConfig.pixelFormat,
 				     QSize(vfConfig.size.width, vfConfig.size.height),
+				     vfConfig.colorSpace.value_or(ColorSpace::Sycc),
 				     vfConfig.stride);
 	if (ret < 0) {
 		qInfo() << "Failed to set viewfinder format";
@@ -521,7 +519,7 @@ int MainWindow::startCapture()
 
 	/* Queue all requests. */
 	for (std::unique_ptr<Request> &request : requests_) {
-		ret = camera_->queueRequest(request.get());
+		ret = queueRequest(request.get());
 		if (ret < 0) {
 			qWarning() << "Can't queue request";
 			goto error_disconnect;
@@ -601,21 +599,20 @@ void MainWindow::stopCapture()
 void MainWindow::processHotplug(HotplugEvent *e)
 {
 	Camera *camera = e->camera();
+	QString cameraId = QString::fromStdString(camera->id());
 	HotplugEvent::PlugEvent event = e->hotplugEvent();
 
 	if (event == HotplugEvent::HotPlug) {
-		cameraCombo_->addItem(QString::fromStdString(camera->id()));
+		cameraSelectorDialog_->addCamera(cameraId);
 	} else if (event == HotplugEvent::HotUnplug) {
 		/* Check if the currently-streaming camera is removed. */
 		if (camera == camera_.get()) {
 			toggleCapture(false);
 			camera_->release();
 			camera_.reset();
-			cameraCombo_->setCurrentIndex(0);
 		}
 
-		int camIndex = cameraCombo_->findText(QString::fromStdString(camera->id()));
-		cameraCombo_->removeItem(camIndex);
+		cameraSelectorDialog_->removeCamera(cameraId);
 	}
 }
 
@@ -755,7 +752,7 @@ void MainWindow::processViewfinder(FrameBuffer *buffer)
 	viewfinder_->render(buffer, mappedBuffers_[buffer].get());
 }
 
-void MainWindow::queueRequest(FrameBuffer *buffer)
+void MainWindow::renderComplete(FrameBuffer *buffer)
 {
 	Request *request;
 	{
@@ -784,6 +781,10 @@ void MainWindow::queueRequest(FrameBuffer *buffer)
 			qWarning() << "No free buffer available for RAW capture";
 		}
 	}
+	queueRequest(request);
+}
 
-	camera_->queueRequest(request);
+int MainWindow::queueRequest(Request *request)
+{
+	return camera_->queueRequest(request);
 }

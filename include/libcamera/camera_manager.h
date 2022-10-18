@@ -4,8 +4,8 @@
  *
  * camera_manager.h - Camera management
  */
-#ifndef __LIBCAMERA_CAMERA_MANAGER_H__
-#define __LIBCAMERA_CAMERA_MANAGER_H__
+
+#pragma once
 
 #include <memory>
 #include <string>
@@ -31,7 +31,7 @@ public:
 	void stop();
 
 	std::vector<std::shared_ptr<Camera>> cameras() const;
-	std::shared_ptr<Camera> get(const std::string &name);
+	std::shared_ptr<Camera> get(const std::string &id);
 	std::shared_ptr<Camera> get(dev_t devnum);
 
 	void addCamera(std::shared_ptr<Camera> camera,
@@ -51,5 +51,3 @@ private:
 };
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_CAMERA_MANAGER_H__ */

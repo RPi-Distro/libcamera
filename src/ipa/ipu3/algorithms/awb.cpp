@@ -193,6 +193,9 @@ Awb::Awb()
 
 Awb::~Awb() = default;
 
+/**
+ * \copydoc libcamera::ipa::Algorithm::configure
+ */
 int Awb::configure(IPAContext &context,
 		   [[maybe_unused]] const IPAConfigInfo &configInfo)
 {
@@ -350,6 +353,14 @@ void Awb::awbGreyWorld()
 
 	/* Color temperature is not relevant in Grey world but still useful to estimate it :-) */
 	asyncResults_.temperatureK = estimateCCT(sumRed.R, sumRed.G, sumBlue.B);
+
+	/*
+	 * Gain values are unsigned integer value ranging [0, 8) with 13 bit
+	 * fractional part.
+	 */
+	redGain = std::clamp(redGain, 0.0, 65535.0 / 8192);
+	blueGain = std::clamp(blueGain, 0.0, 65535.0 / 8192);
+
 	asyncResults_.redGain = redGain;
 	/* Hardcode the green gain to 1.0. */
 	asyncResults_.greenGain = 1.0;
@@ -373,7 +384,12 @@ void Awb::calculateWBGains(const ipu3_uapi_stats_3a *stats)
 	}
 }
 
-void Awb::process(IPAContext &context, const ipu3_uapi_stats_3a *stats)
+/**
+ * \copydoc libcamera::ipa::Algorithm::process
+ */
+void Awb::process(IPAContext &context, [[maybe_unused]] const uint32_t frame,
+		  [[maybe_unused]] IPAFrameContext &frameContext,
+		  const ipu3_uapi_stats_3a *stats)
 {
 	calculateWBGains(stats);
 
@@ -382,9 +398,10 @@ void Awb::process(IPAContext &context, const ipu3_uapi_stats_3a *stats)
 	 * The results are cached, so if no results were calculated, we set the
 	 * cached values from asyncResults_ here.
 	 */
-	context.frameContext.awb.gains.blue = asyncResults_.blueGain;
-	context.frameContext.awb.gains.green = asyncResults_.greenGain;
-	context.frameContext.awb.gains.red = asyncResults_.redGain;
+	context.activeState.awb.gains.blue = asyncResults_.blueGain;
+	context.activeState.awb.gains.green = asyncResults_.greenGain;
+	context.activeState.awb.gains.red = asyncResults_.redGain;
+	context.activeState.awb.temperatureK = asyncResults_.temperatureK;
 }
 
 constexpr uint16_t Awb::threshold(float value)
@@ -393,7 +410,30 @@ constexpr uint16_t Awb::threshold(float value)
 	return value * 8191;
 }
 
-void Awb::prepare(IPAContext &context, ipu3_uapi_params *params)
+constexpr uint16_t Awb::gainValue(double gain)
+{
+	/*
+	 * The colour gains applied by the BNR for the four channels (Gr, R, B
+	 * and Gb) are expressed in the parameters structure as 16-bit integers
+	 * that store a fixed-point U3.13 value in the range [0, 8[.
+	 *
+	 * The real gain value is equal to the gain parameter plus one, i.e.
+	 *
+	 * Pout = Pin * (1 + gain / 8192)
+	 *
+	 * where 'Pin' is the input pixel value, 'Pout' the output pixel value,
+	 * and 'gain' the gain in the parameters structure as a 16-bit integer.
+	 */
+	return std::clamp((gain - 1.0) * 8192, 0.0, 65535.0);
+}
+
+/**
+ * \copydoc libcamera::ipa::Algorithm::prepare
+ */
+void Awb::prepare(IPAContext &context,
+		  [[maybe_unused]] const uint32_t frame,
+		  [[maybe_unused]] IPAFrameContext &frameContext,
+		  ipu3_uapi_params *params)
 {
 	/*
 	 * Green saturation thresholds are reduced because we are using the
@@ -431,11 +471,11 @@ void Awb::prepare(IPAContext &context, ipu3_uapi_params *params)
 							* params->acc_param.bnr.opt_center.x_reset;
 	params->acc_param.bnr.opt_center_sqr.y_sqr_reset = params->acc_param.bnr.opt_center.y_reset
 							* params->acc_param.bnr.opt_center.y_reset;
-	/* Convert to u3.13 fixed point values */
-	params->acc_param.bnr.wb_gains.gr = 8192 * context.frameContext.awb.gains.green;
-	params->acc_param.bnr.wb_gains.r  = 8192 * context.frameContext.awb.gains.red;
-	params->acc_param.bnr.wb_gains.b  = 8192 * context.frameContext.awb.gains.blue;
-	params->acc_param.bnr.wb_gains.gb = 8192 * context.frameContext.awb.gains.green;
+
+	params->acc_param.bnr.wb_gains.gr = gainValue(context.activeState.awb.gains.green);
+	params->acc_param.bnr.wb_gains.r  = gainValue(context.activeState.awb.gains.red);
+	params->acc_param.bnr.wb_gains.b  = gainValue(context.activeState.awb.gains.blue);
+	params->acc_param.bnr.wb_gains.gb = gainValue(context.activeState.awb.gains.green);
 
 	LOG(IPU3Awb, Debug) << "Color temperature estimated: " << asyncResults_.temperatureK;
 
@@ -446,6 +486,8 @@ void Awb::prepare(IPAContext &context, ipu3_uapi_params *params)
 	params->use.acc_bnr = 1;
 	params->use.acc_ccm = 1;
 }
+
+REGISTER_IPA_ALGORITHM(Awb, "Awb")
 
 } /* namespace ipa::ipu3::algorithms */
 

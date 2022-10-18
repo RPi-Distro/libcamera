@@ -4,8 +4,8 @@
  *
  * frames.h - Intel IPU3 Frames helper
  */
-#ifndef __LIBCAMERA_PIPELINE_IPU3_FRAMES_H__
-#define __LIBCAMERA_PIPELINE_IPU3_FRAMES_H__
+
+#pragma once
 
 #include <map>
 #include <memory>
@@ -13,6 +13,8 @@
 #include <vector>
 
 #include <libcamera/base/signal.h>
+
+#include <libcamera/controls.h>
 
 namespace libcamera {
 
@@ -33,6 +35,8 @@ public:
 		FrameBuffer *rawBuffer;
 		FrameBuffer *paramBuffer;
 		FrameBuffer *statBuffer;
+
+		ControlList effectiveSensorControls;
 
 		bool paramDequeued;
 		bool metadataProcessed;
@@ -61,5 +65,3 @@ private:
 };
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_PIPELINE_IPU3_FRAMES_H__ */

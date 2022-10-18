@@ -12,6 +12,7 @@
 #include <cmath>
 
 #include <libcamera/base/log.h>
+#include <libcamera/base/utils.h>
 
 #include <libcamera/ipa/core_ipa_interface.h>
 
@@ -45,11 +46,6 @@ namespace ipa::ipu3::algorithms {
 
 LOG_DEFINE_CATEGORY(IPU3Agc)
 
-/* Number of frames to wait before calculating stats on minimum exposure */
-static constexpr uint32_t kInitialFrameMinAECount = 4;
-/* Number of frames to wait between new gain/shutter time estimations */
-static constexpr uint32_t kFrameSkipCount = 6;
-
 /* Limits for analogue gain values */
 static constexpr double kMinAnalogueGain = 1.0;
 static constexpr double kMaxAnalogueGain = 8.0;
@@ -63,10 +59,20 @@ static constexpr uint32_t knumHistogramBins = 256;
 /* Target value to reach for the top 2% of the histogram */
 static constexpr double kEvGainTarget = 0.5;
 
+/* Number of frames to wait before calculating stats on minimum exposure */
+static constexpr uint32_t kNumStartupFrames = 10;
+
+/*
+ * Relative luminance target.
+ *
+ * It's a number that's chosen so that, when the camera points at a grey
+ * target, the resulting image brightness is considered right.
+ */
+static constexpr double kRelativeLuminanceTarget = 0.16;
+
 Agc::Agc()
-	: frameCount_(0), lastFrame_(0), iqMean_(0.0), lineDuration_(0s),
-	  minExposureLines_(0), maxExposureLines_(0), filteredExposure_(0s),
-	  currentExposure_(0s), prevExposureValue_(0s)
+	: frameCount_(0), minShutterSpeed_(0s),
+	  maxShutterSpeed_(0s), filteredExposure_(0s)
 {
 }
 
@@ -77,30 +83,26 @@ Agc::Agc()
  *
  * \return 0
  */
-int Agc::configure(IPAContext &context, const IPAConfigInfo &configInfo)
+int Agc::configure(IPAContext &context,
+		   [[maybe_unused]] const IPAConfigInfo &configInfo)
 {
-	stride_ = context.configuration.grid.stride;
+	const IPASessionConfiguration &configuration = context.configuration;
+	IPAActiveState &activeState = context.activeState;
 
-	/* \todo use the IPAContext to provide the limits */
-	lineDuration_ = configInfo.sensorInfo.lineLength * 1.0s
-		      / configInfo.sensorInfo.pixelRate;
+	stride_ = configuration.grid.stride;
 
-	/* \todo replace the exposure in lines storage with time based ones. */
-	minExposureLines_ = context.configuration.agc.minShutterSpeed / lineDuration_;
-	maxExposureLines_ = std::min(context.configuration.agc.maxShutterSpeed / lineDuration_,
-				     kMaxShutterSpeed / lineDuration_);
+	minShutterSpeed_ = configuration.agc.minShutterSpeed;
+	maxShutterSpeed_ = std::min(configuration.agc.maxShutterSpeed,
+				    kMaxShutterSpeed);
 
-	minAnalogueGain_ = std::max(context.configuration.agc.minAnalogueGain, kMinAnalogueGain);
-	maxAnalogueGain_ = std::min(context.configuration.agc.maxAnalogueGain, kMaxAnalogueGain);
+	minAnalogueGain_ = std::max(configuration.agc.minAnalogueGain, kMinAnalogueGain);
+	maxAnalogueGain_ = std::min(configuration.agc.maxAnalogueGain, kMaxAnalogueGain);
 
 	/* Configure the default exposure and gain. */
-	context.frameContext.agc.gain = minAnalogueGain_;
-	context.frameContext.agc.exposure = minExposureLines_;
+	activeState.agc.gain = std::max(minAnalogueGain_, kMinAnalogueGain);
+	activeState.agc.exposure = 10ms / configuration.sensor.lineDuration;
 
-	prevExposureValue_ = context.frameContext.agc.gain
-			   * context.frameContext.agc.exposure
-			   * lineDuration_;
-
+	frameCount_ = 0;
 	return 0;
 }
 
@@ -108,9 +110,10 @@ int Agc::configure(IPAContext &context, const IPAConfigInfo &configInfo)
  * \brief Estimate the mean value of the top 2% of the histogram
  * \param[in] stats The statistics computed by the ImgU
  * \param[in] grid The grid used to store the statistics in the IPU3
+ * \return The mean value of the top 2% of the histogram
  */
-void Agc::measureBrightness(const ipu3_uapi_stats_3a *stats,
-			    const ipu3_uapi_grid_config &grid)
+double Agc::measureBrightness(const ipu3_uapi_stats_3a *stats,
+			      const ipu3_uapi_grid_config &grid) const
 {
 	/* Initialise the histogram array */
 	uint32_t hist[knumHistogramBins] = { 0 };
@@ -124,77 +127,89 @@ void Agc::measureBrightness(const ipu3_uapi_stats_3a *stats,
 					&stats->awb_raw_buffer.meta_data[cellPosition]
 				);
 
-			if (cell->sat_ratio == 0) {
-				uint8_t gr = cell->Gr_avg;
-				uint8_t gb = cell->Gb_avg;
-				/*
-				 * Store the average green value to estimate the
-				 * brightness. Even the overexposed pixels are
-				 * taken into account.
-				 */
-				hist[(gr + gb) / 2]++;
-			}
+			uint8_t gr = cell->Gr_avg;
+			uint8_t gb = cell->Gb_avg;
+			/*
+			 * Store the average green value to estimate the
+			 * brightness. Even the overexposed pixels are
+			 * taken into account.
+			 */
+			hist[(gr + gb) / 2]++;
 		}
 	}
 
-	/* Estimate the quantile mean of the top 2% of the histogram */
-	iqMean_ = Histogram(Span<uint32_t>(hist)).interQuantileMean(0.98, 1.0);
+	/* Estimate the quantile mean of the top 2% of the histogram. */
+	return Histogram(Span<uint32_t>(hist)).interQuantileMean(0.98, 1.0);
 }
 
 /**
  * \brief Apply a filter on the exposure value to limit the speed of changes
+ * \param[in] exposureValue The target exposure from the AGC algorithm
+ *
+ * The speed of the filter is adaptive, and will produce the target quicker
+ * during startup, or when the target exposure is within 20% of the most recent
+ * filter output.
+ *
+ * \return The filtered exposure
  */
-void Agc::filterExposure()
+utils::Duration Agc::filterExposure(utils::Duration exposureValue)
 {
 	double speed = 0.2;
-	if (filteredExposure_ == 0s) {
-		/* DG stands for digital gain.*/
-		filteredExposure_ = currentExposure_;
-	} else {
-		/*
-		 * If we are close to the desired result, go faster to avoid making
-		 * multiple micro-adjustments.
-		 * \todo Make this customisable?
-		 */
-		if (filteredExposure_ < 1.2 * currentExposure_ &&
-		    filteredExposure_ > 0.8 * currentExposure_)
-			speed = sqrt(speed);
 
-		filteredExposure_ = speed * currentExposure_ +
-				filteredExposure_ * (1.0 - speed);
-	}
+	/* Adapt instantly if we are in startup phase. */
+	if (frameCount_ < kNumStartupFrames)
+		speed = 1.0;
 
-	LOG(IPU3Agc, Debug) << "After filtering, total_exposure " << filteredExposure_;
+	/*
+	 * If we are close to the desired result, go faster to avoid making
+	 * multiple micro-adjustments.
+	 * \todo Make this customisable?
+	 */
+	if (filteredExposure_ < 1.2 * exposureValue &&
+	    filteredExposure_ > 0.8 * exposureValue)
+		speed = sqrt(speed);
+
+	filteredExposure_ = speed * exposureValue +
+			    filteredExposure_ * (1.0 - speed);
+
+	LOG(IPU3Agc, Debug) << "After filtering, exposure " << filteredExposure_;
+
+	return filteredExposure_;
 }
 
 /**
  * \brief Estimate the new exposure and gain values
- * \param[inout] exposure The exposure value reference as a number of lines
- * \param[inout] gain The gain reference to be updated
+ * \param[inout] frameContext The shared IPA frame Context
+ * \param[in] yGain The gain calculated based on the relative luminance target
+ * \param[in] iqMeanGain The gain calculated based on the relative luminance target
  */
-void Agc::computeExposure(uint32_t &exposure, double &analogueGain)
+void Agc::computeExposure(IPAContext &context, IPAFrameContext &frameContext,
+			  double yGain, double iqMeanGain)
 {
-	/* Algorithm initialization should wait for first valid frames */
-	/* \todo - have a number of frames given by DelayedControls ?
-	 * - implement a function for IIR */
-	if ((frameCount_ < kInitialFrameMinAECount) || (frameCount_ - lastFrame_ < kFrameSkipCount))
-		return;
+	const IPASessionConfiguration &configuration = context.configuration;
+	/* Get the effective exposure and gain applied on the sensor. */
+	uint32_t exposure = frameContext.sensor.exposure;
+	double analogueGain = frameContext.sensor.gain;
 
-	lastFrame_ = frameCount_;
+	/* Use the highest of the two gain estimates. */
+	double evGain = std::max(yGain, iqMeanGain);
 
-	/* Are we correctly exposed ? */
-	if (std::abs(iqMean_ - kEvGainTarget * knumHistogramBins) <= 1) {
-		LOG(IPU3Agc, Debug) << "We are well exposed (iqMean = "
-				    << iqMean_ << ")";
-		return;
-	}
-
-	/* Estimate the gain needed to have the proportion wanted */
-	double evGain = kEvGainTarget * knumHistogramBins / iqMean_;
+	/* Consider within 1% of the target as correctly exposed */
+	if (utils::abs_diff(evGain, 1.0) < 0.01)
+		LOG(IPU3Agc, Debug) << "We are well exposed (evGain = "
+				    << evGain << ")";
 
 	/* extracted from Rpi::Agc::computeTargetExposure */
+
 	/* Calculate the shutter time in seconds */
-	utils::Duration currentShutter = exposure * lineDuration_;
+	utils::Duration currentShutter = exposure * configuration.sensor.lineDuration;
+
+	/*
+	 * Update the exposure value for the next computation using the values
+	 * of exposure and gain really used by the sensor.
+	 */
+	utils::Duration effectiveExposureValue = currentShutter * analogueGain;
+
 	LOG(IPU3Agc, Debug) << "Actual total exposure " << currentShutter * analogueGain
 			    << " Shutter speed " << currentShutter
 			    << " Gain " << analogueGain
@@ -204,66 +219,153 @@ void Agc::computeExposure(uint32_t &exposure, double &analogueGain)
 	 * Calculate the current exposure value for the scene as the latest
 	 * exposure value applied multiplied by the new estimated gain.
 	 */
-	currentExposure_ = prevExposureValue_ * evGain;
-	utils::Duration minShutterSpeed = minExposureLines_ * lineDuration_;
-	utils::Duration maxShutterSpeed = maxExposureLines_ * lineDuration_;
+	utils::Duration exposureValue = effectiveExposureValue * evGain;
 
 	/* Clamp the exposure value to the min and max authorized */
-	utils::Duration maxTotalExposure = maxShutterSpeed * maxAnalogueGain_;
-	currentExposure_ = std::min(currentExposure_, maxTotalExposure);
-	LOG(IPU3Agc, Debug) << "Target total exposure " << currentExposure_
+	utils::Duration maxTotalExposure = maxShutterSpeed_ * maxAnalogueGain_;
+	exposureValue = std::min(exposureValue, maxTotalExposure);
+	LOG(IPU3Agc, Debug) << "Target total exposure " << exposureValue
 			    << ", maximum is " << maxTotalExposure;
 
-	/* \todo: estimate if we need to desaturate */
-	filterExposure();
-
-	/* Divide the exposure value as new exposure and gain values */
-	utils::Duration exposureValue = filteredExposure_;
-	utils::Duration shutterTime = minShutterSpeed;
+	/*
+	 * Filter the exposure.
+	 * \todo estimate if we need to desaturate
+	 */
+	exposureValue = filterExposure(exposureValue);
 
 	/*
-	* Push the shutter time up to the maximum first, and only then
-	* increase the gain.
-	*/
-	shutterTime = std::clamp<utils::Duration>(exposureValue / minAnalogueGain_,
-						  minShutterSpeed, maxShutterSpeed);
+	 * Divide the exposure value as new exposure and gain values.
+	 *
+	 * Push the shutter time up to the maximum first, and only then
+	 * increase the gain.
+	 */
+	utils::Duration shutterTime =
+		std::clamp<utils::Duration>(exposureValue / minAnalogueGain_,
+					    minShutterSpeed_, maxShutterSpeed_);
 	double stepGain = std::clamp(exposureValue / shutterTime,
 				     minAnalogueGain_, maxAnalogueGain_);
 	LOG(IPU3Agc, Debug) << "Divided up shutter and gain are "
 			    << shutterTime << " and "
 			    << stepGain;
 
-	exposure = shutterTime / lineDuration_;
-	analogueGain = stepGain;
+	IPAActiveState &activeState = context.activeState;
+	/* Update the estimated exposure and gain. */
+	activeState.agc.exposure = shutterTime / configuration.sensor.lineDuration;
+	activeState.agc.gain = stepGain;
+}
+
+/**
+ * \brief Estimate the relative luminance of the frame with a given gain
+ * \param[in] frameContext The shared IPA frame context
+ * \param[in] grid The grid used to store the statistics in the IPU3
+ * \param[in] stats The IPU3 statistics and ISP results
+ * \param[in] gain The gain to apply to the frame
+ * \return The relative luminance
+ *
+ * This function estimates the average relative luminance of the frame that
+ * would be output by the sensor if an additional \a gain was applied.
+ *
+ * The estimation is based on the AWB statistics for the current frame. Red,
+ * green and blue averages for all cells are first multiplied by the gain, and
+ * then saturated to approximate the sensor behaviour at high brightness
+ * values. The approximation is quite rough, as it doesn't take into account
+ * non-linearities when approaching saturation.
+ *
+ * The relative luminance (Y) is computed from the linear RGB components using
+ * the Rec. 601 formula. The values are normalized to the [0.0, 1.0] range,
+ * where 1.0 corresponds to a theoretical perfect reflector of 100% reference
+ * white.
+ *
+ * More detailed information can be found in:
+ * https://en.wikipedia.org/wiki/Relative_luminance
+ */
+double Agc::estimateLuminance(IPAActiveState &activeState,
+			      const ipu3_uapi_grid_config &grid,
+			      const ipu3_uapi_stats_3a *stats,
+			      double gain)
+{
+	double redSum = 0, greenSum = 0, blueSum = 0;
+
+	/* Sum the per-channel averages, saturated to 255. */
+	for (unsigned int cellY = 0; cellY < grid.height; cellY++) {
+		for (unsigned int cellX = 0; cellX < grid.width; cellX++) {
+			uint32_t cellPosition = cellY * stride_ + cellX;
+
+			const ipu3_uapi_awb_set_item *cell =
+				reinterpret_cast<const ipu3_uapi_awb_set_item *>(
+					&stats->awb_raw_buffer.meta_data[cellPosition]
+				);
+			const uint8_t G_avg = (cell->Gr_avg + cell->Gb_avg) / 2;
+
+			redSum += std::min(cell->R_avg * gain, 255.0);
+			greenSum += std::min(G_avg * gain, 255.0);
+			blueSum += std::min(cell->B_avg * gain, 255.0);
+		}
+	}
 
 	/*
-	 * Update the exposure value for the next process call.
-	 *
-	 * \todo Obtain the values of the exposure time and analog gain
-	 * that were actually used by the sensor, either from embedded
-	 * data when available, or from the delayed controls
-	 * infrastructure in case a slow down caused a mismatch.
+	 * Apply the AWB gains to approximate colours correctly, use the Rec.
+	 * 601 formula to calculate the relative luminance, and normalize it.
 	 */
-	prevExposureValue_ = shutterTime * analogueGain;
+	double ySum = redSum * activeState.awb.gains.red * 0.299
+		    + greenSum * activeState.awb.gains.green * 0.587
+		    + blueSum * activeState.awb.gains.blue * 0.114;
+
+	return ySum / (grid.height * grid.width) / 255;
 }
 
 /**
  * \brief Process IPU3 statistics, and run AGC operations
  * \param[in] context The shared IPA context
+ * \param[in] frame The current frame sequence number
+ * \param[in] frameContext The current frame context
  * \param[in] stats The IPU3 statistics and ISP results
  *
  * Identify the current image brightness, and use that to estimate the optimal
  * new exposure and gain for the scene.
  */
-void Agc::process(IPAContext &context, const ipu3_uapi_stats_3a *stats)
+void Agc::process(IPAContext &context, [[maybe_unused]] const uint32_t frame,
+		  IPAFrameContext &frameContext,
+		  const ipu3_uapi_stats_3a *stats)
 {
-	/* Get the latest exposure and gain applied */
-	uint32_t &exposure = context.frameContext.agc.exposure;
-	double &analogueGain = context.frameContext.agc.gain;
-	measureBrightness(stats, context.configuration.grid.bdsGrid);
-	computeExposure(exposure, analogueGain);
+	/*
+	 * Estimate the gain needed to have the proportion of pixels in a given
+	 * desired range. iqMean is the mean value of the top 2% of the
+	 * cumulative histogram, and we want it to be as close as possible to a
+	 * configured target.
+	 */
+	double iqMean = measureBrightness(stats, context.configuration.grid.bdsGrid);
+	double iqMeanGain = kEvGainTarget * knumHistogramBins / iqMean;
+
+	/*
+	 * Estimate the gain needed to achieve a relative luminance target. To
+	 * account for non-linearity caused by saturation, the value needs to be
+	 * estimated in an iterative process, as multiplying by a gain will not
+	 * increase the relative luminance by the same factor if some image
+	 * regions are saturated.
+	 */
+	double yGain = 1.0;
+	double yTarget = kRelativeLuminanceTarget;
+
+	for (unsigned int i = 0; i < 8; i++) {
+		double yValue = estimateLuminance(context.activeState,
+						  context.configuration.grid.bdsGrid,
+						  stats, yGain);
+		double extraGain = std::min(10.0, yTarget / (yValue + .001));
+
+		yGain *= extraGain;
+		LOG(IPU3Agc, Debug) << "Y value: " << yValue
+				    << ", Y target: " << yTarget
+				    << ", gives gain " << yGain;
+		if (extraGain < 1.01)
+			break;
+	}
+
+	computeExposure(context, frameContext, yGain, iqMeanGain);
 	frameCount_++;
 }
+
+REGISTER_IPA_ALGORITHM(Agc, "Agc")
 
 } /* namespace ipa::ipu3::algorithms */
 

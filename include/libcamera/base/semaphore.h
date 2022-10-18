@@ -4,13 +4,12 @@
  *
  * semaphore.h - General-purpose counting semaphore
  */
-#ifndef __LIBCAMERA_BASE_SEMAPHORE_H__
-#define __LIBCAMERA_BASE_SEMAPHORE_H__
 
-#include <condition_variable>
+#pragma once
 
 #include <libcamera/base/private.h>
-#include <libcamera/base/thread.h>
+
+#include <libcamera/base/mutex.h>
 
 namespace libcamera {
 
@@ -26,10 +25,8 @@ public:
 
 private:
 	Mutex mutex_;
-	std::condition_variable cv_;
+	ConditionVariable cv_;
 	unsigned int available_;
 };
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_BASE_SEMAPHORE_H__ */

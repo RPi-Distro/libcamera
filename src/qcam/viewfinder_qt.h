@@ -4,8 +4,8 @@
  *
  * viewfinder_qt.h - qcam - QPainter-based ViewFinder
  */
-#ifndef __QCAM_VIEWFINDER_QT_H__
-#define __QCAM_VIEWFINDER_QT_H__
+
+#pragma once
 
 #include <QIcon>
 #include <QImage>
@@ -32,6 +32,7 @@ public:
 	const QList<libcamera::PixelFormat> &nativeFormats() const override;
 
 	int setFormat(const libcamera::PixelFormat &format, const QSize &size,
+		      const libcamera::ColorSpace &colorSpace,
 		      unsigned int stride) override;
 	void render(libcamera::FrameBuffer *buffer, Image *image) override;
 	void stop() override;
@@ -61,5 +62,3 @@ private:
 	QImage image_;
 	QMutex mutex_; /* Prevent concurrent access to image_ */
 };
-
-#endif /* __QCAM_VIEWFINDER_QT_H__ */

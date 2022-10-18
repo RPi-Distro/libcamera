@@ -1,19 +1,17 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
- * Copyright (C) 2019, Raspberry Pi (Trading) Limited
+ * Copyright (C) 2019, Raspberry Pi Ltd
  *
  * contrast_status.h - contrast (gamma) control algorithm status
  */
 #pragma once
 
-// The "contrast" algorithm creates a gamma curve, optionally doing a little bit
-// of contrast stretching based on the AGC histogram.
+/*
+ * The "contrast" algorithm creates a gamma curve, optionally doing a little bit
+ * of contrast stretching based on the AGC histogram.
+ */
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-#define CONTRAST_NUM_POINTS 33
+constexpr unsigned int ContrastNumPoints = 33;
 
 struct ContrastPoint {
 	uint16_t x;
@@ -21,11 +19,7 @@ struct ContrastPoint {
 };
 
 struct ContrastStatus {
-	struct ContrastPoint points[CONTRAST_NUM_POINTS];
+	struct ContrastPoint points[ContrastNumPoints];
 	double brightness;
 	double contrast;
 };
-
-#ifdef __cplusplus
-}
-#endif

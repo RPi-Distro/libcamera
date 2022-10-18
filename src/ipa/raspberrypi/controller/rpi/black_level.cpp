@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
- * Copyright (C) 2019, Raspberry Pi (Trading) Limited
+ * Copyright (C) 2019, Raspberry Pi Ltd
  *
  * black_level.cpp - black level control algorithm
  */
@@ -12,7 +12,7 @@
 
 #include "../black_level_status.h"
 
-#include "black_level.hpp"
+#include "black_level.h"
 
 using namespace RPiController;
 using namespace libcamera;
@@ -26,38 +26,41 @@ BlackLevel::BlackLevel(Controller *controller)
 {
 }
 
-char const *BlackLevel::Name() const
+char const *BlackLevel::name() const
 {
 	return NAME;
 }
 
-void BlackLevel::Read(boost::property_tree::ptree const &params)
+int BlackLevel::read(const libcamera::YamlObject &params)
 {
-	uint16_t black_level = params.get<uint16_t>(
-		"black_level", 4096); // 64 in 10 bits scaled to 16 bits
-	black_level_r_ = params.get<uint16_t>("black_level_r", black_level);
-	black_level_g_ = params.get<uint16_t>("black_level_g", black_level);
-	black_level_b_ = params.get<uint16_t>("black_level_b", black_level);
+	/* 64 in 10 bits scaled to 16 bits */
+	uint16_t blackLevel = params["black_level"].get<uint16_t>(4096);
+	blackLevelR_ = params["black_level_r"].get<uint16_t>(blackLevel);
+	blackLevelG_ = params["black_level_g"].get<uint16_t>(blackLevel);
+	blackLevelB_ = params["black_level_b"].get<uint16_t>(blackLevel);
 	LOG(RPiBlackLevel, Debug)
-		<< " Read black levels red " << black_level_r_
-		<< " green " << black_level_g_
-		<< " blue " << black_level_b_;
+		<< " Read black levels red " << blackLevelR_
+		<< " green " << blackLevelG_
+		<< " blue " << blackLevelB_;
+	return 0;
 }
 
-void BlackLevel::Prepare(Metadata *image_metadata)
+void BlackLevel::prepare(Metadata *imageMetadata)
 {
-	// Possibly we should think about doing this in a switch_mode or
-	// something?
+	/*
+	 * Possibly we should think about doing this in a switchMode or
+	 * something?
+	 */
 	struct BlackLevelStatus status;
-	status.black_level_r = black_level_r_;
-	status.black_level_g = black_level_g_;
-	status.black_level_b = black_level_b_;
-	image_metadata->Set("black_level.status", status);
+	status.blackLevelR = blackLevelR_;
+	status.blackLevelG = blackLevelG_;
+	status.blackLevelB = blackLevelB_;
+	imageMetadata->set("black_level.status", status);
 }
 
-// Register algorithm with the system.
-static Algorithm *Create(Controller *controller)
+/* Register algorithm with the system. */
+static Algorithm *create(Controller *controller)
 {
 	return new BlackLevel(controller);
 }
-static RegisterAlgorithm reg(NAME, &Create);
+static RegisterAlgorithm reg(NAME, &create);

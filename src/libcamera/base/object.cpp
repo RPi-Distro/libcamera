@@ -47,6 +47,14 @@ LOG_DEFINE_CATEGORY(Object)
  * object's thread, regardless of whether the signal is emitted in the same or
  * in another thread.
  *
+ * Objects can be connected to multiple signals, but they can only be connected
+ * to each signal once. Attempting to create multiple concurrent connections
+ * between the same signal and the same Object (to either the same or differents
+ * slots of the object) will cause an assertion failure. While it would be
+ * possible to allow the implementation to let objects connect to the same
+ * signal multiple times, there are no expected use cases for this in libcamera
+ * and this behaviour is restricted to favour defensive programming.
+ *
  * \sa Message, Signal, Thread
  */
 
@@ -181,7 +189,11 @@ void Object::message(Message *msg)
 {
 	switch (msg->type()) {
 	case Message::InvokeMessage: {
-		InvokeMessage *iMsg = static_cast<InvokeMessage *>(msg);
+		/*
+		 * A static_cast should be enough, but gcc 10 and 11 choke on
+		 * it in release mode (with -O2 or -O3).
+		 */
+		InvokeMessage *iMsg = dynamic_cast<InvokeMessage *>(msg);
 		Semaphore *semaphore = iMsg->semaphore();
 		iMsg->invoke();
 
@@ -284,6 +296,12 @@ void Object::notifyThreadMove()
 
 void Object::connect(SignalBase *signal)
 {
+	/*
+	 * Connecting the same signal to an object multiple times is not
+	 * supported.
+	 */
+	ASSERT(std::find(signals_.begin(), signals_.end(), signal) == signals_.end());
+
 	signals_.push_back(signal);
 }
 

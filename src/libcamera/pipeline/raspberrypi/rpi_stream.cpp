@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 /*
- * Copyright (C) 2020, Raspberry Pi (Trading) Ltd.
+ * Copyright (C) 2020, Raspberry Pi Ltd
  *
  * rpi_stream.cpp - Raspberry Pi device stream abstraction class.
  */
@@ -26,10 +26,12 @@ std::string Stream::name() const
 	return name_;
 }
 
-void Stream::reset()
+void Stream::resetBuffers()
 {
-	external_ = false;
-	clearBuffers();
+	/* Add all internal buffers to the queue of usable buffers. */
+	availableBuffers_ = {};
+	for (auto const &buffer : internalBuffers_)
+		availableBuffers_.push(buffer.get());
 }
 
 void Stream::setExternal(bool external)
@@ -97,15 +99,24 @@ int Stream::prepareBuffers(unsigned int count)
 
 			/* Add these exported buffers to the internal/external buffer list. */
 			setExportedBuffers(&internalBuffers_);
-
-			/* Add these buffers to the queue of internal usable buffers. */
-			for (auto const &buffer : internalBuffers_)
-				availableBuffers_.push(buffer.get());
+			resetBuffers();
 		}
 
 		/* We must import all internal/external exported buffers. */
 		count = bufferMap_.size();
 	}
+
+	/*
+	 * If this is an external stream, we must allocate slots for buffers that
+	 * might be externally allocated. We have no indication of how many buffers
+	 * may be used, so this might overallocate slots in the buffer cache.
+	 * Similarly, if this stream is only importing buffers, we do the same.
+	 *
+	 * \todo Find a better heuristic, or, even better, an exact solution to
+	 * this issue.
+	 */
+	if (isExternal() || importOnly_)
+		count = count * 2;
 
 	return dev_->importBuffers(count);
 }
@@ -119,8 +130,8 @@ int Stream::queueBuffer(FrameBuffer *buffer)
 	 */
 	if (!buffer) {
 		if (availableBuffers_.empty()) {
-			LOG(RPISTREAM, Info) << "No buffers available for "
-						<< name_;
+			LOG(RPISTREAM, Debug) << "No buffers available for "
+					      << name_;
 			/*
 			 * Note that we need to queue an internal buffer as soon
 			 * as one becomes available.
@@ -151,8 +162,11 @@ int Stream::queueBuffer(FrameBuffer *buffer)
 
 void Stream::returnBuffer(FrameBuffer *buffer)
 {
-	/* This can only be called for external streams. */
-	ASSERT(external_);
+	if (!external_) {
+		/* For internal buffers, simply requeue back to the device. */
+		queueToDevice(buffer);
+		return;
+	}
 
 	/* Push this buffer back into the queue to be used again. */
 	availableBuffers_.push(buffer);

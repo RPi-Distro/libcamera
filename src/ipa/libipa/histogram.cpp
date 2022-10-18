@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
- * Copyright (C) 2019, Raspberry Pi (Trading) Limited
+ * Copyright (C) 2019, Raspberry Pi Ltd
  *
  * histogram.cpp - histogram calculations
  */
@@ -32,7 +32,7 @@ namespace ipa {
  * \brief Create a cumulative histogram
  * \param[in] data A pre-sorted histogram to be passed
  */
-Histogram::Histogram(Span<uint32_t> data)
+Histogram::Histogram(Span<const uint32_t> data)
 {
 	cumulative_.reserve(data.size());
 	cumulative_.push_back(0);

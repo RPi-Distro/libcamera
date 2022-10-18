@@ -4,12 +4,13 @@
  *
  * event_loop.h - cam - Event loop
  */
-#ifndef __CAM_EVENT_LOOP_H__
-#define __CAM_EVENT_LOOP_H__
 
+#pragma once
+
+#include <chrono>
 #include <functional>
-#include <memory>
 #include <list>
+#include <memory>
 #include <mutex>
 
 #include <event2/util.h>
@@ -34,8 +35,12 @@ public:
 
 	void callLater(const std::function<void()> &func);
 
-	void addEvent(int fd, EventType type,
-		      const std::function<void()> &handler);
+	void addFdEvent(int fd, EventType type,
+			const std::function<void()> &handler);
+
+	using duration = std::chrono::steady_clock::duration;
+	void addTimerEvent(const std::chrono::microseconds period,
+			   const std::function<void()> &handler);
 
 private:
 	struct Event {
@@ -61,5 +66,3 @@ private:
 				     void *param);
 	void dispatchCall();
 };
-
-#endif /* __CAM_EVENT_LOOP_H__ */
