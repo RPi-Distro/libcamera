@@ -1,21 +1,26 @@
-Description: fix expressions not considered constant on ppc64el with GCC
- On ppc64el, GCC seems to be unable to determine the result of some long double
- expressions at compile time. This makes libcamera fail to build from source on
- ppc64el.
- Make sure we only use constexpr on expressions that are considered constant on
- all architectures.
-Author: Olivier Gayot <olivier.gayot@canonical.com>
+From: Olivier Gayot <olivier.gayot@canonical.com>
+Date: Tue, 18 Oct 2022 16:48:14 +0100
+Subject: fix expressions not considered constant on ppc64el with GCC
+
+On ppc64el, GCC seems to be unable to determine the result of some long double
+expressions at compile time. This makes libcamera fail to build from source on
+ppc64el.
+Make sure we only use constexpr on expressions that are considered constant on
+all architectures.
+
 Bug-Ubuntu: https://launchpad.net/bugs/1992331
 Bug-Debian: https://bugs.debian.org/1021544
 Forwarded: https://lists.libcamera.org/pipermail/libcamera-devel/2022-October/034764.html
-Last-Update: 2022-10-10
+Last-Update: 2022-10-18
 ---
-This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
-Index: libcamera-0~git20211108+1b30992b623e/src/ipa/raspberrypi/raspberrypi.cpp
-===================================================================
---- libcamera-0~git20211108+1b30992b623e.orig/src/ipa/raspberrypi/raspberrypi.cpp	2022-10-10 08:24:22.091329072 +0000
-+++ libcamera-0~git20211108+1b30992b623e/src/ipa/raspberrypi/raspberrypi.cpp	2022-10-10 08:45:31.686454143 +0000
-@@ -61,7 +61,7 @@
+ src/ipa/raspberrypi/raspberrypi.cpp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/ipa/raspberrypi/raspberrypi.cpp b/src/ipa/raspberrypi/raspberrypi.cpp
+index 14b06a4..3e4383f 100644
+--- a/src/ipa/raspberrypi/raspberrypi.cpp
++++ b/src/ipa/raspberrypi/raspberrypi.cpp
+@@ -60,7 +60,7 @@ using utils::Duration;
  /* Configure the sensor with these values initially. */
  constexpr double defaultAnalogueGain = 1.0;
  constexpr Duration defaultExposureTime = 20.0ms;
@@ -24,12 +29,12 @@ Index: libcamera-0~git20211108+1b30992b623e/src/ipa/raspberrypi/raspberrypi.cpp
  constexpr Duration defaultMaxFrameDuration = 250.0s;
  
  /*
-@@ -70,7 +70,7 @@
+@@ -69,7 +69,7 @@ constexpr Duration defaultMaxFrameDuration = 250.0s;
   * we rate-limit the controller Prepare() and Process() calls to lower than or
   * equal to this rate.
   */
--constexpr Duration controllerMinFrameDuration = 1.0s / 60.0;
-+constexpr Duration controllerMinFrameDuration = 1s / 60.0;
+-constexpr Duration controllerMinFrameDuration = 1.0s / 30.0;
++constexpr Duration controllerMinFrameDuration = 1s / 30.0;
  
- LOG_DEFINE_CATEGORY(IPARPI)
- 
+ /* List of controls handled by the Raspberry Pi IPA */
+ static const ControlInfoMap::Map ipaControls{
