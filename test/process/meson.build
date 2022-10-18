@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: CC0-1.0
 
 process_tests = [
-    ['process_test',   'process_test.cpp'],
+    {'name': 'process_test', 'sources': ['process_test.cpp']},
 ]
 
-foreach t : process_tests
-    exe = executable(t[0], t[1],
+foreach test : process_tests
+    exe = executable(test['name'], test['sources'],
                      dependencies : libcamera_private,
                      link_with : test_libraries,
                      include_directories : test_includes_internal)
 
-    test(t[0], exe, suite : 'process', is_parallel : false)
+    test(test['name'], exe, suite : 'process', is_parallel : false)
 endforeach

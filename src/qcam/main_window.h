@@ -4,19 +4,11 @@
  *
  * main_window.h - qcam - Main application window
  */
-#ifndef __QCAM_MAIN_WINDOW_H__
-#define __QCAM_MAIN_WINDOW_H__
+
+#pragma once
 
 #include <memory>
 #include <vector>
-
-#include <QElapsedTimer>
-#include <QIcon>
-#include <QMainWindow>
-#include <QMutex>
-#include <QObject>
-#include <QQueue>
-#include <QTimer>
 
 #include <libcamera/camera.h>
 #include <libcamera/camera_manager.h>
@@ -26,12 +18,22 @@
 #include <libcamera/request.h>
 #include <libcamera/stream.h>
 
+#include <QElapsedTimer>
+#include <QIcon>
+#include <QMainWindow>
+#include <QMutex>
+#include <QObject>
+#include <QPushButton>
+#include <QQueue>
+#include <QTimer>
+
 #include "../cam/stream_options.h"
+
 #include "viewfinder.h"
 
 class QAction;
-class QComboBox;
 
+class CameraSelectorDialog;
 class Image;
 class HotplugEvent;
 
@@ -58,7 +60,7 @@ private Q_SLOTS:
 	void quit();
 	void updateTitle();
 
-	void switchCamera(int index);
+	void switchCamera();
 	void toggleCapture(bool start);
 
 	void saveImageAs();
@@ -66,7 +68,7 @@ private Q_SLOTS:
 	void processRaw(libcamera::FrameBuffer *buffer,
 			const libcamera::ControlList &metadata);
 
-	void queueRequest(libcamera::FrameBuffer *buffer);
+	void renderComplete(libcamera::FrameBuffer *buffer);
 
 private:
 	int createToolbars();
@@ -80,6 +82,7 @@ private:
 	void addCamera(std::shared_ptr<libcamera::Camera> camera);
 	void removeCamera(std::shared_ptr<libcamera::Camera> camera);
 
+	int queueRequest(libcamera::Request *request);
 	void requestComplete(libcamera::Request *request);
 	void processCapture();
 	void processHotplug(HotplugEvent *e);
@@ -88,7 +91,7 @@ private:
 	/* UI elements */
 	QToolBar *toolbar_;
 	QAction *startStopAction_;
-	QComboBox *cameraCombo_;
+	QPushButton *cameraSelectButton_;
 	QAction *saveRaw_;
 	ViewFinder *viewfinder_;
 
@@ -97,6 +100,8 @@ private:
 
 	QString title_;
 	QTimer titleTimer_;
+
+	CameraSelectorDialog *cameraSelectorDialog_;
 
 	/* Options */
 	const OptionsParser::Options &options_;
@@ -126,5 +131,3 @@ private:
 
 	std::vector<std::unique_ptr<libcamera::Request>> requests_;
 };
-
-#endif /* __QCAM_MAIN_WINDOW__ */

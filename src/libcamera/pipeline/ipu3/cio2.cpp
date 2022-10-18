@@ -203,7 +203,7 @@ int CIO2Device::configure(const Size &size, V4L2DeviceFormat *outputFormat)
 	if (itInfo == mbusCodesToPixelFormat.end())
 		return -EINVAL;
 
-	outputFormat->fourcc = V4L2PixelFormat::fromPixelFormat(itInfo->second);
+	outputFormat->fourcc = output_->toV4L2PixelFormat(itInfo->second);
 	outputFormat->size = sensorFormat.size;
 	outputFormat->planesCount = 1;
 
@@ -211,7 +211,7 @@ int CIO2Device::configure(const Size &size, V4L2DeviceFormat *outputFormat)
 	if (ret)
 		return ret;
 
-	LOG(IPU3, Debug) << "CIO2 output format " << outputFormat->toString();
+	LOG(IPU3, Debug) << "CIO2 output format " << *outputFormat;
 
 	return 0;
 }
@@ -322,10 +322,9 @@ V4L2SubdeviceFormat CIO2Device::getSensorFormat(const std::vector<unsigned int> 
 		return {};
 	}
 
-	V4L2SubdeviceFormat format{
-		.mbus_code = bestCode,
-		.size = bestSize,
-	};
+	V4L2SubdeviceFormat format{};
+	format.mbus_code = bestCode;
+	format.size = bestSize;
 
 	return format;
 }

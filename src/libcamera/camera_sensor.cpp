@@ -13,7 +13,6 @@
 #include <iomanip>
 #include <limits.h>
 #include <math.h>
-#include <regex>
 #include <string.h>
 
 #include <libcamera/property_ids.h>
@@ -21,6 +20,7 @@
 #include <libcamera/base/utils.h>
 
 #include "libcamera/internal/bayer_format.h"
+#include "libcamera/internal/camera_lens.h"
 #include "libcamera/internal/camera_sensor_properties.h"
 #include "libcamera/internal/formats.h"
 #include "libcamera/internal/sysfs.h"
@@ -54,8 +54,8 @@ LOG_DEFINE_CATEGORY(CameraSensor)
  * Once constructed the instance must be initialized with init().
  */
 CameraSensor::CameraSensor(const MediaEntity *entity)
-	: entity_(entity), pad_(UINT_MAX), bayerFormat_(nullptr),
-	  properties_(properties::properties)
+	: entity_(entity), pad_(UINT_MAX), staticProps_(nullptr),
+	  bayerFormat_(nullptr), properties_(properties::properties)
 {
 }
 
@@ -106,6 +106,17 @@ int CameraSensor::init()
 	int ret = subdev_->open();
 	if (ret < 0)
 		return ret;
+
+	/*
+	 * Clear any flips to be sure we get the "native" Bayer order. This is
+	 * harmless for sensors where the flips don't affect the Bayer order.
+	 */
+	ControlList ctrls(subdev_->controls());
+	if (subdev_->controls().find(V4L2_CID_HFLIP) != subdev_->controls().end())
+		ctrls.set(V4L2_CID_HFLIP, 0);
+	if (subdev_->controls().find(V4L2_CID_VFLIP) != subdev_->controls().end())
+		ctrls.set(V4L2_CID_VFLIP, 0);
+	subdev_->setControls(&ctrls);
 
 	/* Enumerate, sort and cache media bus codes and sizes. */
 	formats_ = subdev_->formats(pad_);
@@ -161,7 +172,11 @@ int CameraSensor::init()
 	if (ret)
 		return ret;
 
-	return 0;
+	ret = discoverAncillaryDevices();
+	if (ret)
+		return ret;
+
+	return applyTestPatternMode(controls::draft::TestPatternModeEnum::TestPatternModeOff);
 }
 
 int CameraSensor::validateSensorDriver()
@@ -223,7 +238,7 @@ int CameraSensor::validateSensorDriver()
 
 		LOG(CameraSensor, Warning)
 			<< "The PixelArraySize property has been defaulted to "
-			<< pixelArraySize_.toString();
+			<< pixelArraySize_;
 		err = -EINVAL;
 	} else {
 		pixelArraySize_ = rect.size();
@@ -234,7 +249,7 @@ int CameraSensor::validateSensorDriver()
 		activeArea_ = Rectangle(pixelArraySize_);
 		LOG(CameraSensor, Warning)
 			<< "The PixelArrayActiveAreas property has been defaulted to "
-			<< activeArea_.toString();
+			<< activeArea_;
 		err = -EINVAL;
 	}
 
@@ -300,21 +315,30 @@ void CameraSensor::initVimcDefaultProperties()
 
 void CameraSensor::initStaticProperties()
 {
-	const CameraSensorProperties *props = CameraSensorProperties::get(model_);
-	if (!props)
+	staticProps_ = CameraSensorProperties::get(model_);
+	if (!staticProps_)
 		return;
 
 	/* Register the properties retrieved from the sensor database. */
-	properties_.set(properties::UnitCellSize, props->unitCellSize);
+	properties_.set(properties::UnitCellSize, staticProps_->unitCellSize);
 
-	initTestPatternModes(props->testPatternModes);
+	initTestPatternModes();
 }
 
-void CameraSensor::initTestPatternModes(
-	const std::map<int32_t, int32_t> &testPatternModes)
+void CameraSensor::initTestPatternModes()
 {
 	const auto &v4l2TestPattern = controls().find(V4L2_CID_TEST_PATTERN);
 	if (v4l2TestPattern == controls().end()) {
+		LOG(CameraSensor, Debug) << "V4L2_CID_TEST_PATTERN is not supported";
+		return;
+	}
+
+	const auto &testPatternModes = staticProps_->testPatternModes;
+	if (testPatternModes.empty()) {
+		/*
+		 * The camera sensor supports test patterns but we don't know
+		 * how to map them so this should be fixed.
+		 */
 		LOG(CameraSensor, Debug) << "No static test pattern map for \'"
 					 << model() << "\'";
 		return;
@@ -327,7 +351,7 @@ void CameraSensor::initTestPatternModes(
 	 * control index is supported in the below for loop that creates the
 	 * list of supported test patterns.
 	 */
-	std::map<int32_t, int32_t> indexToTestPatternMode;
+	std::map<int32_t, controls::draft::TestPatternModeEnum> indexToTestPatternMode;
 	for (const auto &it : testPatternModes)
 		indexToTestPatternMode[it.second] = it.first;
 
@@ -347,34 +371,7 @@ void CameraSensor::initTestPatternModes(
 
 int CameraSensor::initProperties()
 {
-	/*
-	 * Extract the camera sensor model name from the media entity name.
-	 *
-	 * There is no standardized naming scheme for sensor entities in the
-	 * Linux kernel at the moment.
-	 *
-	 * - The most common rule, used by I2C sensors, associates the model
-	 *   name with the I2C bus number and address (e.g. 'imx219 0-0010').
-	 *
-	 * - When the sensor exposes multiple subdevs, the model name is
-	 *   usually followed by a function name, as in the smiapp driver (e.g.
-	 *   'jt8ew9 pixel_array 0-0010').
-	 *
-	 * - The vimc driver names its sensors 'Sensor A' and 'Sensor B'.
-	 *
-	 * Other schemes probably exist. As a best effort heuristic, use the
-	 * part of the entity name before the first space if the name contains
-	 * an I2C address, and use the full entity name otherwise.
-	 */
-	std::string entityName = entity_->name();
-	std::regex i2cRegex{ " [0-9]+-[0-9a-f]{4}" };
-	std::smatch match;
-
-	if (std::regex_search(entityName, match, i2cRegex))
-		model_ = entityName.substr(0, entityName.find(' '));
-	else
-		model_ = entityName;
-
+	model_ = subdev_->model();
 	properties_.set(properties::Model, utils::toAscii(model_));
 
 	/* Generate a unique ID for the sensor. */
@@ -451,6 +448,42 @@ int CameraSensor::initProperties()
 }
 
 /**
+ * \brief Check for and initialise any ancillary devices
+ *
+ * Sensors sometimes have ancillary devices such as a Lens or Flash that could
+ * be linked to their MediaEntity by the kernel. Search for and handle any
+ * such device.
+ *
+ * \todo Handle MEDIA_ENT_F_FLASH too.
+ */
+int CameraSensor::discoverAncillaryDevices()
+{
+	int ret;
+
+	for (MediaEntity *ancillary : entity_->ancillaryEntities()) {
+		switch (ancillary->function()) {
+		case MEDIA_ENT_F_LENS:
+			focusLens_ = std::make_unique<CameraLens>(ancillary);
+			ret = focusLens_->init();
+			if (ret) {
+				LOG(CameraSensor, Error)
+					<< "Lens initialisation failed, lens disabled";
+				focusLens_.reset();
+			}
+			break;
+
+		default:
+			LOG(CameraSensor, Warning)
+				<< "Unsupported ancillary entity function "
+				<< ancillary->function();
+			break;
+		}
+	}
+
+	return 0;
+}
+
+/**
  * \fn CameraSensor::model()
  * \brief Retrieve the sensor model name
  *
@@ -479,6 +512,11 @@ int CameraSensor::initProperties()
 /**
  * \fn CameraSensor::mbusCodes()
  * \brief Retrieve the media bus codes supported by the camera sensor
+ *
+ * Any Bayer formats are listed using the sensor's native Bayer order,
+ * that is, with the effect of V4L2_CID_HFLIP and V4L2_CID_VFLIP undone
+ * (where these controls exist).
+ *
  * \return The supported media bus codes sorted in increasing order
  */
 
@@ -488,7 +526,7 @@ int CameraSensor::initProperties()
  *
  * \return The supported frame sizes for \a mbusCode sorted in increasing order
  */
-const std::vector<Size> CameraSensor::sizes(unsigned int mbusCode) const
+std::vector<Size> CameraSensor::sizes(unsigned int mbusCode) const
 {
 	std::vector<Size> sizes;
 
@@ -530,6 +568,56 @@ Size CameraSensor::resolution() const
  *
  * \return The list of test pattern modes
  */
+
+/**
+ * \brief Set the test pattern mode for the camera sensor
+ * \param[in] mode The test pattern mode
+ *
+ * The new \a mode is applied to the sensor if it differs from the active test
+ * pattern mode. Otherwise, this function is a no-op. Setting the same test
+ * pattern mode for every frame thus incurs no performance penalty.
+ */
+int CameraSensor::setTestPatternMode(controls::draft::TestPatternModeEnum mode)
+{
+	if (testPatternMode_ == mode)
+		return 0;
+
+	if (testPatternModes_.empty()) {
+		LOG(CameraSensor, Error)
+			<< "Camera sensor does not support test pattern modes.";
+		return -EINVAL;
+	}
+
+	return applyTestPatternMode(mode);
+}
+
+int CameraSensor::applyTestPatternMode(controls::draft::TestPatternModeEnum mode)
+{
+	if (testPatternModes_.empty())
+		return 0;
+
+	auto it = std::find(testPatternModes_.begin(), testPatternModes_.end(),
+			    mode);
+	if (it == testPatternModes_.end()) {
+		LOG(CameraSensor, Error) << "Unsupported test pattern mode "
+					 << mode;
+		return -EINVAL;
+	}
+
+	LOG(CameraSensor, Debug) << "Apply test pattern mode " << mode;
+
+	int32_t index = staticProps_->testPatternModes.at(mode);
+	ControlList ctrls{ controls() };
+	ctrls.set(V4L2_CID_TEST_PATTERN, index);
+
+	int ret = setControls(&ctrls);
+	if (ret)
+		return ret;
+
+	testPatternMode_ = mode;
+
+	return 0;
+}
 
 /**
  * \brief Retrieve the best sensor format for a desired output
@@ -613,6 +701,7 @@ V4L2SubdeviceFormat CameraSensor::getFormat(const std::vector<unsigned int> &mbu
 	V4L2SubdeviceFormat format{
 		.mbus_code = bestCode,
 		.size = *bestSize,
+		.colorSpace = ColorSpace::Raw,
 	};
 
 	return format;
@@ -815,6 +904,14 @@ void CameraSensor::updateControlInfo()
 	subdev_->updateControlInfo();
 }
 
+/**
+ * \fn CameraSensor::focusLens()
+ * \brief Retrieve the focus lens controller
+ *
+ * \return The focus lens controller. nullptr if no focus lens controller is
+ * connected to the sensor
+ */
+
 std::string CameraSensor::logPrefix() const
 {
 	return "'" + entity_->name() + "'";
@@ -832,7 +929,7 @@ int CameraSensor::generateId()
 	/*
 	 * Virtual sensors not described in firmware
 	 *
-	 * Verify it's a platform device and construct ID from the deive path
+	 * Verify it's a platform device and construct ID from the device path
 	 * and model of sensor.
 	 */
 	if (devPath.find("/sys/devices/platform/", 0) == 0) {

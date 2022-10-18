@@ -1,12 +1,13 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 /*
- * Copyright (C) 2020, Raspberry Pi (Trading) Ltd.
+ * Copyright (C) 2020, Raspberry Pi Ltd
  *
  * bayer_format.h - Bayer Pixel Format
  */
-#ifndef __LIBCAMERA_INTERNAL_BAYER_FORMAT_H__
-#define __LIBCAMERA_INTERNAL_BAYER_FORMAT_H__
 
+#pragma once
+
+#include <ostream>
 #include <stdint.h>
 #include <string>
 
@@ -68,6 +69,6 @@ static inline bool operator!=(const BayerFormat &lhs, const BayerFormat &rhs)
 	return !(lhs == rhs);
 }
 
-} /* namespace libcamera */
+std::ostream &operator<<(std::ostream &out, const BayerFormat &f);
 
-#endif /* __LIBCAMERA_INTERNAL_BAYER_FORMAT_H__ */
+} /* namespace libcamera */

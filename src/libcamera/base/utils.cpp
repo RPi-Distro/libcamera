@@ -407,6 +407,15 @@ std::string toAscii(const std::string &str)
  */
 
 /**
+ * \fn Duration::Duration(const Rep &r)
+ * \brief Construct a Duration with \a r ticks
+ * \param[in] r The number of ticks
+ *
+ * The constructed \a Duration object is internally represented in double
+ * precision with \a r nanoseconds ticks.
+ */
+
+/**
  * \fn Duration::Duration(const std::chrono::duration<Rep, Period> &d)
  * \brief Construct a Duration by converting an arbitrary std::chrono::duration
  * \param[in] d The std::chrono::duration object to convert from
@@ -435,6 +444,23 @@ std::string toAscii(const std::string &str)
  * \brief Boolean operator to test if a \a Duration holds a non-zero time value
  *
  * \return True if \a Duration is a non-zero time value, False otherwise
+ */
+
+/**
+ * \fn abs_diff(const T& a, const T& b)
+ * \brief Calculates the absolute value of the difference between two elements
+ * \param[in] a The first element
+ * \param[in] b The second element
+ *
+ * This function calculates the absolute value of the difference between two
+ * elements of the same type, in such a way that a negative value will never
+ * occur during the calculation.
+ *
+ * This is inspired by the std::abs_diff() candidate proposed in N4318
+ * (http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2014/n4318.pdf).
+ *
+ * \return The absolute value of the difference of the two parameters \a a and
+ * \a b
  */
 
 } /* namespace utils */

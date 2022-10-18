@@ -4,8 +4,8 @@
  *
  * drm.h - DRM/KMS Helpers
  */
-#ifndef __CAM_DRM_H__
-#define __CAM_DRM_H__
+
+#pragma once
 
 #include <array>
 #include <list>
@@ -251,6 +251,7 @@ public:
 	enum Flags {
 		FlagAllowModeset = (1 << 0),
 		FlagAsync = (1 << 1),
+		FlagTestOnly = (1 << 2),
 	};
 
 	AtomicRequest(Device *dev);
@@ -311,6 +312,7 @@ private:
 	Device &operator=(const Device &) = delete;
 	Device &operator=(const Device &&) = delete;
 
+	int openCard();
 	int getResources();
 
 	void drmEvent();
@@ -330,5 +332,3 @@ private:
 };
 
 } /* namespace DRM */
-
-#endif /* __CAM_DRM_H__ */

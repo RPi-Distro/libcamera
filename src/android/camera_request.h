@@ -4,15 +4,16 @@
  *
  * camera_request.h - libcamera Android Camera Request Descriptor
  */
-#ifndef __ANDROID_CAMERA_REQUEST_H__
-#define __ANDROID_CAMERA_REQUEST_H__
+
+#pragma once
 
 #include <map>
 #include <memory>
-#include <mutex>
 #include <vector>
 
 #include <libcamera/base/class.h>
+#include <libcamera/base/mutex.h>
+#include <libcamera/base/unique_fd.h>
 
 #include <libcamera/camera.h>
 #include <libcamera/framebuffer.h>
@@ -20,7 +21,6 @@
 #include <hardware/camera3.h>
 
 #include "camera_metadata.h"
-#include "camera_worker.h"
 
 class CameraBuffer;
 class CameraStream;
@@ -45,7 +45,7 @@ public:
 		CameraStream *stream;
 		buffer_handle_t *camera3Buffer;
 		std::unique_ptr<libcamera::FrameBuffer> frameBuffer;
-		int fence;
+		libcamera::UniqueFD fence;
 		Status status = Status::Success;
 		libcamera::FrameBuffer *internalBuffer = nullptr;
 		const libcamera::FrameBuffer *srcBuffer = nullptr;
@@ -57,8 +57,9 @@ public:
 	};
 
 	/* Keeps track of streams requiring post-processing. */
-	std::map<CameraStream *, StreamBuffer *> pendingStreamsToProcess_;
-	std::mutex streamsProcessMutex_;
+	std::map<CameraStream *, StreamBuffer *> pendingStreamsToProcess_
+		LIBCAMERA_TSA_GUARDED_BY(streamsProcessMutex_);
+	libcamera::Mutex streamsProcessMutex_;
 
 	Camera3RequestDescriptor(libcamera::Camera *camera,
 				 const camera3_capture_request_t *camera3Request);
@@ -71,7 +72,7 @@ public:
 	std::vector<StreamBuffer> buffers_;
 
 	CameraMetadata settings_;
-	std::unique_ptr<CaptureRequest> request_;
+	std::unique_ptr<libcamera::Request> request_;
 	std::unique_ptr<CameraMetadata> resultMetadata_;
 
 	bool complete_ = false;
@@ -80,5 +81,3 @@ public:
 private:
 	LIBCAMERA_DISABLE_COPY(Camera3RequestDescriptor)
 };
-
-#endif /* __ANDROID_CAMERA_REQUEST_H__ */

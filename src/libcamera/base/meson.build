@@ -11,16 +11,19 @@ libcamera_base_sources = files([
     'flags.cpp',
     'log.cpp',
     'message.cpp',
+    'mutex.cpp',
     'object.cpp',
     'semaphore.cpp',
+    'shared_fd.cpp',
     'signal.cpp',
     'thread.cpp',
     'timer.cpp',
+    'unique_fd.cpp',
     'utils.cpp',
 ])
 
-libdw = cc.find_library('libdw', required : false)
-libunwind = cc.find_library('libunwind', required : false)
+libdw = dependency('libdw', required : false)
+libunwind = dependency('libunwind', required : false)
 
 if cc.has_header_symbol('execinfo.h', 'backtrace')
     config_h.set('HAVE_BACKTRACE', 1)
@@ -35,9 +38,9 @@ if libunwind.found()
 endif
 
 libcamera_base_deps = [
-    dependency('threads'),
     libatomic,
     libdw,
+    libthreads,
     libunwind,
 ]
 
@@ -48,6 +51,7 @@ libcamera_base_args = [ '-DLIBCAMERA_BASE_PRIVATE' ]
 libcamera_base_lib = shared_library('libcamera-base',
                                     [libcamera_base_sources, libcamera_base_headers],
                                     version : libcamera_version,
+                                    soversion : libcamera_soversion,
                                     name_prefix : '',
                                     install : true,
                                     cpp_args : libcamera_base_args,
@@ -62,7 +66,6 @@ libcamera_base = declare_dependency(sources : [
 
 pkg_mod = import('pkgconfig')
 pkg_mod.generate(libcamera_base_lib,
-                 version : '1.0',
                  description : 'Camera support base utility library',
                  subdirs : 'libcamera')
 

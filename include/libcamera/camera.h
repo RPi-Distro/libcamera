@@ -4,8 +4,8 @@
  *
  * camera.h - Camera object interface
  */
-#ifndef __LIBCAMERA_CAMERA_H__
-#define __LIBCAMERA_CAMERA_H__
+
+#pragma once
 
 #include <memory>
 #include <set>
@@ -13,6 +13,7 @@
 #include <string>
 
 #include <libcamera/base/class.h>
+#include <libcamera/base/flags.h>
 #include <libcamera/base/object.h>
 #include <libcamera/base/signal.h>
 
@@ -69,6 +70,15 @@ public:
 protected:
 	CameraConfiguration();
 
+	enum class ColorSpaceFlag {
+		None,
+		StreamsShareColorSpace,
+	};
+
+	using ColorSpaceFlags = Flags<ColorSpaceFlag>;
+
+	Status validateColorSpaces(ColorSpaceFlags flags = ColorSpaceFlag::None);
+
 	std::vector<StreamConfiguration> config_;
 };
 
@@ -121,5 +131,3 @@ private:
 };
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_CAMERA_H__ */

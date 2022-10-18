@@ -11,6 +11,8 @@
 #include <queue>
 #include <vector>
 
+#include <linux/intel-ipu3.h>
+
 #include <libcamera/base/log.h>
 #include <libcamera/base/utils.h>
 
@@ -24,9 +26,11 @@
 #include <libcamera/stream.h>
 
 #include "libcamera/internal/camera.h"
+#include "libcamera/internal/camera_lens.h"
 #include "libcamera/internal/camera_sensor.h"
 #include "libcamera/internal/delayed_controls.h"
 #include "libcamera/internal/device_enumerator.h"
+#include "libcamera/internal/framebuffer.h"
 #include "libcamera/internal/ipa_manager.h"
 #include "libcamera/internal/media_device.h"
 #include "libcamera/internal/pipeline_handler.h"
@@ -47,7 +51,7 @@ class IPU3CameraData : public Camera::Private
 {
 public:
 	IPU3CameraData(PipelineHandler *pipe)
-		: Camera::Private(pipe), exposureTime_(0), supportsFlips_(false)
+		: Camera::Private(pipe), supportsFlips_(false)
 	{
 	}
 
@@ -59,6 +63,7 @@ public:
 	void statBufferReady(FrameBuffer *buffer);
 	void queuePendingRequests();
 	void cancelPendingRequests();
+	void frameStart(uint32_t sequence);
 
 	CIO2Device cio2_;
 	ImgUDevice *imgu_;
@@ -67,7 +72,6 @@ public:
 	Stream vfStream_;
 	Stream rawStream_;
 
-	uint32_t exposureTime_;
 	Rectangle cropRegion_;
 	bool supportsFlips_;
 	Transform rotationTransform_;
@@ -77,13 +81,18 @@ public:
 
 	std::unique_ptr<ipa::ipu3::IPAProxyIPU3> ipa_;
 
+	/* Requests for which no buffer has been queued to the CIO2 device yet. */
 	std::queue<Request *> pendingRequests_;
+	/* Requests queued to the CIO2 device but not yet processed by the ImgU. */
+	std::queue<Request *> processingRequests_;
 
 	ControlInfoMap ipaControls_;
 
 private:
-	void queueFrameAction(unsigned int id,
-			      const ipa::ipu3::IPU3Action &action);
+	void metadataReady(unsigned int id, const ControlList &metadata);
+	void paramsBufferReady(unsigned int id);
+	void setSensorControls(unsigned int id, const ControlList &sensorControls,
+			       const ControlList &lensControls);
 };
 
 class IPU3CameraConfiguration : public CameraConfiguration
@@ -135,7 +144,7 @@ public:
 			       std::vector<std::unique_ptr<FrameBuffer>> *buffers) override;
 
 	int start(Camera *camera, const ControlList *controls) override;
-	void stop(Camera *camera) override;
+	void stopDevice(Camera *camera) override;
 
 	int queueRequestDevice(Camera *camera, Request *request) override;
 
@@ -236,6 +245,7 @@ CameraConfiguration::Status IPU3CameraConfiguration::validate()
 	 */
 	unsigned int rawCount = 0;
 	unsigned int yuvCount = 0;
+	Size rawRequirement;
 	Size maxYuvSize;
 	Size rawSize;
 
@@ -244,10 +254,11 @@ CameraConfiguration::Status IPU3CameraConfiguration::validate()
 
 		if (info.colourEncoding == PixelFormatInfo::ColourEncodingRAW) {
 			rawCount++;
-			rawSize.expandTo(cfg.size);
+			rawSize = std::max(rawSize, cfg.size);
 		} else {
 			yuvCount++;
-			maxYuvSize.expandTo(cfg.size);
+			maxYuvSize = std::max(maxYuvSize, cfg.size);
+			rawRequirement.expandTo(cfg.size);
 		}
 	}
 
@@ -276,17 +287,17 @@ CameraConfiguration::Status IPU3CameraConfiguration::validate()
 	 * The output YUV streams will be limited in size to the maximum frame
 	 * size requested for the RAW stream, if present.
 	 *
-	 * If no raw stream is requested generate a size as large as the maximum
-	 * requested YUV size aligned to the ImgU constraints and bound by the
-	 * sensor's maximum resolution. See
+	 * If no raw stream is requested, generate a size from the largest YUV
+	 * stream, aligned to the ImgU constraints and bound
+	 * by the sensor's maximum resolution. See
 	 * https://bugs.libcamera.org/show_bug.cgi?id=32
 	 */
 	if (rawSize.isNull())
-		rawSize = maxYuvSize.expandedTo({ ImgUDevice::kIFMaxCropWidth,
-						  ImgUDevice::kIFMaxCropHeight })
-				    .grownBy({ ImgUDevice::kOutputMarginWidth,
-					       ImgUDevice::kOutputMarginHeight })
-				    .boundedTo(data_->cio2_.sensor()->resolution());
+		rawSize = rawRequirement.expandedTo({ ImgUDevice::kIFMaxCropWidth,
+						      ImgUDevice::kIFMaxCropHeight })
+				  .grownBy({ ImgUDevice::kOutputMarginWidth,
+					     ImgUDevice::kOutputMarginHeight })
+				  .boundedTo(data_->cio2_.sensor()->resolution());
 
 	cio2Configuration_ = data_->cio2_.generateConfiguration(rawSize);
 	if (!cio2Configuration_.pixelFormat.isValid())
@@ -545,7 +556,7 @@ int PipelineHandlerIPU3::configure(Camera *camera, CameraConfiguration *c)
 		return ret;
 
 	/*
-	 * \todo: Enable links selectively based on the requested streams.
+	 * \todo Enable links selectively based on the requested streams.
 	 * As of now, enable all links unconditionally.
 	 * \todo Don't configure the ImgU at all if we only have a single
 	 * stream which is for raw capture, in which case no buffers will
@@ -656,6 +667,11 @@ int PipelineHandlerIPU3::configure(Camera *camera, CameraConfiguration *c)
 
 	ipa::ipu3::IPAConfigInfo configInfo;
 	configInfo.sensorControls = data->cio2_.sensor()->controls();
+
+	CameraLens *lens = data->cio2_.sensor()->focusLens();
+	if (lens)
+		configInfo.lensControls = lens->controls();
+
 	configInfo.sensorInfo = sensorInfo;
 	configInfo.bdsOutputSize = config->imguConfig().bds;
 	configInfo.iif = config->imguConfig().iif;
@@ -758,6 +774,12 @@ int PipelineHandlerIPU3::start(Camera *camera, [[maybe_unused]] const ControlLis
 	ImgUDevice *imgu = data->imgu_;
 	int ret;
 
+	/* Disable test pattern mode on the sensor, if any. */
+	ret = cio2->sensor()->setTestPatternMode(
+		controls::draft::TestPatternModeEnum::TestPatternModeOff);
+	if (ret)
+		return ret;
+
 	/* Allocate buffers for internal pipeline usage. */
 	ret = allocateBuffers(camera);
 	if (ret)
@@ -766,6 +788,8 @@ int PipelineHandlerIPU3::start(Camera *camera, [[maybe_unused]] const ControlLis
 	ret = data->ipa_->start();
 	if (ret)
 		goto error;
+
+	data->delayedCtrls_->reset();
 
 	/*
 	 * Start the ImgU video devices, buffers will be queued to the
@@ -791,7 +815,7 @@ error:
 	return ret;
 }
 
-void PipelineHandlerIPU3::stop(Camera *camera)
+void PipelineHandlerIPU3::stopDevice(Camera *camera)
 {
 	IPU3CameraData *data = cameraData(camera);
 	int ret = 0;
@@ -810,12 +834,14 @@ void PipelineHandlerIPU3::stop(Camera *camera)
 
 void IPU3CameraData::cancelPendingRequests()
 {
+	processingRequests_ = {};
+
 	while (!pendingRequests_.empty()) {
 		Request *request = pendingRequests_.front();
 
 		for (auto it : request->buffers()) {
 			FrameBuffer *buffer = it.second;
-			buffer->cancel();
+			buffer->_d()->cancel();
 			pipe()->completeBuffer(request, buffer);
 		}
 
@@ -852,13 +878,10 @@ void IPU3CameraData::queuePendingRequests()
 
 		info->rawBuffer = rawBuffer;
 
-		ipa::ipu3::IPU3Event ev;
-		ev.op = ipa::ipu3::EventProcessControls;
-		ev.frame = info->id;
-		ev.controls = request->controls();
-		ipa_->processEvent(ev);
+		ipa_->queueRequest(info->id, request->controls());
 
 		pendingRequests_.pop();
+		processingRequests_.push(request);
 	}
 }
 
@@ -981,13 +1004,14 @@ int PipelineHandlerIPU3::updateControls(IPU3CameraData *data)
 		return ret;
 
 	ControlInfoMap::Map controls = IPU3Controls;
-	const std::vector<int32_t> &testPatternModes = sensor->testPatternModes();
+	const std::vector<controls::draft::TestPatternModeEnum>
+		&testPatternModes = sensor->testPatternModes();
 	if (!testPatternModes.empty()) {
 		std::vector<ControlValue> values;
 		values.reserve(testPatternModes.size());
 
-		for (int32_t pattern : testPatternModes)
-			values.emplace_back(pattern);
+		for (auto pattern : testPatternModes)
+			values.emplace_back(static_cast<int32_t>(pattern));
 
 		controls[&controls::draft::TestPatternMode] = ControlInfo(values);
 	}
@@ -1039,20 +1063,9 @@ int PipelineHandlerIPU3::updateControls(IPU3CameraData *data)
 	 * top-left corner as we allow application to freely pan the crop area.
 	 */
 	Rectangle minCrop = Rectangle(minSize).scaledBy(analogueCrop.size(),
-					       sensorInfo.outputSize);
+							sensorInfo.outputSize);
 
 	controls[&controls::ScalerCrop] = ControlInfo(minCrop, maxCrop, maxCrop);
-
-	/*
-	 * \todo Report the actual exposure time, use the default for the
-	 * moment.
-	 */
-	const auto exposureInfo = data->ipaControls_.find(&controls::ExposureTime);
-	if (exposureInfo == data->ipaControls_.end()) {
-		LOG(IPU3, Error) << "Exposure control not initialized by the IPA";
-		return -EINVAL;
-	}
-	data->exposureTime_ = exposureInfo->second.def().get<int32_t>();
 
 	/* Add the IPA registered controls to list of camera controls. */
 	for (const auto &ipaControl : data->ipaControls_)
@@ -1130,22 +1143,21 @@ int PipelineHandlerIPU3::registerCameras()
 		data->delayedCtrls_ =
 			std::make_unique<DelayedControls>(cio2->sensor()->device(),
 							  params);
-		data->cio2_.frameStart().connect(data->delayedCtrls_.get(),
-						 &DelayedControls::applyControls);
+		data->cio2_.frameStart().connect(data.get(),
+						 &IPU3CameraData::frameStart);
 
 		/* Convert the sensor rotation to a transformation */
-		int32_t rotation = 0;
-		if (data->properties_.contains(properties::Rotation))
-			rotation = data->properties_.get(properties::Rotation);
-		else
+		const auto &rotation = data->properties_.get(properties::Rotation);
+		if (!rotation)
 			LOG(IPU3, Warning) << "Rotation control not exposed by "
 					   << cio2->sensor()->id()
 					   << ". Assume rotation 0";
 
+		int32_t rotationValue = rotation.value_or(0);
 		bool success;
-		data->rotationTransform_ = transformFromRotation(rotation, &success);
+		data->rotationTransform_ = transformFromRotation(rotationValue, &success);
 		if (!success)
-			LOG(IPU3, Warning) << "Invalid rotation of " << rotation
+			LOG(IPU3, Warning) << "Invalid rotation of " << rotationValue
 					   << " degrees: ignoring";
 
 		ControlList ctrls = cio2->sensor()->getControls({ V4L2_CID_HFLIP });
@@ -1208,7 +1220,9 @@ int IPU3CameraData::loadIPA()
 	if (!ipa_)
 		return -ENOENT;
 
-	ipa_->queueFrameAction.connect(this, &IPU3CameraData::queueFrameAction);
+	ipa_->setSensorControls.connect(this, &IPU3CameraData::setSensorControls);
+	ipa_->paramsBufferReady.connect(this, &IPU3CameraData::paramsBufferReady);
+	ipa_->metadataReady.connect(this, &IPU3CameraData::metadataReady);
 
 	/*
 	 * Pass the sensor info to the IPA to initialize controls.
@@ -1233,8 +1247,16 @@ int IPU3CameraData::loadIPA()
 	if (ret)
 		return ret;
 
-	ret = ipa_->init(IPASettings{ "", sensor->model() }, sensorInfo,
-			 sensor->controls(), &ipaControls_);
+	/*
+	 * The API tuning file is made from the sensor name. If the tuning file
+	 * isn't found, fall back to the 'uncalibrated' file.
+	 */
+	std::string ipaTuningFile = ipa_->configurationFile(sensor->model() + ".yaml");
+	if (ipaTuningFile.empty())
+		ipaTuningFile = ipa_->configurationFile("uncalibrated.yaml");
+
+	ret = ipa_->init(IPASettings{ ipaTuningFile, sensor->model() },
+			 sensorInfo, sensor->controls(), &ipaControls_);
 	if (ret) {
 		LOG(IPU3, Error) << "Failed to initialise the IPU3 IPA";
 		return ret;
@@ -1243,55 +1265,60 @@ int IPU3CameraData::loadIPA()
 	return 0;
 }
 
-void IPU3CameraData::queueFrameAction(unsigned int id,
-				      const ipa::ipu3::IPU3Action &action)
+void IPU3CameraData::setSensorControls([[maybe_unused]] unsigned int id,
+				       const ControlList &sensorControls,
+				       const ControlList &lensControls)
 {
-	switch (action.op) {
-	case ipa::ipu3::ActionSetSensorControls: {
-		const ControlList &controls = action.controls;
-		delayedCtrls_->push(controls);
-		break;
+	delayedCtrls_->push(sensorControls);
+
+	CameraLens *focusLens = cio2_.sensor()->focusLens();
+	if (!focusLens)
+		return;
+
+	if (!lensControls.contains(V4L2_CID_FOCUS_ABSOLUTE))
+		return;
+
+	const ControlValue &focusValue = lensControls.get(V4L2_CID_FOCUS_ABSOLUTE);
+
+	focusLens->setFocusPosition(focusValue.get<int32_t>());
+}
+
+void IPU3CameraData::paramsBufferReady(unsigned int id)
+{
+	IPU3Frames::Info *info = frameInfos_.find(id);
+	if (!info)
+		return;
+
+	/* Queue all buffers from the request aimed for the ImgU. */
+	for (auto it : info->request->buffers()) {
+		const Stream *stream = it.first;
+		FrameBuffer *outbuffer = it.second;
+
+		if (stream == &outStream_)
+			imgu_->output_->queueBuffer(outbuffer);
+		else if (stream == &vfStream_)
+			imgu_->viewfinder_->queueBuffer(outbuffer);
 	}
-	case ipa::ipu3::ActionParamFilled: {
-		IPU3Frames::Info *info = frameInfos_.find(id);
-		if (!info)
-			break;
 
-		/* Queue all buffers from the request aimed for the ImgU. */
-		for (auto it : info->request->buffers()) {
-			const Stream *stream = it.first;
-			FrameBuffer *outbuffer = it.second;
+	info->paramBuffer->_d()->metadata().planes()[0].bytesused =
+		sizeof(struct ipu3_uapi_params);
+	imgu_->param_->queueBuffer(info->paramBuffer);
+	imgu_->stat_->queueBuffer(info->statBuffer);
+	imgu_->input_->queueBuffer(info->rawBuffer);
+}
 
-			if (stream == &outStream_)
-				imgu_->output_->queueBuffer(outbuffer);
-			else if (stream == &vfStream_)
-				imgu_->viewfinder_->queueBuffer(outbuffer);
-		}
+void IPU3CameraData::metadataReady(unsigned int id, const ControlList &metadata)
+{
+	IPU3Frames::Info *info = frameInfos_.find(id);
+	if (!info)
+		return;
 
-		imgu_->param_->queueBuffer(info->paramBuffer);
-		imgu_->stat_->queueBuffer(info->statBuffer);
-		imgu_->input_->queueBuffer(info->rawBuffer);
+	Request *request = info->request;
+	request->metadata().merge(metadata);
 
-		break;
-	}
-	case ipa::ipu3::ActionMetadataReady: {
-		IPU3Frames::Info *info = frameInfos_.find(id);
-		if (!info)
-			break;
-
-		Request *request = info->request;
-		request->metadata().merge(action.controls);
-
-		info->metadataProcessed = true;
-		if (frameInfos_.tryComplete(info))
-			pipe()->completeRequest(request);
-
-		break;
-	}
-	default:
-		LOG(IPU3, Error) << "Unknown action " << action.op;
-		break;
-	}
+	info->metadataProcessed = true;
+	if (frameInfos_.tryComplete(info))
+		pipe()->completeRequest(request);
 }
 
 /* -----------------------------------------------------------------------------
@@ -1315,11 +1342,10 @@ void IPU3CameraData::imguOutputBufferReady(FrameBuffer *buffer)
 	pipe()->completeBuffer(request, buffer);
 
 	request->metadata().set(controls::draft::PipelineDepth, 3);
-	/* \todo Move the ExposureTime control to the IPA. */
-	request->metadata().set(controls::ExposureTime, exposureTime_);
 	/* \todo Actually apply the scaler crop region to the ImgU. */
-	if (request->controls().contains(controls::ScalerCrop))
-		cropRegion_ = request->controls().get(controls::ScalerCrop);
+	const auto &scalerCrop = request->controls().get(controls::ScalerCrop);
+	if (scalerCrop)
+		cropRegion_ = *scalerCrop;
 	request->metadata().set(controls::ScalerCrop, cropRegion_);
 
 	if (frameInfos_.tryComplete(info))
@@ -1345,7 +1371,7 @@ void IPU3CameraData::cio2BufferReady(FrameBuffer *buffer)
 	if (buffer->metadata().status == FrameMetadata::FrameCancelled) {
 		for (auto it : request->buffers()) {
 			FrameBuffer *b = it.second;
-			b->cancel();
+			b->_d()->cancel();
 			pipe()->completeBuffer(request, b);
 		}
 
@@ -1363,14 +1389,12 @@ void IPU3CameraData::cio2BufferReady(FrameBuffer *buffer)
 	request->metadata().set(controls::SensorTimestamp,
 				buffer->metadata().timestamp);
 
+	info->effectiveSensorControls = delayedCtrls_->get(buffer->metadata().sequence);
+
 	if (request->findBuffer(&rawStream_))
 		pipe()->completeBuffer(request, buffer);
 
-	ipa::ipu3::IPU3Event ev;
-	ev.op = ipa::ipu3::EventFillParams;
-	ev.frame = info->id;
-	ev.bufferId = info->paramBuffer->cookie();
-	ipa_->processEvent(ev);
+	ipa_->fillParamsBuffer(info->id, info->paramBuffer->cookie());
 }
 
 void IPU3CameraData::paramBufferReady(FrameBuffer *buffer)
@@ -1414,12 +1438,51 @@ void IPU3CameraData::statBufferReady(FrameBuffer *buffer)
 		return;
 	}
 
-	ipa::ipu3::IPU3Event ev;
-	ev.op = ipa::ipu3::EventStatReady;
-	ev.frame = info->id;
-	ev.bufferId = info->statBuffer->cookie();
-	ev.frameTimestamp = request->metadata().get(controls::SensorTimestamp);
-	ipa_->processEvent(ev);
+	ipa_->processStatsBuffer(info->id, request->metadata().get(controls::SensorTimestamp).value_or(0),
+				 info->statBuffer->cookie(), info->effectiveSensorControls);
+}
+
+/*
+ * \brief Handle the start of frame exposure signal
+ * \param[in] sequence The sequence number of frame
+ *
+ * Inspect the list of pending requests waiting for a RAW frame to be
+ * produced and apply controls for the 'next' one.
+ *
+ * Some controls need to be applied immediately, such as the
+ * TestPatternMode one. Other controls are handled through the delayed
+ * controls class.
+ */
+void IPU3CameraData::frameStart(uint32_t sequence)
+{
+	delayedCtrls_->applyControls(sequence);
+
+	if (processingRequests_.empty())
+		return;
+
+	/*
+	 * Handle controls to be set immediately on the next frame.
+	 * This currently only handle the TestPatternMode control.
+	 *
+	 * \todo Synchronize with the sequence number
+	 */
+	Request *request = processingRequests_.front();
+	processingRequests_.pop();
+
+	const auto &testPatternMode = request->controls().get(controls::draft::TestPatternMode);
+	if (!testPatternMode)
+		return;
+
+	int ret = cio2_.sensor()->setTestPatternMode(
+		static_cast<controls::draft::TestPatternModeEnum>(*testPatternMode));
+	if (ret) {
+		LOG(IPU3, Error) << "Failed to set test pattern mode: "
+				 << ret;
+		return;
+	}
+
+	request->metadata().set(controls::draft::TestPatternMode,
+				*testPatternMode);
 }
 
 REGISTER_PIPELINE_HANDLER(PipelineHandlerIPU3)

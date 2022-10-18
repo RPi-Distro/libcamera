@@ -156,8 +156,11 @@ int V4L2CompatManager::openat(int dirfd, const char *path, int oflag, mode_t mod
 		return efd;
 
 	V4L2CameraProxy *proxy = proxies_[ret].get();
-	files_.emplace(efd, std::make_shared<V4L2CameraFile>(efd, oflag & O_NONBLOCK, proxy));
+	files_.emplace(efd, std::make_shared<V4L2CameraFile>(dirfd, path, efd,
+							     oflag & O_NONBLOCK,
+							     proxy));
 
+	LOG(V4L2Compat, Debug) << "Opened " << path << " -> fd " << efd;
 	return efd;
 }
 
@@ -191,15 +194,12 @@ void *V4L2CompatManager::mmap(void *addr, size_t length, int prot, int flags,
 	if (!file)
 		return fops_.mmap(addr, length, prot, flags, fd, offset);
 
-	void *map = file->proxy()->mmap(addr, length, prot, flags, offset);
+	void *map = file->proxy()->mmap(file.get(), addr, length, prot, flags,
+					offset);
 	if (map == MAP_FAILED)
 		return map;
 
-	/*
-	 * Map to V4L2CameraProxy directly to prevent adding more references
-	 * to V4L2CameraFile.
-	 */
-	mmaps_[map] = file->proxy();
+	mmaps_[map] = file;
 	return map;
 }
 
@@ -209,9 +209,9 @@ int V4L2CompatManager::munmap(void *addr, size_t length)
 	if (device == mmaps_.end())
 		return fops_.munmap(addr, length);
 
-	V4L2CameraProxy *proxy = device->second;
+	V4L2CameraFile *file = device->second.get();
 
-	int ret = proxy->munmap(addr, length);
+	int ret = file->proxy()->munmap(file, addr, length);
 	if (ret < 0)
 		return ret;
 

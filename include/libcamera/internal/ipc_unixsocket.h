@@ -5,14 +5,14 @@
  * ipc_unixsocket.h - IPC mechanism based on Unix sockets
  */
 
-#ifndef __LIBCAMERA_INTERNAL_IPC_UNIXSOCKET_H__
-#define __LIBCAMERA_INTERNAL_IPC_UNIXSOCKET_H__
+#pragma once
 
 #include <stdint.h>
 #include <sys/types.h>
 #include <vector>
 
 #include <libcamera/base/signal.h>
+#include <libcamera/base/unique_fd.h>
 
 namespace libcamera {
 
@@ -29,8 +29,8 @@ public:
 	IPCUnixSocket();
 	~IPCUnixSocket();
 
-	int create();
-	int bind(int fd);
+	UniqueFD create();
+	int bind(UniqueFD fd);
 	void close();
 	bool isBound() const;
 
@@ -50,12 +50,10 @@ private:
 
 	void dataNotifier();
 
-	int fd_;
+	UniqueFD fd_;
 	bool headerReceived_;
 	struct Header header_;
 	EventNotifier *notifier_;
 };
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_INTERNAL_IPC_UNIXSOCKET_H__ */

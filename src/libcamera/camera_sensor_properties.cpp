@@ -90,11 +90,44 @@ const CameraSensorProperties *CameraSensorProperties::get(const std::string &sen
 				{ controls::draft::TestPatternModePn9, 4 },
 			},
 		} },
+		{ "imx290", {
+			.unitCellSize = { 2900, 2900 },
+			.testPatternModes = {},
+		} },
+		{ "imx296", {
+			.unitCellSize = { 3450, 3450 },
+			.testPatternModes = {},
+		} },
+		{ "imx477", {
+			.unitCellSize = { 1550, 1550 },
+			.testPatternModes = {},
+		} },
+		{ "ov2740", {
+			.unitCellSize = { 1400, 1400 },
+			.testPatternModes = {
+				{ controls::draft::TestPatternModeOff, 0 },
+				{ controls::draft::TestPatternModeColorBars, 1},
+			},
+		} },
+		{ "ov5640", {
+			.unitCellSize = { 1400, 1400 },
+			.testPatternModes = {
+				{ controls::draft::TestPatternModeOff, 0 },
+				{ controls::draft::TestPatternModeColorBars, 1 },
+			},
+		} },
 		{ "ov5647", {
 			.unitCellSize = { 1400, 1400 },
 			.testPatternModes = {},
 		} },
 		{ "ov5670", {
+			.unitCellSize = { 1120, 1120 },
+			.testPatternModes = {
+				{ controls::draft::TestPatternModeOff, 0 },
+				{ controls::draft::TestPatternModeColorBars, 1 },
+			},
+		} },
+		{ "ov5675", {
 			.unitCellSize = { 1120, 1120 },
 			.testPatternModes = {
 				{ controls::draft::TestPatternModeOff, 0 },

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
- * Copyright (C) 2021, Raspberry Pi (Trading) Limited
+ * Copyright (C) 2021, Raspberry Pi Ltd
  *
  * device_status.cpp - device (image sensor) status
  */
@@ -10,12 +10,21 @@ using namespace libcamera; /* for the Duration operator<< overload */
 
 std::ostream &operator<<(std::ostream &out, const DeviceStatus &d)
 {
-	out << "Exposure: " << d.shutter_speed
-	    << " Frame length: " << d.frame_length
-	    << " Gain: " << d.analogue_gain
-	    << " Aperture: " << d.aperture
-	    << " Lens: " << d.lens_position
-	    << " Flash: " << d.flash_intensity;
+	out << "Exposure: " << d.shutterSpeed
+	    << " Frame length: " << d.frameLength
+	    << " Gain: " << d.analogueGain;
+
+	if (d.aperture)
+		out << " Aperture: " << *d.aperture;
+
+	if (d.lensPosition)
+		out << " Lens: " << *d.lensPosition;
+
+	if (d.flashIntensity)
+		out << " Flash: " << *d.flashIntensity;
+
+	if (d.sensorTemperature)
+		out << " Temperature: " << *d.sensorTemperature;
 
 	return out;
 }

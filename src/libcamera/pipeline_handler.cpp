@@ -7,9 +7,11 @@
 
 #include "libcamera/internal/pipeline_handler.h"
 
+#include <chrono>
 #include <sys/sysmacros.h>
 
 #include <libcamera/base/log.h>
+#include <libcamera/base/mutex.h>
 #include <libcamera/base/utils.h>
 
 #include <libcamera/camera.h>
@@ -18,7 +20,9 @@
 
 #include "libcamera/internal/camera.h"
 #include "libcamera/internal/device_enumerator.h"
+#include "libcamera/internal/framebuffer.h"
 #include "libcamera/internal/media_device.h"
+#include "libcamera/internal/request.h"
 #include "libcamera/internal/tracepoints.h"
 
 /**
@@ -34,6 +38,8 @@
  * Every subclass of PipelineHandler shall be registered with libcamera using
  * the REGISTER_PIPELINE_HANDLER() macro.
  */
+
+using namespace std::chrono_literals;
 
 namespace libcamera {
 
@@ -58,11 +64,10 @@ LOG_DEFINE_CATEGORY(Pipeline)
  *
  * In order to honour the std::enable_shared_from_this<> contract,
  * PipelineHandler instances shall never be constructed manually, but always
- * through the PipelineHandlerFactory::create() function implemented by the
- * respective factories.
+ * through the PipelineHandlerFactoryBase::create() function.
  */
 PipelineHandler::PipelineHandler(CameraManager *manager)
-	: manager_(manager)
+	: manager_(manager), useCount_(0)
 {
 }
 
@@ -137,40 +142,72 @@ MediaDevice *PipelineHandler::acquireMediaDevice(DeviceEnumerator *enumerator,
 }
 
 /**
- * \brief Lock all media devices acquired by the pipeline
+ * \brief Acquire exclusive access to the pipeline handler for the process
  *
- * This function shall not be called from pipeline handler implementation, as
- * the Camera class handles locking directly.
+ * This function locks all the media devices used by the pipeline to ensure
+ * that no other process can access them concurrently.
+ *
+ * Access to a pipeline handler may be acquired recursively from within the
+ * same process. Every successful acquire() call shall be matched with a
+ * release() call. This allows concurrent access to the same pipeline handler
+ * from different cameras within the same process.
+ *
+ * Pipeline handlers shall not call this function directly as the Camera class
+ * handles access internally.
  *
  * \context This function is \threadsafe.
  *
- * \return True if the devices could be locked, false otherwise
- * \sa unlock()
- * \sa MediaDevice::lock()
+ * \return True if the pipeline handler was acquired, false if another process
+ * has already acquired it
+ * \sa release()
  */
-bool PipelineHandler::lock()
+bool PipelineHandler::acquire()
 {
+	MutexLocker locker(lock_);
+
+	if (useCount_) {
+		++useCount_;
+		return true;
+	}
+
 	for (std::shared_ptr<MediaDevice> &media : mediaDevices_) {
 		if (!media->lock()) {
-			unlock();
+			unlockMediaDevices();
 			return false;
 		}
 	}
 
+	++useCount_;
 	return true;
 }
 
 /**
- * \brief Unlock all media devices acquired by the pipeline
+ * \brief Release exclusive access to the pipeline handler
  *
- * This function shall not be called from pipeline handler implementation, as
- * the Camera class handles locking directly.
+ * This function releases access to the pipeline handler previously acquired by
+ * a call to acquire(). Every release() call shall match a previous successful
+ * acquire() call. Calling this function on a pipeline handler that hasn't been
+ * acquired results in undefined behaviour.
+ *
+ * Pipeline handlers shall not call this function directly as the Camera class
+ * handles access internally.
  *
  * \context This function is \threadsafe.
  *
- * \sa lock()
+ * \sa acquire()
  */
-void PipelineHandler::unlock()
+void PipelineHandler::release()
+{
+	MutexLocker locker(lock_);
+
+	ASSERT(useCount_);
+
+	unlockMediaDevices();
+
+	--useCount_;
+}
+
+void PipelineHandler::unlockMediaDevices()
 {
 	for (std::shared_ptr<MediaDevice> &media : mediaDevices_)
 		media->unlock();
@@ -266,14 +303,42 @@ void PipelineHandler::unlock()
  */
 
 /**
- * \fn PipelineHandler::stop()
- * \brief Stop capturing from all running streams
+ * \brief Stop capturing from all running streams and cancel pending requests
  * \param[in] camera The camera to stop
  *
  * This function stops capturing and processing requests immediately. All
  * pending requests are cancelled and complete immediately in an error state.
  *
  * \context This function is called from the CameraManager thread.
+ */
+void PipelineHandler::stop(Camera *camera)
+{
+	/* Stop the pipeline handler and let the queued requests complete. */
+	stopDevice(camera);
+
+	/* Cancel and signal as complete all waiting requests. */
+	while (!waitingRequests_.empty()) {
+		Request *request = waitingRequests_.front();
+		waitingRequests_.pop();
+
+		request->_d()->cancel();
+		completeRequest(request);
+	}
+
+	/* Make sure no requests are pending. */
+	Camera::Private *data = camera->_d();
+	ASSERT(data->queuedRequests_.empty());
+
+	data->requestSequence_ = 0;
+}
+
+/**
+ * \fn PipelineHandler::stopDevice()
+ * \brief Stop capturing from all running streams
+ * \param[in] camera The camera to stop
+ *
+ * This function stops capturing and processing requests immediately. All
+ * pending requests are cancelled and complete immediately in an error state.
  */
 
 /**
@@ -291,15 +356,38 @@ bool PipelineHandler::hasPendingRequests(const Camera *camera) const
 }
 
 /**
+ * \fn PipelineHandler::registerRequest()
+ * \brief Register a request for use by the pipeline handler
+ * \param[in] request The request to register
+ *
+ * This function is called when the request is created, and allows the pipeline
+ * handler to perform any one-time initialization it requries for the request.
+ */
+void PipelineHandler::registerRequest(Request *request)
+{
+	/*
+	 * Connect the request prepared signal to notify the pipeline handler
+	 * when a request is ready to be processed.
+	 */
+	request->_d()->prepared.connect(this, &PipelineHandler::doQueueRequests);
+}
+
+/**
  * \fn PipelineHandler::queueRequest()
  * \brief Queue a request
  * \param[in] request The request to queue
  *
  * This function queues a capture request to the pipeline handler for
- * processing. The request is first added to the internal list of queued
- * requests, and then passed to the pipeline handler with a call to
- * queueRequestDevice(). If the pipeline handler fails in queuing the request
- * to the hardware the request is cancelled.
+ * processing. The request is first added to the internal list of waiting
+ * requests which have to be prepared to make sure they are ready for being
+ * queued to the pipeline handler.
+ *
+ * The queue of waiting requests is iterated and all prepared requests are
+ * passed to the pipeline handler in the same order they have been queued by
+ * calling this function.
+ *
+ * If a Request fails during the preparation phase or if the pipeline handler
+ * fails in queuing the request to the hardware the request is cancelled.
  *
  * Keeping track of queued requests ensures automatic completion of all requests
  * when the pipeline handler is stopped with stop(). Request completion shall be
@@ -311,16 +399,51 @@ void PipelineHandler::queueRequest(Request *request)
 {
 	LIBCAMERA_TRACEPOINT(request_queue, request);
 
-	Camera *camera = request->camera_;
+	waitingRequests_.push(request);
+
+	request->_d()->prepare(300ms);
+}
+
+/**
+ * \brief Queue one requests to the device
+ */
+void PipelineHandler::doQueueRequest(Request *request)
+{
+	LIBCAMERA_TRACEPOINT(request_device_queue, request);
+
+	Camera *camera = request->_d()->camera();
 	Camera::Private *data = camera->_d();
 	data->queuedRequests_.push_back(request);
 
-	request->sequence_ = data->requestSequence_++;
+	request->_d()->sequence_ = data->requestSequence_++;
+
+	if (request->_d()->cancelled_) {
+		completeRequest(request);
+		return;
+	}
 
 	int ret = queueRequestDevice(camera, request);
 	if (ret) {
-		request->cancel();
+		request->_d()->cancel();
 		completeRequest(request);
+	}
+}
+
+/**
+ * \brief Queue prepared requests to the device
+ *
+ * Iterate the list of waiting requests and queue them to the device one
+ * by one if they have been prepared.
+ */
+void PipelineHandler::doQueueRequests()
+{
+	while (!waitingRequests_.empty()) {
+		Request *request = waitingRequests_.front();
+		if (!request->_d()->prepared_)
+			break;
+
+		doQueueRequest(request);
+		waitingRequests_.pop();
 	}
 }
 
@@ -360,9 +483,9 @@ void PipelineHandler::queueRequest(Request *request)
  */
 bool PipelineHandler::completeBuffer(Request *request, FrameBuffer *buffer)
 {
-	Camera *camera = request->camera_;
+	Camera *camera = request->_d()->camera();
 	camera->bufferCompleted.emit(request, buffer);
-	return request->completeBuffer(buffer);
+	return request->_d()->completeBuffer(buffer);
 }
 
 /**
@@ -381,9 +504,9 @@ bool PipelineHandler::completeBuffer(Request *request, FrameBuffer *buffer)
  */
 void PipelineHandler::completeRequest(Request *request)
 {
-	Camera *camera = request->camera_;
+	Camera *camera = request->_d()->camera();
 
-	request->complete();
+	request->_d()->complete();
 
 	Camera::Private *data = camera->_d();
 
@@ -492,7 +615,7 @@ void PipelineHandler::disconnect()
 	 */
 	std::vector<std::weak_ptr<Camera>> cameras{ std::move(cameras_) };
 
-	for (std::weak_ptr<Camera> ptr : cameras) {
+	for (const std::weak_ptr<Camera> &ptr : cameras) {
 		std::shared_ptr<Camera> camera = ptr.lock();
 		if (!camera)
 			continue;
@@ -519,27 +642,25 @@ void PipelineHandler::disconnect()
  */
 
 /**
- * \class PipelineHandlerFactory
- * \brief Registration of PipelineHandler classes and creation of instances
+ * \class PipelineHandlerFactoryBase
+ * \brief Base class for pipeline handler factories
  *
- * To facilitate discovery and instantiation of PipelineHandler classes, the
- * PipelineHandlerFactory class maintains a registry of pipeline handler
- * classes. Each PipelineHandler subclass shall register itself using the
- * REGISTER_PIPELINE_HANDLER() macro, which will create a corresponding
- * instance of a PipelineHandlerFactory subclass and register it with the
- * static list of factories.
+ * The PipelineHandlerFactoryBase class is the base of all specializations of
+ * the PipelineHandlerFactory class template. It implements the factory
+ * registration, maintains a registry of factories, and provides access to the
+ * registered factories.
  */
 
 /**
- * \brief Construct a pipeline handler factory
+ * \brief Construct a pipeline handler factory base
  * \param[in] name Name of the pipeline handler class
  *
- * Creating an instance of the factory registers is with the global list of
+ * Creating an instance of the factory base registers it with the global list of
  * factories, accessible through the factories() function.
  *
  * The factory \a name is used for debug purpose and shall be unique.
  */
-PipelineHandlerFactory::PipelineHandlerFactory(const char *name)
+PipelineHandlerFactoryBase::PipelineHandlerFactoryBase(const char *name)
 	: name_(name)
 {
 	registerType(this);
@@ -552,15 +673,15 @@ PipelineHandlerFactory::PipelineHandlerFactory(const char *name)
  * \return A shared pointer to a new instance of the PipelineHandler subclass
  * corresponding to the factory
  */
-std::shared_ptr<PipelineHandler> PipelineHandlerFactory::create(CameraManager *manager)
+std::shared_ptr<PipelineHandler> PipelineHandlerFactoryBase::create(CameraManager *manager) const
 {
-	PipelineHandler *handler = createInstance(manager);
+	std::unique_ptr<PipelineHandler> handler = createInstance(manager);
 	handler->name_ = name_.c_str();
-	return std::shared_ptr<PipelineHandler>(handler);
+	return std::shared_ptr<PipelineHandler>(std::move(handler));
 }
 
 /**
- * \fn PipelineHandlerFactory::name()
+ * \fn PipelineHandlerFactoryBase::name()
  * \brief Retrieve the factory name
  * \return The factory name
  */
@@ -572,9 +693,10 @@ std::shared_ptr<PipelineHandler> PipelineHandlerFactory::create(CameraManager *m
  * The caller is responsible to guarantee the uniqueness of the pipeline handler
  * name.
  */
-void PipelineHandlerFactory::registerType(PipelineHandlerFactory *factory)
+void PipelineHandlerFactoryBase::registerType(PipelineHandlerFactoryBase *factory)
 {
-	std::vector<PipelineHandlerFactory *> &factories = PipelineHandlerFactory::factories();
+	std::vector<PipelineHandlerFactoryBase *> &factories =
+		PipelineHandlerFactoryBase::factories();
 
 	factories.push_back(factory);
 }
@@ -583,28 +705,47 @@ void PipelineHandlerFactory::registerType(PipelineHandlerFactory *factory)
  * \brief Retrieve the list of all pipeline handler factories
  * \return the list of pipeline handler factories
  */
-std::vector<PipelineHandlerFactory *> &PipelineHandlerFactory::factories()
+std::vector<PipelineHandlerFactoryBase *> &PipelineHandlerFactoryBase::factories()
 {
 	/*
 	 * The static factories map is defined inside the function to ensure
 	 * it gets initialized on first use, without any dependency on
 	 * link order.
 	 */
-	static std::vector<PipelineHandlerFactory *> factories;
+	static std::vector<PipelineHandlerFactoryBase *> factories;
 	return factories;
 }
 
 /**
- * \fn PipelineHandlerFactory::createInstance()
+ * \class PipelineHandlerFactory
+ * \brief Registration of PipelineHandler classes and creation of instances
+ * \tparam _PipelineHandler The pipeline handler class type for this factory
+ *
+ * To facilitate discovery and instantiation of PipelineHandler classes, the
+ * PipelineHandlerFactory class implements auto-registration of pipeline
+ * handlers. Each PipelineHandler subclass shall register itself using the
+ * REGISTER_PIPELINE_HANDLER() macro, which will create a corresponding
+ * instance of a PipelineHandlerFactory and register it with the static list of
+ * factories.
+ */
+
+/**
+ * \fn PipelineHandlerFactory::PipelineHandlerFactory(const char *name)
+ * \brief Construct a pipeline handler factory
+ * \param[in] name Name of the pipeline handler class
+ *
+ * Creating an instance of the factory registers it with the global list of
+ * factories, accessible through the factories() function.
+ *
+ * The factory \a name is used for debug purpose and shall be unique.
+ */
+
+/**
+ * \fn PipelineHandlerFactory::createInstance() const
  * \brief Create an instance of the PipelineHandler corresponding to the factory
  * \param[in] manager The camera manager
- *
- * This virtual function is implemented by the REGISTER_PIPELINE_HANDLER()
- * macro. It creates a pipeline handler instance associated with the camera
- * \a manager.
- *
- * \return a pointer to a newly constructed instance of the PipelineHandler
- * subclass corresponding to the factory
+ * \return A unique pointer to a newly constructed instance of the
+ * PipelineHandler subclass corresponding to the factory
  */
 
 /**

@@ -8,6 +8,7 @@
 #include "drm.h"
 
 #include <algorithm>
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <iostream>
@@ -376,6 +377,8 @@ int AtomicRequest::commit(unsigned int flags)
 		drmFlags |= DRM_MODE_ATOMIC_ALLOW_MODESET;
 	if (flags & FlagAsync)
 		drmFlags |= DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_NONBLOCK;
+	if (flags & FlagTestOnly)
+		drmFlags |= DRM_MODE_ATOMIC_TEST_ONLY;
 
 	return drmModeAtomicCommit(dev_->fd(), request_, drmFlags, this);
 }
@@ -393,24 +396,10 @@ Device::~Device()
 
 int Device::init()
 {
-	constexpr size_t NODE_NAME_MAX = sizeof("/dev/dri/card255");
-	char name[NODE_NAME_MAX];
-	int ret;
-
-	/*
-	 * Open the first DRM/KMS device. The libdrm drmOpen*() functions
-	 * require either a module name or a bus ID, which we don't have, so
-	 * bypass them. The automatic module loading and device node creation
-	 * from drmOpen() is of no practical use as any modern system will
-	 * handle that through udev or an equivalent component.
-	 */
-	snprintf(name, sizeof(name), "/dev/dri/card%u", 0);
-	fd_ = open(name, O_RDWR | O_CLOEXEC);
-	if (fd_ < 0) {
-		ret = -errno;
-		std::cerr
-			<< "Failed to open DRM/KMS device " << name << ": "
-			<< strerror(-ret) << std::endl;
+	int ret = openCard();
+	if (ret < 0) {
+		std::cerr << "Failed to open any DRM/KMS device: "
+			  << strerror(-ret) << std::endl;
 		return ret;
 	}
 
@@ -432,10 +421,71 @@ int Device::init()
 	if (ret < 0)
 		return ret;
 
-	EventLoop::instance()->addEvent(fd_, EventLoop::Read,
-					std::bind(&Device::drmEvent, this));
+	EventLoop::instance()->addFdEvent(fd_, EventLoop::Read,
+					  std::bind(&Device::drmEvent, this));
 
 	return 0;
+}
+
+int Device::openCard()
+{
+	const std::string dirName = "/dev/dri/";
+	bool found = false;
+	int ret;
+
+	/*
+	 * Open the first DRM/KMS device beginning with /dev/dri/card. The
+	 * libdrm drmOpen*() functions require either a module name or a bus ID,
+	 * which we don't have, so bypass them. The automatic module loading and
+	 * device node creation from drmOpen() is of no practical use as any
+	 * modern system will handle that through udev or an equivalent
+	 * component.
+	 */
+	DIR *folder = opendir(dirName.c_str());
+	if (!folder) {
+		ret = -errno;
+		std::cerr << "Failed to open " << dirName
+			  << " directory: " << strerror(-ret) << std::endl;
+		return ret;
+	}
+
+	for (struct dirent *res; (res = readdir(folder));) {
+		uint64_t cap;
+
+		if (strncmp(res->d_name, "card", 4))
+			continue;
+
+		const std::string devName = dirName + res->d_name;
+		fd_ = open(devName.c_str(), O_RDWR | O_CLOEXEC);
+		if (fd_ < 0) {
+			ret = -errno;
+			std::cerr << "Failed to open DRM/KMS device " << devName << ": "
+				  << strerror(-ret) << std::endl;
+			continue;
+		}
+
+		/*
+		 * Skip devices that don't support the modeset API, to avoid
+		 * selecting a DRM device corresponding to a GPU. There is no
+		 * modeset capability, but the kernel returns an error for most
+		 * caps if mode setting isn't support by the driver. The
+		 * DRM_CAP_DUMB_BUFFER capability is one of those, other would
+		 * do as well. The capability value itself isn't relevant.
+		 */
+		ret = drmGetCap(fd_, DRM_CAP_DUMB_BUFFER, &cap);
+		if (ret < 0) {
+			drmClose(fd_);
+			fd_ = -1;
+			continue;
+		}
+
+		found = true;
+		break;
+	}
+
+	closedir(folder);
+
+	return found ? 0 : -ENOENT;
 }
 
 int Device::getResources()
@@ -608,12 +658,12 @@ std::unique_ptr<FrameBuffer> Device::createFrameBuffer(
 
 	unsigned int i = 0;
 	for (const libcamera::FrameBuffer::Plane &plane : planes) {
-		int fd = plane.fd.fd();
+		int fd = plane.fd.get();
 		uint32_t handle;
 
 		auto iter = fb->planes_.find(fd);
 		if (iter == fb->planes_.end()) {
-			ret = drmPrimeFDToHandle(fd_, plane.fd.fd(), &handle);
+			ret = drmPrimeFDToHandle(fd_, plane.fd.get(), &handle);
 			if (ret < 0) {
 				ret = -errno;
 				std::cerr

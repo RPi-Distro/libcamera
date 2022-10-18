@@ -27,10 +27,12 @@ defined names and types without the need of prefixing them.
    #include <iomanip>
    #include <iostream>
    #include <memory>
+   #include <thread>
 
    #include <libcamera/libcamera.h>
 
    using namespace libcamera;
+   using namespace std::chrono_literals;
 
    int main()
    {
@@ -47,9 +49,9 @@ runs for the life of the application. When the Camera Manager starts, it
 enumerates all the cameras detected in the system. Behind the scenes, libcamera
 abstracts and manages the complex pipelines that kernel drivers expose through
 the `Linux Media Controller`_ and `Video for Linux`_ (V4L2) APIs, meaning that
-an application doesn’t need to handle device or driver specific details.
+an application doesn't need to handle device or driver specific details.
 
-.. _CameraManager: http://libcamera.org/api-html/classlibcamera_1_1CameraManager.html
+.. _CameraManager: https://libcamera.org/api-html/classlibcamera_1_1CameraManager.html
 .. _Linux Media Controller: https://www.kernel.org/doc/html/latest/media/uapi/mediactl/media-controller-intro.html
 .. _Video for Linux: https://www.linuxtv.org/docs.php
 
@@ -207,7 +209,7 @@ supported values.
 The ``validate`` function returns a `Status`_ which applications shall check to
 see if the Pipeline Handler adjusted the configuration.
 
-.. _Status: http://libcamera.org/api-html/classlibcamera_1_1CameraConfiguration.html#a64163f21db2fe1ce0a6af5a6f6847744
+.. _Status: https://libcamera.org/api-html/classlibcamera_1_1CameraConfiguration.html#a64163f21db2fe1ce0a6af5a6f6847744
 
 For example, the code above set the width and height to 640x480, but if the
 camera cannot produce an image that large, it might adjust the configuration to
@@ -236,8 +238,8 @@ applied to the system.
 
    camera->configure(config.get());
 
-If an application doesn’t first validate the configuration before calling
-``Camera::configure()``, there’s a chance that calling the function can fail, if
+If an application doesn't first validate the configuration before calling
+``Camera::configure()``, there's a chance that calling the function can fail, if
 the given configuration would have to be adjusted.
 
 Allocate FrameBuffers
@@ -259,7 +261,7 @@ of suitable buffers, for instance, when no other device is involved, or on Linux
 platforms that lack a centralized allocator. The ``FrameBufferAllocator`` class
 provides a buffer allocator an application can use in these situations.
 
-An application doesn’t have to use the default ``FrameBufferAllocator`` that
+An application doesn't have to use the default ``FrameBufferAllocator`` that
 libcamera provides. It can instead allocate memory manually and pass the buffers
 in ``Request``\s (read more about ``Request`` in `the frame capture section
 <#frame-capture>`_ of this guide). The example in this guide covers using the
@@ -308,7 +310,7 @@ the camera.
 
    Stream *stream = streamConfig.stream();
    const std::vector<std::unique_ptr<FrameBuffer>> &buffers = allocator->buffers(stream);
-   std::vector<Request *> requests;
+   std::vector<std::unique_ptr<Request>> requests;
 
 Proceed to fill the request vector by creating ``Request`` instances from the
 camera device, and associate a buffer for each of them for the ``Stream``.
@@ -316,7 +318,7 @@ camera device, and associate a buffer for each of them for the ``Stream``.
 .. code:: cpp
 
        for (unsigned int i = 0; i < buffers.size(); ++i) {
-           Request *request = camera->createRequest();
+           std::unique_ptr<Request> request = camera->createRequest();
            if (!request)
            {
                std::cerr << "Can't create request" << std::endl;
@@ -332,7 +334,7 @@ camera device, and associate a buffer for each of them for the ``Stream``.
                return ret;
            }
 
-           requests.push_back(request);
+           requests.push_back(std::move(request));
        }
 
 .. TODO: Controls
@@ -345,7 +347,7 @@ Event handling and callbacks
 The libcamera library uses the concept of `signals and slots` (similar to `Qt
 Signals and Slots`_) to connect events with callbacks to handle them.
 
-.. _signals and slots: http://libcamera.org/api-html/classlibcamera_1_1Signal.html#details
+.. _signals and slots: https://libcamera.org/api-html/classlibcamera_1_1Signal.html#details
 .. _Qt Signals and Slots: https://doc.qt.io/qt-5/signalsandslots.html
 
 The ``Camera`` device emits two signals that applications can connect to in
@@ -392,7 +394,7 @@ Create the ``requestComplete`` function by matching the slot signature:
 
 Request completion events can be emitted for requests which have been canceled,
 for example, by unexpected application shutdown. To avoid an application
-processing invalid image data, it’s worth checking that the request has
+processing invalid image data, it's worth checking that the request has
 completed successfully. The list of request completion statuses is available in
 the `Request::Status`_ class enum documentation.
 
@@ -410,7 +412,7 @@ images.
 
 .. code:: cpp
 
-   const std::map<Stream *, FrameBuffer *> &buffers = request->buffers();
+   const std::map<const Stream *, FrameBuffer *> &buffers = request->buffers();
 
 Iterating through the map allows applications to inspect each completed buffer
 in this request, and access the metadata associated to each frame.
@@ -418,7 +420,7 @@ in this request, and access the metadata associated to each frame.
 The metadata buffer contains information such the capture status, a timestamp,
 and the bytes used, as described in the `FrameMetadata`_ documentation.
 
-.. _FrameMetaData: http://libcamera.org/api-html/structlibcamera_1_1FrameMetadata.html
+.. _FrameMetaData: https://libcamera.org/api-html/structlibcamera_1_1FrameMetadata.html
 
 .. code:: cpp
 
@@ -480,26 +482,12 @@ libcamera repository.
 .. _FileSink class: https://git.libcamera.org/libcamera/libcamera.git/tree/src/cam/file_sink.cpp
 
 With the handling of this request completed, it is possible to re-use the
-buffers by adding them to a new ``Request`` instance with their matching
-streams, and finally, queue the new capture request to the camera device:
+request and the associated buffers and re-queue it to the camera
+device:
 
 .. code:: cpp
 
-   request = camera->createRequest();
-   if (!request)
-   {
-       std::cerr << "Can't create request" << std::endl;
-       return;
-   }
-
-   for (auto it = buffers.begin(); it != buffers.end(); ++it)
-   {
-       Stream *stream = it->first;
-       FrameBuffer *buffer = it->second;
-
-       request->addBuffer(stream, buffer);
-   }
-
+   request->reuse(Request::ReuseBuffers);
    camera->queueRequest(request);
 
 Request queueing
@@ -517,38 +505,30 @@ and queue all the previously created requests.
 .. code:: cpp
 
    camera->start();
-   for (Request *request : requests)
-       camera->queueRequest(request);
+   for (std::unique_ptr<Request> &request : requests)
+      camera->queueRequest(request.get());
 
-Start an event loop
-~~~~~~~~~~~~~~~~~~~
+Event processing
+~~~~~~~~~~~~~~~~
 
-The libcamera library needs an event loop to monitor and dispatch events
-generated by the video devices part of the capture pipeline. libcamera provides
-its own ``EventDispatcher`` class (inspired by the `Qt event system`_) to
-process and deliver events generated by ``EventNotifiers``.
+libcamera creates an internal execution thread at `CameraManager::start()`_
+time to decouple its own event processing from the application's main thread.
+Applications are thus free to manage their own execution opportunely, and only
+need to respond to events generated by libcamera emitted through signals.
 
-.. _Qt event system: https://doc.qt.io/qt-5/eventsandfilters.html
+.. _CameraManager::start(): https://libcamera.org/api-html/classlibcamera_1_1CameraManager.html#a49e322880a2a26013bb0076788b298c5
 
-The libcamera library implements this by creating instances of the
-``EventNotifier`` class, which models a file descriptor event source registered
-to an ``EventDispatcher``. Whenever the ``EventDispatcher`` detects an event on
-a notifier it is monitoring, it emits the notifier's
-``EventNotifier::activated`` signal. The libcamera components connect to the
-notifiers' signals and emit application visible events, such as the
-``Camera::bufferReady`` and ``Camera::requestCompleted`` signals.
-
-The code below retrieves a reference to the system-wide event dispatcher and for
-the a fixed duration of 3 seconds, processes all the events detected in the
-system.
+Real-world applications will likely either integrate with the event loop of the
+framework they use, or create their own event loop to respond to user events.
+For the simple application presented in this example, it is enough to prevent
+immediate termination by pausing for 3 seconds. During that time, the libcamera
+thread will generate request completion events that the application will handle
+in the ``requestComplete()`` slot connected to the ``Camera::requestCompleted``
+signal.
 
 .. code:: cpp
 
-   EventDispatcher *dispatcher = cm->eventDispatcher();
-   Timer timer;
-   timer.start(3000);
-   while (timer.isRunning())
-       dispatcher->processEvents();
+   std::this_thread::sleep_for(3000ms);
 
 Clean up and stop the application
 ---------------------------------

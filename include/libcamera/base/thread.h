@@ -4,11 +4,10 @@
  *
  * thread.h - Thread support
  */
-#ifndef __LIBCAMERA_BASE_THREAD_H__
-#define __LIBCAMERA_BASE_THREAD_H__
+
+#pragma once
 
 #include <memory>
-#include <mutex>
 #include <sys/types.h>
 #include <thread>
 
@@ -25,9 +24,6 @@ class Message;
 class Object;
 class ThreadData;
 class ThreadMain;
-
-using Mutex = std::mutex;
-using MutexLocker = std::unique_lock<std::mutex>;
 
 class Thread
 {
@@ -74,5 +70,3 @@ private:
 };
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_BASE_THREAD_H__ */

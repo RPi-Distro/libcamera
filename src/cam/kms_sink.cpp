@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <assert.h>
 #include <iostream>
+#include <limits.h>
 #include <memory>
 #include <stdint.h>
 #include <string.h>
@@ -112,16 +113,32 @@ int KMSSink::configure(const libcamera::CameraConfiguration &config)
 
 	const libcamera::StreamConfiguration &cfg = config.at(0);
 
+	/* Find the best mode for the stream size. */
 	const std::vector<DRM::Mode> &modes = connector_->modes();
-	const auto iter = std::find_if(modes.begin(), modes.end(),
-				       [&](const DRM::Mode &mode) {
-					       return mode.hdisplay == cfg.size.width &&
-						      mode.vdisplay == cfg.size.height;
-				       });
-	if (iter == modes.end()) {
-		std::cerr
-			<< "No mode matching " << cfg.size.toString()
-			<< std::endl;
+
+	unsigned int cfgArea = cfg.size.width * cfg.size.height;
+	unsigned int bestDistance = UINT_MAX;
+
+	for (const DRM::Mode &mode : modes) {
+		unsigned int modeArea = mode.hdisplay * mode.vdisplay;
+		unsigned int distance = modeArea > cfgArea ? modeArea - cfgArea
+				      : cfgArea - modeArea;
+
+		if (distance < bestDistance) {
+			mode_ = &mode;
+			bestDistance = distance;
+
+			/*
+			 * If the sizes match exactly, there will be no better
+			 * match.
+			 */
+			if (distance == 0)
+				break;
+		}
+	}
+
+	if (!mode_) {
+		std::cerr << "No modes\n";
 		return -EINVAL;
 	}
 
@@ -129,14 +146,88 @@ int KMSSink::configure(const libcamera::CameraConfiguration &config)
 	if (ret < 0)
 		return ret;
 
-	mode_ = &*iter;
 	size_ = cfg.size;
 	stride_ = cfg.stride;
+
+	/* Configure color space. */
+	colorEncoding_ = std::nullopt;
+	colorRange_ = std::nullopt;
+
+	if (cfg.colorSpace->ycbcrEncoding == libcamera::ColorSpace::YcbcrEncoding::None)
+		return 0;
+
+	/*
+	 * The encoding and range enums are defined in the kernel but not
+	 * exposed in public headers.
+	 */
+	enum drm_color_encoding {
+		DRM_COLOR_YCBCR_BT601,
+		DRM_COLOR_YCBCR_BT709,
+		DRM_COLOR_YCBCR_BT2020,
+	};
+
+	enum drm_color_range {
+		DRM_COLOR_YCBCR_LIMITED_RANGE,
+		DRM_COLOR_YCBCR_FULL_RANGE,
+	};
+
+	const DRM::Property *colorEncoding = plane_->property("COLOR_ENCODING");
+	const DRM::Property *colorRange = plane_->property("COLOR_RANGE");
+
+	if (colorEncoding) {
+		drm_color_encoding encoding;
+
+		switch (cfg.colorSpace->ycbcrEncoding) {
+		case libcamera::ColorSpace::YcbcrEncoding::Rec601:
+		default:
+			encoding = DRM_COLOR_YCBCR_BT601;
+			break;
+		case libcamera::ColorSpace::YcbcrEncoding::Rec709:
+			encoding = DRM_COLOR_YCBCR_BT709;
+			break;
+		case libcamera::ColorSpace::YcbcrEncoding::Rec2020:
+			encoding = DRM_COLOR_YCBCR_BT2020;
+			break;
+		}
+
+		for (const auto &[id, name] : colorEncoding->enums()) {
+			if (id == encoding) {
+				colorEncoding_ = encoding;
+				break;
+			}
+		}
+	}
+
+	if (colorRange) {
+		drm_color_range range;
+
+		switch (cfg.colorSpace->range) {
+		case libcamera::ColorSpace::Range::Limited:
+		default:
+			range = DRM_COLOR_YCBCR_LIMITED_RANGE;
+			break;
+		case libcamera::ColorSpace::Range::Full:
+			range = DRM_COLOR_YCBCR_FULL_RANGE;
+			break;
+		}
+
+		for (const auto &[id, name] : colorRange->enums()) {
+			if (id == range) {
+				colorRange_ = range;
+				break;
+			}
+		}
+	}
+
+	if (!colorEncoding_ || !colorRange_)
+		std::cerr << "Color space " << cfg.colorSpace->toString()
+			  << " not supported by the display device."
+			  << " Colors may be wrong." << std::endl;
 
 	return 0;
 }
 
-int KMSSink::configurePipeline(const libcamera::PixelFormat &format)
+int KMSSink::selectPipeline(const libcamera::PixelFormat &format)
 {
 	/*
 	 * If the requested format has an alpha channel, also consider the X
@@ -174,31 +265,38 @@ int KMSSink::configurePipeline(const libcamera::PixelFormat &format)
 					crtc_ = crtc;
 					plane_ = plane;
 					format_ = format;
-					break;
+					return 0;
 				}
 
 				if (plane->supportsFormat(xFormat)) {
 					crtc_ = crtc;
 					plane_ = plane;
 					format_ = xFormat;
-					break;
+					return 0;
 				}
 			}
 		}
 	}
 
-	if (!crtc_) {
+	return -EPIPE;
+}
+
+int KMSSink::configurePipeline(const libcamera::PixelFormat &format)
+{
+	const int ret = selectPipeline(format);
+	if (ret) {
 		std::cerr
 			<< "Unable to find display pipeline for format "
-			<< format.toString() << std::endl;
+			<< format << std::endl;
 
-		return -EPIPE;
+		return ret;
 	}
 
 	std::cout
 		<< "Using KMS plane " << plane_->id() << ", CRTC " << crtc_->id()
 		<< ", connector " << connector_->name()
-		<< " (" << connector_->id() << ")" << std::endl;
+		<< " (" << connector_->id() << "), mode " << mode_->hdisplay
+		<< "x" << mode_->vdisplay << "@" << mode_->vrefresh << std::endl;
 
 	return 0;
 }
@@ -261,6 +359,94 @@ int KMSSink::stop()
 	return FrameSink::stop();
 }
 
+bool KMSSink::testModeSet(DRM::FrameBuffer *drmBuffer,
+			  const libcamera::Rectangle &src,
+			  const libcamera::Rectangle &dst)
+{
+	DRM::AtomicRequest drmRequest{ &dev_ };
+
+	drmRequest.addProperty(connector_, "CRTC_ID", crtc_->id());
+
+	drmRequest.addProperty(crtc_, "ACTIVE", 1);
+	drmRequest.addProperty(crtc_, "MODE_ID", mode_->toBlob(&dev_));
+
+	drmRequest.addProperty(plane_, "CRTC_ID", crtc_->id());
+	drmRequest.addProperty(plane_, "FB_ID", drmBuffer->id());
+	drmRequest.addProperty(plane_, "SRC_X", src.x << 16);
+	drmRequest.addProperty(plane_, "SRC_Y", src.y << 16);
+	drmRequest.addProperty(plane_, "SRC_W", src.width << 16);
+	drmRequest.addProperty(plane_, "SRC_H", src.height << 16);
+	drmRequest.addProperty(plane_, "CRTC_X", dst.x);
+	drmRequest.addProperty(plane_, "CRTC_Y", dst.y);
+	drmRequest.addProperty(plane_, "CRTC_W", dst.width);
+	drmRequest.addProperty(plane_, "CRTC_H", dst.height);
+
+	return !drmRequest.commit(DRM::AtomicRequest::FlagAllowModeset |
+				  DRM::AtomicRequest::FlagTestOnly);
+}
+
+bool KMSSink::setupComposition(DRM::FrameBuffer *drmBuffer)
+{
+	/*
+	 * Test composition options, from most to least desirable, to select the
+	 * best one.
+	 */
+	const libcamera::Rectangle framebuffer{ size_ };
+	const libcamera::Rectangle display{ 0, 0, mode_->hdisplay, mode_->vdisplay };
+
+	/* 1. Scale the frame buffer to full screen, preserving aspect ratio. */
+	libcamera::Rectangle src = framebuffer;
+	libcamera::Rectangle dst = display.size().boundedToAspectRatio(framebuffer.size())
+						 .centeredTo(display.center());
+
+	if (testModeSet(drmBuffer, src, dst)) {
+		std::cout << "KMS: full-screen scaled output, square pixels"
+			  << std::endl;
+		src_ = src;
+		dst_ = dst;
+		return true;
+	}
+
+	/*
+	 * 2. Scale the frame buffer to full screen, without preserving aspect
+	 *    ratio.
+	 */
+	src = framebuffer;
+	dst = display;
+
+	if (testModeSet(drmBuffer, src, dst)) {
+		std::cout << "KMS: full-screen scaled output, non-square pixels"
+			  << std::endl;
+		src_ = src;
+		dst_ = dst;
+		return true;
+	}
+
+	/* 3. Center the frame buffer on the display. */
+	src = display.size().centeredTo(framebuffer.center()).boundedTo(framebuffer);
+	dst = framebuffer.size().centeredTo(display.center()).boundedTo(display);
+
+	if (testModeSet(drmBuffer, src, dst)) {
+		std::cout << "KMS: centered output" << std::endl;
+		src_ = src;
+		dst_ = dst;
+		return true;
+	}
+
+	/* 4. Align the frame buffer on the top-left of the display. */
+	src = framebuffer.boundedTo(display);
+	dst = display.boundedTo(framebuffer);
+
+	if (testModeSet(drmBuffer, src, dst)) {
+		std::cout << "KMS: top-left aligned output" << std::endl;
+		src_ = src;
+		dst_ = dst;
+		return true;
+	}
+
+	return false;
+}
+
 bool KMSSink::processRequest(libcamera::Request *camRequest)
 {
 	/*
@@ -278,35 +464,46 @@ bool KMSSink::processRequest(libcamera::Request *camRequest)
 	DRM::FrameBuffer *drmBuffer = iter->second.get();
 
 	unsigned int flags = DRM::AtomicRequest::FlagAsync;
-	DRM::AtomicRequest *drmRequest = new DRM::AtomicRequest(&dev_);
+	std::unique_ptr<DRM::AtomicRequest> drmRequest =
+		std::make_unique<DRM::AtomicRequest>(&dev_);
 	drmRequest->addProperty(plane_, "FB_ID", drmBuffer->id());
 
 	if (!active_ && !queued_) {
 		/* Enable the display pipeline on the first frame. */
+		if (!setupComposition(drmBuffer)) {
+			std::cerr << "Failed to setup composition" << std::endl;
+			return true;
+		}
+
 		drmRequest->addProperty(connector_, "CRTC_ID", crtc_->id());
 
 		drmRequest->addProperty(crtc_, "ACTIVE", 1);
 		drmRequest->addProperty(crtc_, "MODE_ID", mode_->toBlob(&dev_));
 
 		drmRequest->addProperty(plane_, "CRTC_ID", crtc_->id());
-		drmRequest->addProperty(plane_, "SRC_X", 0 << 16);
-		drmRequest->addProperty(plane_, "SRC_Y", 0 << 16);
-		drmRequest->addProperty(plane_, "SRC_W", mode_->hdisplay << 16);
-		drmRequest->addProperty(plane_, "SRC_H", mode_->vdisplay << 16);
-		drmRequest->addProperty(plane_, "CRTC_X", 0);
-		drmRequest->addProperty(plane_, "CRTC_Y", 0);
-		drmRequest->addProperty(plane_, "CRTC_W", mode_->hdisplay);
-		drmRequest->addProperty(plane_, "CRTC_H", mode_->vdisplay);
+		drmRequest->addProperty(plane_, "SRC_X", src_.x << 16);
+		drmRequest->addProperty(plane_, "SRC_Y", src_.y << 16);
+		drmRequest->addProperty(plane_, "SRC_W", src_.width << 16);
+		drmRequest->addProperty(plane_, "SRC_H", src_.height << 16);
+		drmRequest->addProperty(plane_, "CRTC_X", dst_.x);
+		drmRequest->addProperty(plane_, "CRTC_Y", dst_.y);
+		drmRequest->addProperty(plane_, "CRTC_W", dst_.width);
+		drmRequest->addProperty(plane_, "CRTC_H", dst_.height);
+
+		if (colorEncoding_)
+			drmRequest->addProperty(plane_, "COLOR_ENCODING", *colorEncoding_);
+		if (colorRange_)
+			drmRequest->addProperty(plane_, "COLOR_RANGE", *colorRange_);
 
 		flags |= DRM::AtomicRequest::FlagAllowModeset;
 	}
 
-	pending_ = std::make_unique<Request>(drmRequest, camRequest);
+	pending_ = std::make_unique<Request>(std::move(drmRequest), camRequest);
 
 	std::lock_guard<std::mutex> lock(lock_);
 
 	if (!queued_) {
-		int ret = drmRequest->commit(flags);
+		int ret = pending_->drmRequest_->commit(flags);
 		if (ret < 0) {
 			std::cerr
 				<< "Failed to commit atomic request: "

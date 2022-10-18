@@ -4,8 +4,8 @@
  *
  * agc.h - IPU3 AGC/AEC mean-based control algorithm
  */
-#ifndef __LIBCAMERA_IPU3_ALGORITHMS_AGC_H__
-#define __LIBCAMERA_IPU3_ALGORITHMS_AGC_H__
+
+#pragma once
 
 #include <linux/intel-ipu3.h>
 
@@ -28,29 +28,30 @@ public:
 	~Agc() = default;
 
 	int configure(IPAContext &context, const IPAConfigInfo &configInfo) override;
-	void process(IPAContext &context, const ipu3_uapi_stats_3a *stats) override;
+	void process(IPAContext &context, const uint32_t frame,
+		     IPAFrameContext &frameContext,
+		     const ipu3_uapi_stats_3a *stats) override;
 
 private:
-	void measureBrightness(const ipu3_uapi_stats_3a *stats,
-			       const ipu3_uapi_grid_config &grid);
-	void filterExposure();
-	void computeExposure(uint32_t &exposure, double &gain);
+	double measureBrightness(const ipu3_uapi_stats_3a *stats,
+				 const ipu3_uapi_grid_config &grid) const;
+	utils::Duration filterExposure(utils::Duration currentExposure);
+	void computeExposure(IPAContext &context, IPAFrameContext &frameContext,
+			     double yGain, double iqMeanGain);
+	double estimateLuminance(IPAActiveState &activeState,
+				 const ipu3_uapi_grid_config &grid,
+				 const ipu3_uapi_stats_3a *stats,
+				 double gain);
 
 	uint64_t frameCount_;
-	uint64_t lastFrame_;
 
-	double iqMean_;
-
-	utils::Duration lineDuration_;
-	uint32_t minExposureLines_;
-	uint32_t maxExposureLines_;
+	utils::Duration minShutterSpeed_;
+	utils::Duration maxShutterSpeed_;
 
 	double minAnalogueGain_;
 	double maxAnalogueGain_;
 
 	utils::Duration filteredExposure_;
-	utils::Duration currentExposure_;
-	utils::Duration prevExposureValue_;
 
 	uint32_t stride_;
 };
@@ -58,5 +59,3 @@ private:
 } /* namespace ipa::ipu3::algorithms */
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_IPU3_ALGORITHMS_AGC_H__ */

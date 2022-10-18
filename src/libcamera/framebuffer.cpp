@@ -8,7 +8,10 @@
 #include <libcamera/framebuffer.h>
 #include "libcamera/internal/framebuffer.h"
 
+#include <sys/stat.h>
+
 #include <libcamera/base/log.h>
+#include <libcamera/base/shared_fd.h>
 
 /**
  * \file libcamera/framebuffer.h
@@ -27,7 +30,7 @@ LOG_DEFINE_CATEGORY(Buffer)
  * \brief Metadata related to a captured frame
  *
  * The FrameMetadata structure stores all metadata related to a captured frame,
- * as stored in a FrameBuffer, such as capture status, timestamp and bytesused.
+ * as stored in a FrameBuffer, such as capture status, timestamp and bytes used.
  */
 
 /**
@@ -111,8 +114,22 @@ LOG_DEFINE_CATEGORY(Buffer)
  * pipeline handlers.
  */
 
-FrameBuffer::Private::Private()
-	: request_(nullptr), isContiguous_(true)
+/**
+ * \brief Construct a FrameBuffer::Private instance
+ * \param[in] planes The frame memory planes
+ * \param[in] cookie Cookie
+ */
+FrameBuffer::Private::Private(const std::vector<Plane> &planes, uint64_t cookie)
+	: planes_(planes), cookie_(cookie), request_(nullptr),
+	  isContiguous_(true)
+{
+	metadata_.planes_.resize(planes_.size());
+}
+
+/**
+ * \brief FrameBuffer::Private destructor
+ */
+FrameBuffer::Private::~Private()
 {
 }
 
@@ -135,6 +152,59 @@ FrameBuffer::Private::Private()
  * these two categories the frame buffer belongs.
  *
  * \return True if the planes are stored contiguously in memory, false otherwise
+ */
+
+/**
+ * \fn FrameBuffer::Private::fence()
+ * \brief Retrieve a const pointer to the Fence
+ *
+ * This function does only return a reference to the the fence and does not
+ * change its ownership. The fence is stored in the FrameBuffer and can only be
+ * reset with FrameBuffer::releaseFence() in case the buffer has completed with
+ * error due to a Fence wait failure.
+ *
+ * If buffer with a Fence completes with errors due to a failure in handling
+ * the fence, applications are responsible for releasing the Fence before
+ * calling Request::addBuffer() again.
+ *
+ * \sa Request::addBuffer()
+ *
+ * \return A const pointer to the Fence if any, nullptr otherwise
+ */
+
+/**
+ * \fn FrameBuffer::Private::setFence()
+ * \brief Move a \a fence in this buffer
+ * \param[in] fence The Fence
+ *
+ * This function associates a Fence with this Framebuffer. The intended caller
+ * is the Request::addBuffer() function.
+ *
+ * Once a FrameBuffer is associated with a Fence, the FrameBuffer will only be
+ * made available to the hardware device once the Fence has been correctly
+ * signalled.
+ *
+ * \sa Request::prepare()
+ *
+ * If the FrameBuffer completes successfully the core releases the Fence and the
+ * Buffer can be reused immediately. If handling of the Fence fails during the
+ * request preparation, the Fence is not released and is left in the
+ * FrameBuffer. It is applications responsibility to correctly release the
+ * fence and handle it opportunely before using the buffer again.
+ */
+
+/**
+ * \fn FrameBuffer::Private::cancel()
+ * \brief Marks the buffer as cancelled
+ *
+ * If a buffer is not used by a request, it shall be marked as cancelled to
+ * indicate that the metadata is invalid.
+ */
+
+/**
+ * \fn FrameBuffer::Private::metadata()
+ * \brief Retrieve the dynamic metadata
+ * \return Dynamic metadata for the frame contained in the buffer
  */
 
 /**
@@ -179,9 +249,9 @@ FrameBuffer::Private::Private()
  * offset and length.
  *
  * To support DMA access, planes are associated with dmabuf objects represented
- * by FileDescriptor handles. The Plane class doesn't handle mapping of the
- * memory to the CPU, but applications and IPAs may use the dmabuf file
- * descriptors to map the plane memory with mmap() and access its contents.
+ * by SharedFD handles. The Plane class doesn't handle mapping of the memory to
+ * the CPU, but applications and IPAs may use the dmabuf file descriptors to map
+ * the plane memory with mmap() and access its contents.
  *
  * \todo Specify how an application shall decide whether to use a single or
  * multiple dmabufs, based on the camera requirements.
@@ -207,22 +277,49 @@ FrameBuffer::Private::Private()
  * \brief The plane length in bytes
  */
 
+namespace {
+
+ino_t fileDescriptorInode(const SharedFD &fd)
+{
+	if (!fd.isValid())
+		return 0;
+
+	struct stat st;
+	int ret = fstat(fd.get(), &st);
+	if (ret < 0) {
+		ret = -errno;
+		LOG(Buffer, Fatal)
+			<< "Failed to fstat() fd: " << strerror(-ret);
+		return 0;
+	}
+
+	return st.st_ino;
+}
+
+} /* namespace */
+
 /**
  * \brief Construct a FrameBuffer with an array of planes
  * \param[in] planes The frame memory planes
  * \param[in] cookie Cookie
  */
 FrameBuffer::FrameBuffer(const std::vector<Plane> &planes, unsigned int cookie)
-	: Extensible(std::make_unique<Private>()), planes_(planes),
-	  cookie_(cookie)
+	: FrameBuffer(std::make_unique<Private>(planes, cookie))
 {
-	metadata_.planes_.resize(planes_.size());
+}
 
+/**
+ * \brief Construct a FrameBuffer with an extensible private class
+ * \param[in] d The extensible private class
+ */
+FrameBuffer::FrameBuffer(std::unique_ptr<Private> d)
+	: Extensible(std::move(d))
+{
 	unsigned int offset = 0;
 	bool isContiguous = true;
 	ino_t inode = 0;
 
-	for (const auto &plane : planes_) {
+	for (const auto &plane : _d()->planes_) {
 		ASSERT(plane.offset != Plane::kInvalidOffset);
 
 		if (plane.offset != offset) {
@@ -234,10 +331,10 @@ FrameBuffer::FrameBuffer(const std::vector<Plane> &planes, unsigned int cookie)
 		 * Two different dmabuf file descriptors may still refer to the
 		 * same dmabuf instance. Check this using inodes.
 		 */
-		if (plane.fd.fd() != planes_[0].fd.fd()) {
+		if (plane.fd != _d()->planes_[0].fd) {
 			if (!inode)
-				inode = planes_[0].fd.inode();
-			if (plane.fd.inode() != inode) {
+				inode = fileDescriptorInode(_d()->planes_[0].fd);
+			if (fileDescriptorInode(plane.fd) != inode) {
 				isContiguous = false;
 				break;
 			}
@@ -253,10 +350,13 @@ FrameBuffer::FrameBuffer(const std::vector<Plane> &planes, unsigned int cookie)
 }
 
 /**
- * \fn FrameBuffer::planes()
  * \brief Retrieve the static plane descriptors
  * \return Array of plane descriptors
  */
+const std::vector<FrameBuffer::Plane> &FrameBuffer::planes() const
+{
+	return _d()->planes_;
+}
 
 /**
  * \brief Retrieve the request this buffer belongs to
@@ -277,13 +377,15 @@ Request *FrameBuffer::request() const
 }
 
 /**
- * \fn FrameBuffer::metadata()
  * \brief Retrieve the dynamic metadata
  * \return Dynamic metadata for the frame contained in the buffer
  */
+const FrameMetadata &FrameBuffer::metadata() const
+{
+	return _d()->metadata_;
+}
 
 /**
- * \fn FrameBuffer::cookie()
  * \brief Retrieve the cookie
  *
  * The cookie belongs to the creator of the FrameBuffer, which controls its
@@ -293,9 +395,12 @@ Request *FrameBuffer::request() const
  *
  * \return The cookie
  */
+uint64_t FrameBuffer::cookie() const
+{
+	return _d()->cookie_;
+}
 
 /**
- * \fn FrameBuffer::setCookie()
  * \brief Set the cookie
  * \param[in] cookie Cookie to set
  *
@@ -304,13 +409,28 @@ Request *FrameBuffer::request() const
  * modify the cookie value of buffers they haven't created themselves. The
  * libcamera core never modifies the buffer cookie.
  */
+void FrameBuffer::setCookie(uint64_t cookie)
+{
+	_d()->cookie_ = cookie;
+}
 
 /**
- * \fn FrameBuffer::cancel()
- * \brief Marks the buffer as cancelled
+ * \brief Extract the Fence associated with this Framebuffer
  *
- * If a buffer is not used by a request, it shall be marked as cancelled to
- * indicate that the metadata is invalid.
+ * This function moves the buffer's fence ownership to the caller.
+ * After the fence has been released, calling this function always return
+ * nullptr.
+ *
+ * If buffer with a Fence completes with errors due to a failure in handling
+ * the fence, applications are responsible for releasing the Fence before
+ * calling Request::addBuffer() again.
+ *
+ * \return A unique pointer to the Fence if set, or nullptr if the fence has
+ * been released already
  */
+std::unique_ptr<Fence> FrameBuffer::releaseFence()
+{
+	return std::move(_d()->fence_);
+}
 
 } /* namespace libcamera */

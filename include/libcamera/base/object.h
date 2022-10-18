@@ -4,8 +4,8 @@
  *
  * object.h - Base object
  */
-#ifndef __LIBCAMERA_BASE_OBJECT_H__
-#define __LIBCAMERA_BASE_OBJECT_H__
+
+#pragma once
 
 #include <list>
 #include <memory>
@@ -32,9 +32,9 @@ public:
 	void postMessage(std::unique_ptr<Message> msg);
 
 	template<typename T, typename R, typename... FuncArgs, typename... Args,
-		 typename std::enable_if_t<std::is_base_of<Object, T>::value> * = nullptr>
+		 std::enable_if_t<std::is_base_of<Object, T>::value> * = nullptr>
 	R invokeMethod(R (T::*func)(FuncArgs...), ConnectionType type,
-		       Args... args)
+		       Args&&... args)
 	{
 		T *obj = static_cast<T *>(this);
 		auto *method = new BoundMethodMember<T, R, FuncArgs...>(obj, this, func, type);
@@ -67,5 +67,3 @@ private:
 };
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_BASE_OBJECT_H__ */

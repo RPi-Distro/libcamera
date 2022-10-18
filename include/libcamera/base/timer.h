@@ -4,8 +4,8 @@
  *
  * timer.h - Generic timer
  */
-#ifndef __LIBCAMERA_BASE_TIMER_H__
-#define __LIBCAMERA_BASE_TIMER_H__
+
+#pragma once
 
 #include <chrono>
 #include <stdint.h>
@@ -25,7 +25,6 @@ public:
 	Timer(Object *parent = nullptr);
 	~Timer();
 
-	void start(unsigned int msec) { start(std::chrono::milliseconds(msec)); }
 	void start(std::chrono::milliseconds duration);
 	void start(std::chrono::steady_clock::time_point deadline);
 	void stop();
@@ -47,5 +46,3 @@ private:
 };
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_BASE_TIMER_H__ */

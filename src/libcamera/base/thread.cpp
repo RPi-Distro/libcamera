@@ -8,7 +8,6 @@
 #include <libcamera/base/thread.h>
 
 #include <atomic>
-#include <condition_variable>
 #include <list>
 #include <sys/syscall.h>
 #include <sys/types.h>
@@ -18,6 +17,7 @@
 #include <libcamera/base/event_dispatcher_poll.h>
 #include <libcamera/base/log.h>
 #include <libcamera/base/message.h>
+#include <libcamera/base/mutex.h>
 
 /**
  * \page thread Thread Support
@@ -158,7 +158,7 @@ private:
 
 	std::atomic<EventDispatcher *> dispatcher_;
 
-	std::condition_variable cv_;
+	ConditionVariable cv_;
 	std::atomic<bool> exit_;
 	int exitCode_;
 
@@ -204,16 +204,6 @@ ThreadData *ThreadData::current()
 	currentThreadData = data;
 	return data;
 }
-
-/**
- * \typedef Mutex
- * \brief An alias for std::mutex
- */
-
-/**
- * \typedef MutexLocker
- * \brief An alias for std::unique_lock<std::mutex>
- */
 
 /**
  * \class Thread

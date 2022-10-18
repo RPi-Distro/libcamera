@@ -5,8 +5,9 @@
  * v4l2_camera_file.h - V4L2 compatibility camera file information
  */
 
-#ifndef __V4L2_CAMERA_FILE_H__
-#define __V4L2_CAMERA_FILE_H__
+#pragma once
+
+#include <string>
 
 #include <linux/videodev2.h>
 
@@ -15,7 +16,8 @@ class V4L2CameraProxy;
 class V4L2CameraFile
 {
 public:
-	V4L2CameraFile(int efd, bool nonBlocking, V4L2CameraProxy *proxy);
+	V4L2CameraFile(int dirfd, const char *path, int efd, bool nonBlocking,
+		       V4L2CameraProxy *proxy);
 	~V4L2CameraFile();
 
 	V4L2CameraProxy *proxy() const { return proxy_; }
@@ -26,12 +28,13 @@ public:
 	enum v4l2_priority priority() const { return priority_; }
 	void setPriority(enum v4l2_priority priority) { priority_ = priority; }
 
+	const std::string &description() const;
+
 private:
 	V4L2CameraProxy *proxy_;
 
+	std::string description_;
 	bool nonBlocking_;
 	int efd_;
 	enum v4l2_priority priority_;
 };
-
-#endif /* __V4L2_CAMERA_FILE_H__ */

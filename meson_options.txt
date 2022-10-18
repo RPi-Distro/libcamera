@@ -47,6 +47,7 @@ option('qcam',
 
 option('test',
         type : 'boolean',
+        value : false,
         description: 'Compile and include the tests')
 
 option('tracing',
@@ -58,3 +59,8 @@ option('v4l2',
         type : 'boolean',
         value : false,
         description : 'Compile the V4L2 compatibility layer')
+
+option('pycamera',
+        type : 'feature',
+        value : 'disabled',
+        description : 'Enable libcamera Python bindings (experimental)')

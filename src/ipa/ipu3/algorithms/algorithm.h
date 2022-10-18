@@ -4,29 +4,19 @@
  *
  * algorithm.h - IPU3 control algorithm interface
  */
-#ifndef __LIBCAMERA_IPA_IPU3_ALGORITHM_H__
-#define __LIBCAMERA_IPA_IPU3_ALGORITHM_H__
 
-#include <libcamera/ipa/ipu3_ipa_interface.h>
+#pragma once
 
-#include "ipa_context.h"
+#include <libipa/algorithm.h>
+
+#include "module.h"
 
 namespace libcamera {
 
 namespace ipa::ipu3 {
 
-class Algorithm
-{
-public:
-	virtual ~Algorithm() {}
-
-	virtual int configure(IPAContext &context, const IPAConfigInfo &configInfo);
-	virtual void prepare(IPAContext &context, ipu3_uapi_params *params);
-	virtual void process(IPAContext &context, const ipu3_uapi_stats_3a *stats);
-};
+using Algorithm = libcamera::ipa::Algorithm<Module>;
 
 } /* namespace ipa::ipu3 */
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_IPA_IPU3_ALGORITHM_H__ */

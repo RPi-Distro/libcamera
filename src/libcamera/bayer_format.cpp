@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 /*
- * Copyright (C) 2020, Raspberry Pi (Trading) Limited
+ * Copyright (C) 2020, Raspberry Pi Ltd
  *
  * bayer_format.cpp - Class to represent Bayer formats
  */
@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <map>
+#include <sstream>
 #include <unordered_map>
 
 #include <linux/media-bus-format.h>
@@ -190,6 +191,7 @@ const std::unordered_map<unsigned int, BayerFormat> mbusCodeToBayer{
 	{ MEDIA_BUS_FMT_SRGGB16_1X16, { BayerFormat::RGGB, 16, BayerFormat::Packing::None } },
 	{ MEDIA_BUS_FMT_Y8_1X8, { BayerFormat::MONO, 8, BayerFormat::Packing::None } },
 	{ MEDIA_BUS_FMT_Y10_1X10, { BayerFormat::MONO, 10, BayerFormat::Packing::None } },
+	{ MEDIA_BUS_FMT_Y12_1X12, { BayerFormat::MONO, 12, BayerFormat::Packing::None } },
 };
 
 } /* namespace */
@@ -236,28 +238,10 @@ const BayerFormat &BayerFormat::fromMbusCode(unsigned int mbusCode)
  */
 std::string BayerFormat::toString() const
 {
-	std::string result;
+	std::stringstream ss;
+	ss << *this;
 
-	static const char *orderStrings[] = {
-		"BGGR",
-		"GBRG",
-		"GRBG",
-		"RGGB",
-		"MONO"
-	};
-	if (isValid() && order <= MONO)
-		result = orderStrings[order];
-	else
-		return "INVALID";
-
-	result += "-" + std::to_string(bitDepth);
-
-	if (packing == Packing::CSI2)
-		result += "-CSI2P";
-	else if (packing == Packing::IPU3)
-		result += "-IPU3P";
-
-	return result;
+	return ss.str();
 }
 
 /**
@@ -268,6 +252,38 @@ bool operator==(const BayerFormat &lhs, const BayerFormat &rhs)
 {
 	return lhs.order == rhs.order && lhs.bitDepth == rhs.bitDepth &&
 	       lhs.packing == rhs.packing;
+}
+
+/**
+ * \brief Insert a text representation of a BayerFormats into an output stream
+ * \param[in] out The output stream
+ * \param[in] f The BayerFormat
+ * \return The output stream \a out
+ */
+std::ostream &operator<<(std::ostream &out, const BayerFormat &f)
+{
+	static const char *orderStrings[] = {
+		"BGGR-",
+		"GBRG-",
+		"GRBG-",
+		"RGGB-",
+		"MONO-"
+	};
+
+	if (!f.isValid() || f.order > BayerFormat::MONO) {
+		out << "INVALID";
+		return out;
+	}
+
+	/* The cast is required to avoid bitDepth being interpreted as a char. */
+	out << orderStrings[f.order] << static_cast<unsigned int>(f.bitDepth);
+
+	if (f.packing == BayerFormat::Packing::CSI2)
+		out << "-CSI2P";
+	else if (f.packing == BayerFormat::Packing::IPU3)
+		out << "-IPU3P";
+
+	return out;
 }
 
 /**

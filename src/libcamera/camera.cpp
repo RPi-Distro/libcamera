@@ -14,13 +14,16 @@
 #include <libcamera/base/log.h>
 #include <libcamera/base/thread.h>
 
+#include <libcamera/color_space.h>
 #include <libcamera/framebuffer_allocator.h>
 #include <libcamera/request.h>
 #include <libcamera/stream.h>
 
 #include "libcamera/internal/camera.h"
 #include "libcamera/internal/camera_controls.h"
+#include "libcamera/internal/formats.h"
 #include "libcamera/internal/pipeline_handler.h"
+#include "libcamera/internal/request.h"
 
 /**
  * \file libcamera/camera.h
@@ -181,12 +184,12 @@ void CameraConfiguration::addConfiguration(const StreamConfiguration &cfg)
  * This function adjusts the camera configuration to the closest valid
  * configuration and returns the validation status.
  *
- * \todo: Define exactly when to return each status code. Should stream
+ * \todo Define exactly when to return each status code. Should stream
  * parameters set to 0 by the caller be adjusted without returning Adjusted ?
  * This would potentially be useful for applications but would get in the way
  * in Camera::configure(). Do we need an extra status code to signal this ?
  *
- * \todo: Handle validation of buffers count when refactoring the buffers API.
+ * \todo Handle validation of buffers count when refactoring the buffers API.
  *
  * \return A CameraConfiguration::Status value that describes the validation
  * status.
@@ -315,6 +318,78 @@ std::size_t CameraConfiguration::size() const
 }
 
 /**
+ * \enum CameraConfiguration::ColorSpaceFlag
+ * \brief Specify the behaviour of validateColorSpaces
+ * \var CameraConfiguration::ColorSpaceFlag::None
+ * \brief No extra validation of color spaces is required
+ * \var CameraConfiguration::ColorSpaceFlag::StreamsShareColorSpace
+ * \brief Non-raw output streams must share the same color space
+ */
+
+/**
+ * \typedef CameraConfiguration::ColorSpaceFlags
+ * \brief A bitwise combination of ColorSpaceFlag values
+ */
+
+/**
+ * \brief Check the color spaces requested for each stream
+ * \param[in] flags Flags to control the behaviour of this function
+ *
+ * This function performs certain consistency checks on the color spaces of
+ * the streams and may adjust them so that:
+ *
+ * - Any raw streams have the Raw color space
+ * - If the StreamsShareColorSpace flag is set, all output streams are forced
+ * to share the same color space (this may be a constraint on some platforms).
+ *
+ * It is optional for a pipeline handler to use this function.
+ *
+ * \return A CameraConfiguration::Status value that describes the validation
+ * status.
+ * \retval CameraConfigutation::Adjusted The configuration has been adjusted
+ * and is now valid. The color space of some or all of the streams may have
+ * been changed. The caller shall check the color spaces carefully.
+ * \retval CameraConfiguration::Valid The configuration was already valid and
+ * hasn't been adjusted.
+ */
+CameraConfiguration::Status CameraConfiguration::validateColorSpaces(ColorSpaceFlags flags)
+{
+	Status status = Valid;
+
+	/*
+	 * Set all raw streams to the Raw color space, and make a note of the
+	 * largest non-raw stream with a defined color space (if there is one).
+	 */
+	std::optional<ColorSpace> colorSpace;
+
+	for (auto [i, cfg] : utils::enumerate(config_)) {
+		if (!cfg.colorSpace)
+			continue;
+
+		if (cfg.colorSpace->adjust(cfg.pixelFormat))
+			status = Adjusted;
+
+		if (cfg.colorSpace != ColorSpace::Raw &&
+		    (!colorSpace || cfg.size > config_[i].size))
+			colorSpace = cfg.colorSpace;
+	}
+
+	if (!colorSpace || !(flags & ColorSpaceFlag::StreamsShareColorSpace))
+		return status;
+
+	/* Make all output color spaces the same, if requested. */
+	for (auto &cfg : config_) {
+		if (cfg.colorSpace != ColorSpace::Raw &&
+		    cfg.colorSpace != colorSpace) {
+			cfg.colorSpace = colorSpace;
+			status = Adjusted;
+		}
+	}
+
+	return status;
+}
+
+/**
  * \var CameraConfiguration::transform
  * \brief User-specified transform to be applied to the image
  *
@@ -413,7 +488,7 @@ Camera::Private::~Private()
  * facilitate debugging of internal request usage.
  *
  * The requestSequence_ tracks the number of requests queued to a camera
- * over its lifetime.
+ * over a single capture session.
  */
 
 static const char *const camera_state_names[] = {
@@ -423,6 +498,11 @@ static const char *const camera_state_names[] = {
 	"Stopping",
 	"Running",
 };
+
+bool Camera::Private::isAcquired() const
+{
+	return state_.load(std::memory_order_acquire) == CameraRunning;
+}
 
 bool Camera::Private::isRunning() const
 {
@@ -727,7 +807,7 @@ int Camera::exportFrameBuffers(Stream *stream,
  * not blocking, if the device has already been acquired (by the same or another
  * process) the -EBUSY error code is returned.
  *
- * Acquiring a camera will limit usage of any other camera(s) provided by the
+ * Acquiring a camera may limit usage of any other camera(s) provided by the
  * same pipeline handler to the same instance of libcamera. The limit is in
  * effect until all cameras from the pipeline handler are released. Other
  * instances of libcamera can still list and examine the cameras but will fail
@@ -755,7 +835,7 @@ int Camera::acquire()
 	if (ret < 0)
 		return ret == -EACCES ? -EBUSY : ret;
 
-	if (!d->pipe_->lock()) {
+	if (!d->pipe_->acquire()) {
 		LOG(Camera, Info)
 			<< "Pipeline handler in use by another process";
 		return -EBUSY;
@@ -789,7 +869,8 @@ int Camera::release()
 	if (ret < 0)
 		return ret == -EACCES ? -EBUSY : ret;
 
-	d->pipe_->unlock();
+	if (d->isAcquired())
+		d->pipe_->release();
 
 	d->setState(Private::CameraAvailable);
 
@@ -991,12 +1072,19 @@ int Camera::configure(CameraConfiguration *config)
  */
 std::unique_ptr<Request> Camera::createRequest(uint64_t cookie)
 {
-	int ret = _d()->isAccessAllowed(Private::CameraConfigured,
-					Private::CameraRunning);
+	Private *const d = _d();
+
+	int ret = d->isAccessAllowed(Private::CameraConfigured,
+				     Private::CameraRunning);
 	if (ret < 0)
 		return nullptr;
 
-	return std::make_unique<Request>(this, cookie);
+	std::unique_ptr<Request> request = std::make_unique<Request>(this, cookie);
+
+	/* Associate the request with the pipeline handler. */
+	d->pipe_->registerRequest(request.get());
+
+	return request;
 }
 
 /**
@@ -1018,6 +1106,7 @@ std::unique_ptr<Request> Camera::createRequest(uint64_t cookie)
  * \return 0 on success or a negative error code otherwise
  * \retval -ENODEV The camera has been disconnected from the system
  * \retval -EACCES The camera is not running so requests can't be queued
+ * \retval -EXDEV The request does not belong to this camera
  * \retval -EINVAL The request is invalid
  * \retval -ENOMEM No buffer memory was available to handle the request
  */
@@ -1028,6 +1117,12 @@ int Camera::queueRequest(Request *request)
 	int ret = d->isAccessAllowed(Private::CameraRunning);
 	if (ret < 0)
 		return ret;
+
+	/* Requests can only be queued to the camera that created them. */
+	if (request->_d()->camera() != this) {
+		LOG(Camera, Error) << "Request was not created by this camera";
+		return -EXDEV;
+	}
 
 	/*
 	 * The camera state may change until the end of the function. No locking
@@ -1082,6 +1177,8 @@ int Camera::start(const ControlList *controls)
 		return ret;
 
 	LOG(Camera, Debug) << "Starting capture";
+
+	ASSERT(d->requestSequence_ == 0);
 
 	ret = d->pipe_->invokeMethod(&PipelineHandler::start,
 				     ConnectionTypeBlocking, this, controls);

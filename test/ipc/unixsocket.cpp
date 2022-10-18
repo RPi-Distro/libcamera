@@ -30,8 +30,9 @@
 #define CMD_LEN_CMP	3
 #define CMD_JOIN	4
 
-using namespace std;
 using namespace libcamera;
+using namespace std;
+using namespace std::chrono_literals;
 
 int calculateLength(int fd)
 {
@@ -52,9 +53,9 @@ public:
 		ipc_.readyRead.connect(this, &UnixSocketTestSlave::readyRead);
 	}
 
-	int run(int fd)
+	int run(UniqueFD fd)
 	{
-		if (ipc_.bind(fd)) {
+		if (ipc_.bind(std::move(fd))) {
 			cerr << "Failed to connect to IPC channel" << endl;
 			return EXIT_FAILURE;
 		}
@@ -209,8 +210,7 @@ protected:
 
 		if (!pid_) {
 			std::string arg = std::to_string(fd);
-			execl("/proc/self/exe", "/proc/self/exe",
-			      arg.c_str(), nullptr);
+			execl(self().c_str(), self().c_str(), arg.c_str(), nullptr);
 
 			/* Only get here if exec fails. */
 			exit(TestFail);
@@ -360,11 +360,11 @@ protected:
 
 	int run()
 	{
-		int slavefd = ipc_.create();
-		if (slavefd < 0)
+		UniqueFD slavefd = ipc_.create();
+		if (!slavefd.isValid())
 			return TestFail;
 
-		if (slaveStart(slavefd)) {
+		if (slaveStart(slavefd.release())) {
 			cerr << "Failed to start slave" << endl;
 			return TestFail;
 		}
@@ -431,7 +431,7 @@ private:
 		if (ret)
 			return ret;
 
-		timeout.start(200);
+		timeout.start(200ms);
 		while (!callDone_) {
 			if (!timeout.isRunning()) {
 				cerr << "Call timeout!" << endl;
@@ -464,7 +464,7 @@ private:
 
 	int prepareFDs(IPCUnixSocket::Payload *message, unsigned int num)
 	{
-		int fd = open("/proc/self/exe", O_RDONLY);
+		int fd = open(self().c_str(), O_RDONLY);
 		if (fd < 0)
 			return fd;
 
@@ -496,10 +496,12 @@ private:
 int main(int argc, char **argv)
 {
 	if (argc == 2) {
-		int ipcfd = std::stoi(argv[1]);
+		UniqueFD ipcfd = UniqueFD(std::stoi(argv[1]));
 		UnixSocketTestSlave slave;
-		return slave.run(ipcfd);
+		return slave.run(std::move(ipcfd));
 	}
 
-	return UnixSocketTest().execute();
+	UnixSocketTest test;
+	test.setArgs(argc, argv);
+	return test.execute();
 }

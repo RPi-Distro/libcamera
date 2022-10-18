@@ -4,8 +4,8 @@
  *
  * media_object.h - Media Device objects: entities, pads and links.
  */
-#ifndef __LIBCAMERA_INTERNAL_MEDIA_OBJECT_H__
-#define __LIBCAMERA_INTERNAL_MEDIA_OBJECT_H__
+
+#pragma once
 
 #include <string>
 #include <vector>
@@ -104,6 +104,7 @@ public:
 	unsigned int deviceMinor() const { return minor_; }
 
 	const std::vector<MediaPad *> &pads() const { return pads_; }
+	const std::vector<MediaEntity *> ancillaryEntities() const { return ancillaryEntities_; }
 
 	const MediaPad *getPadByIndex(unsigned int index) const;
 	const MediaPad *getPadById(unsigned int id) const;
@@ -120,6 +121,8 @@ private:
 
 	void addPad(MediaPad *pad);
 
+	void addAncillaryEntity(MediaEntity *ancillaryEntity);
+
 	std::string name_;
 	unsigned int function_;
 	unsigned int flags_;
@@ -129,8 +132,7 @@ private:
 	unsigned int minor_;
 
 	std::vector<MediaPad *> pads_;
+	std::vector<MediaEntity *> ancillaryEntities_;
 };
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_INTERNAL_MEDIA_OBJECT_H__ */

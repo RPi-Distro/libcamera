@@ -4,12 +4,11 @@
  *
  * camera_device.h - libcamera Android Camera Device
  */
-#ifndef __ANDROID_CAMERA_DEVICE_H__
-#define __ANDROID_CAMERA_DEVICE_H__
+
+#pragma once
 
 #include <map>
 #include <memory>
-#include <mutex>
 #include <queue>
 #include <vector>
 
@@ -18,7 +17,7 @@
 #include <libcamera/base/class.h>
 #include <libcamera/base/log.h>
 #include <libcamera/base/message.h>
-#include <libcamera/base/thread.h>
+#include <libcamera/base/mutex.h>
 
 #include <libcamera/camera.h>
 #include <libcamera/framebuffer.h>
@@ -30,7 +29,6 @@
 #include "camera_capabilities.h"
 #include "camera_metadata.h"
 #include "camera_stream.h"
-#include "camera_worker.h"
 #include "jpeg/encoder.h"
 
 class Camera3RequestDescriptor;
@@ -83,7 +81,7 @@ private:
 		Running,
 	};
 
-	void stop();
+	void stop() LIBCAMERA_TSA_EXCLUDES(stateMutex_);
 
 	std::unique_ptr<libcamera::FrameBuffer>
 	createFrameBuffer(const buffer_handle_t camera3buffer,
@@ -95,8 +93,9 @@ private:
 	void notifyError(uint32_t frameNumber, camera3_stream_t *stream,
 			 camera3_error_msg_code code) const;
 	int processControls(Camera3RequestDescriptor *descriptor);
-	void completeDescriptor(Camera3RequestDescriptor *descriptor);
-	void sendCaptureResults();
+	void completeDescriptor(Camera3RequestDescriptor *descriptor)
+		LIBCAMERA_TSA_EXCLUDES(descriptorsMutex_);
+	void sendCaptureResults() LIBCAMERA_TSA_REQUIRES(descriptorsMutex_);
 	void setBufferStatus(Camera3RequestDescriptor::StreamBuffer &buffer,
 			     Camera3RequestDescriptor::Status status);
 	std::unique_ptr<CameraMetadata> getResultMetadata(
@@ -105,10 +104,8 @@ private:
 	unsigned int id_;
 	camera3_device_t camera3Device_;
 
-	CameraWorker worker_;
-
 	libcamera::Mutex stateMutex_; /* Protects access to the camera state. */
-	State state_;
+	State state_ LIBCAMERA_TSA_GUARDED_BY(stateMutex_);
 
 	std::shared_ptr<libcamera::Camera> camera_;
 	std::unique_ptr<libcamera::CameraConfiguration> config_;
@@ -119,8 +116,9 @@ private:
 
 	std::vector<CameraStream> streams_;
 
-	libcamera::Mutex descriptorsMutex_; /* Protects descriptors_. */
-	std::queue<std::unique_ptr<Camera3RequestDescriptor>> descriptors_;
+	libcamera::Mutex descriptorsMutex_ LIBCAMERA_TSA_ACQUIRED_AFTER(stateMutex_);
+	std::queue<std::unique_ptr<Camera3RequestDescriptor>> descriptors_
+		LIBCAMERA_TSA_GUARDED_BY(descriptorsMutex_);
 
 	std::string maker_;
 	std::string model_;
@@ -130,5 +128,3 @@ private:
 
 	CameraMetadata lastSettings_;
 };
-
-#endif /* __ANDROID_CAMERA_DEVICE_H__ */

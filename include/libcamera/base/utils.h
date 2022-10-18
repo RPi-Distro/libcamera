@@ -4,8 +4,8 @@
  *
  * utils.h - Miscellaneous utility functions
  */
-#ifndef __LIBCAMERA_BASE_UTILS_H__
-#define __LIBCAMERA_BASE_UTILS_H__
+
+#pragma once
 
 #include <algorithm>
 #include <chrono>
@@ -170,6 +170,12 @@ public:
 	class iterator
 	{
 	public:
+		using difference_type = std::size_t;
+		using value_type = std::string;
+		using pointer = value_type *;
+		using reference = value_type &;
+		using iterator_category = std::input_iterator_tag;
+
 		iterator(const StringSplitter *ss, std::string::size_type pos);
 
 		iterator &operator++();
@@ -327,6 +333,12 @@ class Duration : public std::chrono::duration<double, std::nano>
 public:
 	Duration() = default;
 
+	template<typename Rep>
+	constexpr explicit Duration(const Rep &r)
+		: BaseDuration(r)
+	{
+	}
+
 	template<typename Rep, typename Period>
 	constexpr Duration(const std::chrono::duration<Rep, Period> &d)
 		: BaseDuration(d)
@@ -346,6 +358,15 @@ public:
 	}
 };
 
+template<typename T>
+decltype(auto) abs_diff(const T &a, const T &b)
+{
+	if (a < b)
+		return b - a;
+	else
+		return a - b;
+}
+
 } /* namespace utils */
 
 #ifndef __DOXYGEN__
@@ -355,5 +376,3 @@ std::basic_ostream<CharT, Traits> &operator<<(std::basic_ostream<CharT, Traits> 
 #endif
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_BASE_UTILS_H__ */

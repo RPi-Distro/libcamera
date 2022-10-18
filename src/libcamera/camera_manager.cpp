@@ -7,12 +7,12 @@
 
 #include <libcamera/camera_manager.h>
 
-#include <condition_variable>
 #include <map>
 
 #include <libcamera/camera.h>
 
 #include <libcamera/base/log.h>
+#include <libcamera/base/mutex.h>
 #include <libcamera/base/thread.h>
 #include <libcamera/base/utils.h>
 
@@ -63,7 +63,7 @@ private:
 	void createPipelineHandlers();
 	void cleanup();
 
-	std::condition_variable cv_;
+	ConditionVariable cv_;
 	bool initialized_;
 	int status_;
 
@@ -142,10 +142,10 @@ void CameraManager::Private::createPipelineHandlers()
 	 * file and only fallback on all handlers if there is no
 	 * configuration file.
 	 */
-	std::vector<PipelineHandlerFactory *> &factories =
-		PipelineHandlerFactory::factories();
+	const std::vector<PipelineHandlerFactoryBase *> &factories =
+		PipelineHandlerFactoryBase::factories();
 
-	for (PipelineHandlerFactory *factory : factories) {
+	for (const PipelineHandlerFactoryBase *factory : factories) {
 		LOG(Camera, Debug)
 			<< "Found registered pipeline handler '"
 			<< factory->name() << "'";
@@ -189,7 +189,7 @@ void CameraManager::Private::addCamera(std::shared_ptr<Camera> camera,
 {
 	MutexLocker locker(mutex_);
 
-	for (std::shared_ptr<Camera> c : cameras_) {
+	for (const std::shared_ptr<Camera> &c : cameras_) {
 		if (c->id() == camera->id()) {
 			LOG(Camera, Fatal)
 				<< "Trying to register a camera with a duplicated ID '"

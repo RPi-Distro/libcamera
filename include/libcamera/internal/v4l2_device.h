@@ -4,11 +4,12 @@
  *
  * v4l2_device.h - Common base for V4L2 video devices and subdevices
  */
-#ifndef __LIBCAMERA_INTERNAL_V4L2_DEVICE_H__
-#define __LIBCAMERA_INTERNAL_V4L2_DEVICE_H__
+
+#pragma once
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include <linux/videodev2.h>
@@ -16,8 +17,12 @@
 #include <libcamera/base/log.h>
 #include <libcamera/base/signal.h>
 #include <libcamera/base/span.h>
+#include <libcamera/base/unique_fd.h>
 
+#include <libcamera/color_space.h>
 #include <libcamera/controls.h>
+
+#include "libcamera/internal/formats.h"
 
 namespace libcamera {
 
@@ -27,7 +32,7 @@ class V4L2Device : protected Loggable
 {
 public:
 	void close();
-	bool isOpen() const { return fd_ != -1; }
+	bool isOpen() const { return fd_.isValid(); }
 
 	const ControlInfoMap &controls() const { return controls_; }
 
@@ -49,11 +54,18 @@ protected:
 	~V4L2Device();
 
 	int open(unsigned int flags);
-	int setFd(int fd);
+	int setFd(UniqueFD fd);
 
 	int ioctl(unsigned long request, void *argp);
 
-	int fd() const { return fd_; }
+	int fd() const { return fd_.get(); }
+
+	template<typename T>
+	static std::optional<ColorSpace> toColorSpace(const T &v4l2Format,
+						      PixelFormatInfo::ColourEncoding colourEncoding);
+
+	template<typename T>
+	static int fromColorSpace(const std::optional<ColorSpace> &colorSpace, T &v4l2Format);
 
 private:
 	static ControlType v4l2CtrlType(uint32_t ctrlType);
@@ -72,12 +84,10 @@ private:
 	ControlIdMap controlIdMap_;
 	ControlInfoMap controls_;
 	std::string deviceNode_;
-	int fd_;
+	UniqueFD fd_;
 
 	EventNotifier *fdEventNotifier_;
 	bool frameStartEnabled_;
 };
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_INTERNAL_V4L2_DEVICE_H__ */

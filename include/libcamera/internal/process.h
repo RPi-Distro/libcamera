@@ -4,14 +4,15 @@
  *
  * process.h - Process object
  */
-#ifndef __LIBCAMERA_INTERNAL_PROCESS_H__
-#define __LIBCAMERA_INTERNAL_PROCESS_H__
+
+#pragma once
 
 #include <signal.h>
 #include <string>
 #include <vector>
 
 #include <libcamera/base/signal.h>
+#include <libcamera/base/unique_fd.h>
 
 namespace libcamera {
 
@@ -75,10 +76,9 @@ private:
 	std::list<Process *> processes_;
 
 	struct sigaction oldsa_;
+
 	EventNotifier *sigEvent_;
-	int pipe_[2];
+	UniqueFD pipe_[2];
 };
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_INTERNAL_PROCESS_H__ */

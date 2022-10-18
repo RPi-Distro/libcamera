@@ -5,8 +5,7 @@
  * v4l2_camera_proxy.h - Proxy to V4L2 compatibility camera
  */
 
-#ifndef __V4L2_CAMERA_PROXY_H__
-#define __V4L2_CAMERA_PROXY_H__
+#pragma once
 
 #include <linux/videodev2.h>
 #include <map>
@@ -14,6 +13,8 @@
 #include <set>
 #include <sys/types.h>
 #include <vector>
+
+#include <libcamera/base/mutex.h>
 
 #include <libcamera/camera.h>
 
@@ -28,8 +29,9 @@ public:
 
 	int open(V4L2CameraFile *file);
 	void close(V4L2CameraFile *file);
-	void *mmap(void *addr, size_t length, int prot, int flags, off64_t offset);
-	int munmap(void *addr, size_t length);
+	void *mmap(V4L2CameraFile *file, void *addr, size_t length, int prot,
+		   int flags, off64_t offset);
+	int munmap(V4L2CameraFile *file, void *addr, size_t length);
 
 	int ioctl(V4L2CameraFile *file, unsigned long request, void *arg);
 
@@ -43,7 +45,7 @@ private:
 	void updateBuffers();
 	void freeBuffers();
 
-	int vidioc_querycap(struct v4l2_capability *arg);
+	int vidioc_querycap(V4L2CameraFile *file, struct v4l2_capability *arg);
 	int vidioc_enum_framesizes(V4L2CameraFile *file, struct v4l2_frmsizeenum *arg);
 	int vidioc_enum_fmt(V4L2CameraFile *file, struct v4l2_fmtdesc *arg);
 	int vidioc_g_fmt(V4L2CameraFile *file, struct v4l2_format *arg);
@@ -56,9 +58,11 @@ private:
 	int vidioc_s_input(V4L2CameraFile *file, int *arg);
 	int vidioc_reqbufs(V4L2CameraFile *file, struct v4l2_requestbuffers *arg);
 	int vidioc_querybuf(V4L2CameraFile *file, struct v4l2_buffer *arg);
+	int vidioc_prepare_buf(V4L2CameraFile *file, struct v4l2_buffer *arg);
 	int vidioc_qbuf(V4L2CameraFile *file, struct v4l2_buffer *arg);
 	int vidioc_dqbuf(V4L2CameraFile *file, struct v4l2_buffer *arg,
-			 libcamera::MutexLocker *locker);
+			 libcamera::Mutex *lock) LIBCAMERA_TSA_REQUIRES(*lock);
+	int vidioc_expbuf(V4L2CameraFile *file, struct v4l2_exportbuffer *arg);
 	int vidioc_streamon(V4L2CameraFile *file, int *arg);
 	int vidioc_streamoff(V4L2CameraFile *file, int *arg);
 
@@ -100,5 +104,3 @@ private:
 	/* This mutex is to serialize access to the proxy. */
 	libcamera::Mutex proxyMutex_;
 };
-
-#endif /* __V4L2_CAMERA_PROXY_H__ */

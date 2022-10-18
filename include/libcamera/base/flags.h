@@ -4,8 +4,8 @@
  *
  * flags.h - Type-safe enum-based bitfields
  */
-#ifndef __LIBCAMERA_BASE_FLAGS_H__
-#define __LIBCAMERA_BASE_FLAGS_H__
+
+#pragma once
 
 #include <type_traits>
 
@@ -147,7 +147,7 @@ struct flags_enable_operators {
 };
 
 template<typename E>
-typename std::enable_if_t<flags_enable_operators<E>::enable, Flags<E>>
+std::enable_if_t<flags_enable_operators<E>::enable, Flags<E>>
 operator|(E lhs, E rhs)
 {
 	using type = std::underlying_type_t<E>;
@@ -155,7 +155,7 @@ operator|(E lhs, E rhs)
 }
 
 template<typename E>
-typename std::enable_if_t<flags_enable_operators<E>::enable, Flags<E>>
+std::enable_if_t<flags_enable_operators<E>::enable, Flags<E>>
 operator&(E lhs, E rhs)
 {
 	using type = std::underlying_type_t<E>;
@@ -163,7 +163,7 @@ operator&(E lhs, E rhs)
 }
 
 template<typename E>
-typename std::enable_if_t<flags_enable_operators<E>::enable, Flags<E>>
+std::enable_if_t<flags_enable_operators<E>::enable, Flags<E>>
 operator^(E lhs, E rhs)
 {
 	using type = std::underlying_type_t<E>;
@@ -171,7 +171,7 @@ operator^(E lhs, E rhs)
 }
 
 template<typename E>
-typename std::enable_if_t<flags_enable_operators<E>::enable, Flags<E>>
+std::enable_if_t<flags_enable_operators<E>::enable, Flags<E>>
 operator~(E rhs)
 {
 	using type = std::underlying_type_t<E>;
@@ -191,5 +191,3 @@ struct flags_enable_operators<_enum> {					\
 #endif /* __DOXYGEN__ */
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_BASE_FLAGS_H__ */

@@ -27,8 +27,9 @@
 
 #include "test.h"
 
-using namespace std;
 using namespace libcamera;
+using namespace std;
+using namespace std::chrono_literals;
 
 class IPAInterfaceTest : public Test, public Object
 {
@@ -51,9 +52,9 @@ protected:
 		ipaManager_ = make_unique<IPAManager>();
 
 		/* Create a pipeline handler for vimc. */
-		std::vector<PipelineHandlerFactory *> &factories =
-			PipelineHandlerFactory::factories();
-		for (PipelineHandlerFactory *factory : factories) {
+		const std::vector<PipelineHandlerFactoryBase *> &factories =
+			PipelineHandlerFactoryBase::factories();
+		for (const PipelineHandlerFactoryBase *factory : factories) {
 			if (factory->name() == "PipelineHandlerVimc") {
 				pipe_ = factory->create(nullptr);
 				break;
@@ -111,7 +112,7 @@ protected:
 			return TestFail;
 		}
 
-		timer.start(1000);
+		timer.start(1000ms);
 		while (timer.isRunning() && trace_ != ipa::vimc::IPAOperationInit)
 			dispatcher->processEvents();
 
@@ -123,7 +124,7 @@ protected:
 
 		/* Test start of IPA module. */
 		ipa_->start();
-		timer.start(1000);
+		timer.start(1000ms);
 		while (timer.isRunning() && trace_ != ipa::vimc::IPAOperationStart)
 			dispatcher->processEvents();
 
@@ -134,7 +135,7 @@ protected:
 
 		/* Test stop of IPA module. */
 		ipa_->stop();
-		timer.start(1000);
+		timer.start(1000ms);
 		while (timer.isRunning() && trace_ != ipa::vimc::IPAOperationStop)
 			dispatcher->processEvents();
 

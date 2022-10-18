@@ -1,44 +1,47 @@
 /* SPDX-License-Identifier: BSD-2-Clause */
 /*
- * Copyright (C) 2019, Raspberry Pi (Trading) Limited
+ * Copyright (C) 2019, Raspberry Pi Ltd
  *
  * algorithm.cpp - ISP control algorithms
  */
 
-#include "algorithm.hpp"
+#include "algorithm.h"
 
 using namespace RPiController;
 
-void Algorithm::Read([[maybe_unused]] boost::property_tree::ptree const &params)
+int Algorithm::read([[maybe_unused]] const libcamera::YamlObject &params)
+{
+	return 0;
+}
+
+void Algorithm::initialise()
 {
 }
 
-void Algorithm::Initialise() {}
-
-void Algorithm::SwitchMode([[maybe_unused]] CameraMode const &camera_mode,
+void Algorithm::switchMode([[maybe_unused]] CameraMode const &cameraMode,
 			   [[maybe_unused]] Metadata *metadata)
 {
 }
 
-void Algorithm::Prepare([[maybe_unused]] Metadata *image_metadata)
+void Algorithm::prepare([[maybe_unused]] Metadata *imageMetadata)
 {
 }
 
-void Algorithm::Process([[maybe_unused]] StatisticsPtr &stats,
-			[[maybe_unused]] Metadata *image_metadata)
+void Algorithm::process([[maybe_unused]] StatisticsPtr &stats,
+			[[maybe_unused]] Metadata *imageMetadata)
 {
 }
 
-// For registering algorithms with the system:
+/* For registering algorithms with the system: */
 
 static std::map<std::string, AlgoCreateFunc> algorithms;
-std::map<std::string, AlgoCreateFunc> const &RPiController::GetAlgorithms()
+std::map<std::string, AlgoCreateFunc> const &RPiController::getAlgorithms()
 {
 	return algorithms;
 }
 
 RegisterAlgorithm::RegisterAlgorithm(char const *name,
-				     AlgoCreateFunc create_func)
+				     AlgoCreateFunc createFunc)
 {
-	algorithms[std::string(name)] = create_func;
+	algorithms[std::string(name)] = createFunc;
 }

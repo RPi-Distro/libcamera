@@ -4,8 +4,8 @@
  *
  * camera_metadata.h - libcamera Android Camera Metadata Helper
  */
-#ifndef __ANDROID_CAMERA_METADATA_H__
-#define __ANDROID_CAMERA_METADATA_H__
+
+#pragma once
 
 #include <stdint.h>
 #include <vector>
@@ -32,6 +32,17 @@ public:
 	template<typename T> bool entryContains(uint32_t tag, T value) const;
 
 	bool hasEntry(uint32_t tag) const;
+
+	template<typename T,
+		 std::enable_if_t<std::is_arithmetic_v<T> ||
+				  std::is_enum_v<T>> * = nullptr>
+	bool setEntry(uint32_t tag, const T &data)
+	{
+		if (hasEntry(tag))
+			return updateEntry(tag, &data, 1, sizeof(T));
+		else
+			return addEntry(tag, &data, 1, sizeof(T));
+	}
 
 	template<typename T,
 		 std::enable_if_t<std::is_arithmetic_v<T> ||
@@ -99,5 +110,3 @@ private:
 	bool valid_;
 	bool resized_;
 };
-
-#endif /* __ANDROID_CAMERA_METADATA_H__ */

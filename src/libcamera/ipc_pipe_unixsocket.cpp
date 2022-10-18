@@ -18,6 +18,8 @@
 #include "libcamera/internal/ipc_unixsocket.h"
 #include "libcamera/internal/process.h"
 
+using namespace std::chrono_literals;
+
 namespace libcamera {
 
 LOG_DECLARE_CATEGORY(IPCPipe)
@@ -31,14 +33,14 @@ IPCPipeUnixSocket::IPCPipeUnixSocket(const char *ipaModulePath,
 	args.push_back(ipaModulePath);
 
 	socket_ = std::make_unique<IPCUnixSocket>();
-	int fd = socket_->create();
-	if (fd < 0) {
+	UniqueFD fd = socket_->create();
+	if (!fd.isValid()) {
 		LOG(IPCPipe, Error) << "Failed to create socket";
 		return;
 	}
 	socket_->readyRead.connect(this, &IPCPipeUnixSocket::readyRead);
-	args.push_back(std::to_string(fd));
-	fds.push_back(fd);
+	args.push_back(std::to_string(fd.get()));
+	fds.push_back(fd.get());
 
 	proc_ = std::make_unique<Process>();
 	int ret = proc_->start(ipaProxyWorkerPath, args, fds);
@@ -126,7 +128,7 @@ int IPCPipeUnixSocket::call(const IPCUnixSocket::Payload &message,
 	}
 
 	/* \todo Make this less dangerous, see IPCPipe::sendSync() */
-	timeout.start(2000);
+	timeout.start(2000ms);
 	while (!iter->second.done) {
 		if (!timeout.isRunning()) {
 			LOG(IPCPipe, Error) << "Call timeout!";

@@ -4,14 +4,17 @@
  *
  * v4l2_videodevice.h - V4L2 Video Device
  */
-#ifndef __LIBCAMERA_INTERNAL_V4L2_VIDEODEVICE_H__
-#define __LIBCAMERA_INTERNAL_V4L2_VIDEODEVICE_H__
+
+#pragma once
 
 #include <array>
 #include <atomic>
 #include <memory>
+#include <optional>
+#include <ostream>
 #include <stdint.h>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include <linux/videodev2.h>
@@ -19,7 +22,11 @@
 #include <libcamera/base/class.h>
 #include <libcamera/base/log.h>
 #include <libcamera/base/signal.h>
+#include <libcamera/base/timer.h>
+#include <libcamera/base/unique_fd.h>
+#include <libcamera/base/utils.h>
 
+#include <libcamera/color_space.h>
 #include <libcamera/framebuffer.h>
 #include <libcamera/geometry.h>
 #include <libcamera/pixel_format.h>
@@ -31,7 +38,6 @@
 namespace libcamera {
 
 class EventNotifier;
-class FileDescriptor;
 class MediaDevice;
 class MediaEntity;
 
@@ -122,6 +128,7 @@ public:
 	V4L2BufferCache(const std::vector<std::unique_ptr<FrameBuffer>> &buffers);
 	~V4L2BufferCache();
 
+	bool isEmpty() const;
 	int get(const FrameBuffer &buffer);
 	void put(unsigned int index);
 
@@ -140,7 +147,7 @@ private:
 	private:
 		struct Plane {
 			Plane(const FrameBuffer::Plane &plane)
-				: fd(plane.fd.fd()), length(plane.length)
+				: fd(plane.fd.get()), length(plane.length)
 			{
 			}
 
@@ -167,12 +174,15 @@ public:
 
 	V4L2PixelFormat fourcc;
 	Size size;
+	std::optional<ColorSpace> colorSpace;
 
 	std::array<Plane, 3> planes;
 	unsigned int planesCount = 0;
 
 	const std::string toString() const;
 };
+
+std::ostream &operator<<(std::ostream &out, const V4L2DeviceFormat &f);
 
 class V4L2VideoDevice : public V4L2Device
 {
@@ -184,7 +194,7 @@ public:
 	~V4L2VideoDevice();
 
 	int open();
-	int open(int handle, enum v4l2_buf_type type);
+	int open(SharedFD handle, enum v4l2_buf_type type);
 	void close();
 
 	const char *driverName() const { return caps_.driver(); }
@@ -213,14 +223,27 @@ public:
 	int streamOn();
 	int streamOff();
 
+	void setDequeueTimeout(utils::Duration timeout);
+	Signal<> dequeueTimeout;
+
 	static std::unique_ptr<V4L2VideoDevice>
 	fromEntityName(const MediaDevice *media, const std::string &entity);
+
+	V4L2PixelFormat toV4L2PixelFormat(const PixelFormat &pixelFormat) const;
 
 protected:
 	std::string logPrefix() const override;
 
 private:
 	LIBCAMERA_DISABLE_COPY(V4L2VideoDevice)
+
+	enum class State {
+		Streaming,
+		Stopping,
+		Stopped,
+	};
+
+	int initFormats();
 
 	int getFormatMeta(V4L2DeviceFormat *format);
 	int trySetFormatMeta(V4L2DeviceFormat *format, bool set);
@@ -238,14 +261,20 @@ private:
 	int createBuffers(unsigned int count,
 			  std::vector<std::unique_ptr<FrameBuffer>> *buffers);
 	std::unique_ptr<FrameBuffer> createBuffer(unsigned int index);
-	FileDescriptor exportDmabufFd(unsigned int index, unsigned int plane);
+	UniqueFD exportDmabufFd(unsigned int index, unsigned int plane);
 
 	void bufferAvailable();
 	FrameBuffer *dequeueBuffer();
 
+	void watchdogExpired();
+
+	template<typename T>
+	static std::optional<ColorSpace> toColorSpace(const T &v4l2Format);
+
 	V4L2Capability caps_;
 	V4L2DeviceFormat format_;
 	const PixelFormatInfo *formatInfo_;
+	std::unordered_set<V4L2PixelFormat> pixelFormats_;
 
 	enum v4l2_buf_type bufferType_;
 	enum v4l2_memory memoryType_;
@@ -255,7 +284,11 @@ private:
 
 	EventNotifier *fdBufferNotifier_;
 
-	bool streaming_;
+	State state_;
+	std::optional<unsigned int> firstFrame_;
+
+	Timer watchdog_;
+	utils::Duration watchdogDuration_;
 };
 
 class V4L2M2MDevice
@@ -278,5 +311,3 @@ private:
 };
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_INTERNAL_V4L2_VIDEODEVICE_H__ */

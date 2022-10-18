@@ -4,7 +4,6 @@ ipa_name = 'ipa_rpi'
 
 rpi_ipa_deps = [
     libcamera_private,
-    dependency('boost'),
     libatomic,
 ]
 
@@ -21,6 +20,7 @@ rpi_ipa_sources = files([
     'cam_helper_ov5647.cpp',
     'cam_helper_imx219.cpp',
     'cam_helper_imx290.cpp',
+    'cam_helper_imx296.cpp',
     'cam_helper_imx477.cpp',
     'cam_helper_imx519.cpp',
     'cam_helper_ov9281.cpp',

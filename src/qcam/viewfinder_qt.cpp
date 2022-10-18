@@ -11,6 +11,8 @@
 #include <stdint.h>
 #include <utility>
 
+#include <libcamera/formats.h>
+
 #include <QImage>
 #include <QImageWriter>
 #include <QMap>
@@ -18,17 +20,18 @@
 #include <QPainter>
 #include <QtDebug>
 
-#include <libcamera/formats.h>
-
 #include "../cam/image.h"
+
 #include "format_converter.h"
 
 static const QMap<libcamera::PixelFormat, QImage::Format> nativeFormats
 {
 #if QT_VERSION >= QT_VERSION_CHECK(5, 2, 0)
-	{ libcamera::formats::ABGR8888, QImage::Format_RGBA8888 },
+	{ libcamera::formats::ABGR8888, QImage::Format_RGBX8888 },
+	{ libcamera::formats::XBGR8888, QImage::Format_RGBX8888 },
 #endif
 	{ libcamera::formats::ARGB8888, QImage::Format_RGB32 },
+	{ libcamera::formats::XRGB8888, QImage::Format_RGB32 },
 #if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
 	{ libcamera::formats::RGB888, QImage::Format_BGR888 },
 #endif
@@ -51,8 +54,9 @@ const QList<libcamera::PixelFormat> &ViewFinderQt::nativeFormats() const
 	return formats;
 }
 
-int ViewFinderQt::setFormat(const libcamera::PixelFormat &format,
-			    const QSize &size, unsigned int stride)
+int ViewFinderQt::setFormat(const libcamera::PixelFormat &format, const QSize &size,
+			    [[maybe_unused]] const libcamera::ColorSpace &colorSpace,
+			    unsigned int stride)
 {
 	image_ = QImage();
 
@@ -67,8 +71,7 @@ int ViewFinderQt::setFormat(const libcamera::PixelFormat &format,
 
 		image_ = QImage(size, QImage::Format_RGB32);
 
-		qInfo() << "Using software format conversion from"
-			<< format.toString().c_str();
+		qInfo() << "Using software format conversion from" << format;
 	} else {
 		qInfo() << "Zero-copy enabled";
 	}

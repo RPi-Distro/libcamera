@@ -7,9 +7,114 @@
 # gen-controls.py - Generate control definitions from YAML
 
 import argparse
+from functools import reduce
+import operator
 import string
 import sys
 import yaml
+
+
+class ControlEnum(object):
+    def __init__(self, data):
+        self.__data = data
+
+    @property
+    def description(self):
+        """The enum description"""
+        return self.__data.get('description')
+
+    @property
+    def name(self):
+        """The enum name"""
+        return self.__data.get('name')
+
+    @property
+    def value(self):
+        """The enum value"""
+        return self.__data.get('value')
+
+
+class Control(object):
+    def __init__(self, name, data):
+        self.__name = name
+        self.__data = data
+        self.__enum_values = None
+        self.__size = None
+
+        enum_values = data.get('enum')
+        if enum_values is not None:
+            self.__enum_values = [ControlEnum(enum) for enum in enum_values]
+
+        size = self.__data.get('size')
+        if size is not None:
+            if len(size) == 0:
+                raise RuntimeError(f'Control `{self.__name}` size must have at least one dimension')
+
+            # Compute the total number of elements in the array. If any of the
+            # array dimension is a string, the array is variable-sized.
+            num_elems = 1
+            for dim in size:
+                if type(dim) is str:
+                    num_elems = 0
+                    break
+
+                dim = int(dim)
+                if dim <= 0:
+                    raise RuntimeError(f'Control `{self.__name}` size must have positive values only')
+
+                num_elems *= dim
+
+            self.__size = num_elems
+
+    @property
+    def description(self):
+        """The control description"""
+        return self.__data.get('description')
+
+    @property
+    def enum_values(self):
+        """The enum values, if the control is an enumeration"""
+        if self.__enum_values is None:
+            return
+        for enum in self.__enum_values:
+            yield enum
+
+    @property
+    def is_enum(self):
+        """Is the control an enumeration"""
+        return self.__enum_values is not None
+
+    @property
+    def is_draft(self):
+        """Is the control a draft control"""
+        return self.__data.get('draft') is not None
+
+    @property
+    def name(self):
+        """The control name (CamelCase)"""
+        return self.__name
+
+    @property
+    def q_name(self):
+        """The control name, qualified with a namespace"""
+        ns = 'draft::' if self.is_draft else ''
+        return ns + self.__name
+
+    @property
+    def type(self):
+        typ = self.__data.get('type')
+        size = self.__data.get('size')
+
+        if typ == 'string':
+            return 'std::string'
+
+        if self.__size is None:
+            return typ
+
+        if self.__size:
+            return f"Span<const {typ}, {self.__size}>"
+        else:
+            return f"Span<const {typ}>"
 
 
 def snake_case(s):
@@ -47,39 +152,31 @@ ${description}
     ctrls_map = []
 
     for ctrl in controls:
-        name, ctrl = ctrl.popitem()
-        id_name = snake_case(name).upper()
-
-        ctrl_type = ctrl['type']
-        if ctrl_type == 'string':
-            ctrl_type = 'std::string'
-        elif ctrl.get('size'):
-            ctrl_type = 'Span<const %s>' % ctrl_type
+        id_name = snake_case(ctrl.name).upper()
 
         info = {
-            'name': name,
-            'type': ctrl_type,
-            'description': format_description(ctrl['description']),
+            'name': ctrl.name,
+            'type': ctrl.type,
+            'description': format_description(ctrl.description),
             'id_name': id_name,
         }
 
         target_doc = ctrls_doc
         target_def = ctrls_def
-        if ctrl.get('draft'):
+        if ctrl.is_draft:
             target_doc = draft_ctrls_doc
             target_def = draft_ctrls_def
 
-        enum = ctrl.get('enum')
-        if enum:
+        if ctrl.is_enum:
             enum_doc = []
             enum_doc.append(enum_doc_start_template.substitute(info))
 
             num_entries = 0
-            for entry in enum:
+            for enum in ctrl.enum_values:
                 value_info = {
-                    'name': name,
-                    'value': entry['name'],
-                    'description': format_description(entry['description']),
+                    'name': ctrl.name,
+                    'value': enum.name,
+                    'description': format_description(enum.description),
                 }
                 enum_doc.append(enum_doc_value_template.substitute(value_info))
                 num_entries += 1
@@ -94,9 +191,9 @@ ${description}
             }
             target_doc.append(enum_values_doc.substitute(values_info))
             target_def.append(enum_values_start.substitute(values_info))
-            for entry in enum:
+            for enum in ctrl.enum_values:
                 value_info = {
-                    'name': entry['name']
+                    'name': enum.name
                 }
                 target_def.append(enum_values_values.substitute(value_info))
             target_def.append("};")
@@ -104,10 +201,7 @@ ${description}
         target_doc.append(doc_template.substitute(info))
         target_def.append(def_template.substitute(info))
 
-        if ctrl.get('draft'):
-            name = 'draft::' + name
-
-        ctrls_map.append('\t{ ' + id_name + ', &' + name + ' },')
+        ctrls_map.append('\t{ ' + id_name + ', &' + ctrl.q_name + ' },')
 
     return {
         'controls_doc': '\n\n'.join(ctrls_doc),
@@ -130,35 +224,27 @@ def generate_h(controls):
     id_value = 1
 
     for ctrl in controls:
-        name, ctrl = ctrl.popitem()
-        id_name = snake_case(name).upper()
+        id_name = snake_case(ctrl.name).upper()
 
         ids.append('\t' + id_name + ' = ' + str(id_value) + ',')
 
-        ctrl_type = ctrl['type']
-        if ctrl_type == 'string':
-            ctrl_type = 'std::string'
-        elif ctrl.get('size'):
-            ctrl_type = 'Span<const %s>' % ctrl_type
-
         info = {
-            'name': name,
-            'type': ctrl_type,
+            'name': ctrl.name,
+            'type': ctrl.type,
         }
 
         target_ctrls = ctrls
-        if ctrl.get('draft'):
+        if ctrl.is_draft:
             target_ctrls = draft_ctrls
 
-        enum = ctrl.get('enum')
-        if enum:
+        if ctrl.is_enum:
             target_ctrls.append(enum_template_start.substitute(info))
 
             num_entries = 0
-            for entry in enum:
+            for enum in ctrl.enum_values:
                 value_info = {
-                    'name': entry['name'],
-                    'value': entry['value'],
+                    'name': enum.name,
+                    'value': enum.value,
                 }
                 target_ctrls.append(enum_value_template.substitute(value_info))
                 num_entries += 1
@@ -202,6 +288,7 @@ def main(argv):
 
     data = open(args.input, 'rb').read()
     controls = yaml.safe_load(data)['controls']
+    controls = [Control(*ctrl.popitem()) for ctrl in controls]
 
     if args.template.endswith('.cpp.in'):
         data = generate_cpp(controls)

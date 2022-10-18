@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 /*
  * Copyright (C) 2019, Google Inc.
- * Copyright (C) 2020, Raspberry Pi (Trading) Ltd.
+ * Copyright (C) 2020, Raspberry Pi Ltd
  *
  * v4l2_pixelformat.cpp - V4L2 Pixel Format
  */
@@ -61,6 +61,8 @@ const std::map<V4L2PixelFormat, V4L2PixelFormat::Info> vpf2pf{
 		{ formats::BGRX8888, "32-bit XRGB 8-8-8-8" } },
 	{ V4L2PixelFormat(V4L2_PIX_FMT_RGBX32),
 		{ formats::XBGR8888, "32-bit RGBX 8-8-8-8" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_BGRX32),
+		{ formats::RGBX8888, "32-bit XBGR 8-8-8-8" } },
 	{ V4L2PixelFormat(V4L2_PIX_FMT_RGBA32),
 		{ formats::ABGR8888, "32-bit RGBA 8-8-8-8" } },
 	{ V4L2PixelFormat(V4L2_PIX_FMT_ABGR32),
@@ -79,6 +81,10 @@ const std::map<V4L2PixelFormat, V4L2PixelFormat::Info> vpf2pf{
 		{ formats::UYVY, "UYVY 4:2:2" } },
 	{ V4L2PixelFormat(V4L2_PIX_FMT_VYUY),
 		{ formats::VYUY, "VYUY 4:2:2" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_YUVA32),
+		{ formats::AVUY8888, "32-bit YUVA 8-8-8-8" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_YUVX32),
+		{ formats::XVUY8888, "32-bit YUVX 8-8-8-8" } },
 
 	/* YUV planar formats. */
 	{ V4L2PixelFormat(V4L2_PIX_FMT_NV16),
@@ -113,12 +119,20 @@ const std::map<V4L2PixelFormat, V4L2PixelFormat::Info> vpf2pf{
 		{ formats::YUV422, "Planar YUV 4:2:2" } },
 	{ V4L2PixelFormat(V4L2_PIX_FMT_YUV422M),
 		{ formats::YUV422, "Planar YUV 4:2:2 (N-C)" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_YVU422M),
+		{ formats::YVU422, "Planar YVU 4:2:2 (N-C)" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_YUV444M),
+		{ formats::YUV444, "Planar YUV 4:4:4 (N-C)" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_YUV444M),
+		{ formats::YVU444, "Planar YVU 4:4:4 (N-C)" } },
 
 	/* Greyscale formats. */
 	{ V4L2PixelFormat(V4L2_PIX_FMT_GREY),
 		{ formats::R8, "8-bit Greyscale" } },
 	{ V4L2PixelFormat(V4L2_PIX_FMT_Y10),
 		{ formats::R10, "10-bit Greyscale" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_Y10P),
+		{ formats::R10_CSI2P, "10-bit Greyscale Packed" } },
 	{ V4L2PixelFormat(V4L2_PIX_FMT_Y12),
 		{ formats::R12, "12-bit Greyscale" } },
 
@@ -175,6 +189,8 @@ const std::map<V4L2PixelFormat, V4L2PixelFormat::Info> vpf2pf{
 	/* Compressed formats. */
 	{ V4L2PixelFormat(V4L2_PIX_FMT_MJPEG),
 		{ formats::MJPEG, "Motion-JPEG" } },
+	{ V4L2PixelFormat(V4L2_PIX_FMT_JPEG),
+		{ formats::MJPEG, "JPEG JFIF" } },
 };
 
 } /* namespace */
@@ -278,15 +294,23 @@ const char *V4L2PixelFormat::description() const
 
 /**
  * \brief Convert the V4L2 pixel format to the corresponding PixelFormat
+ * \param[in] warn When true, log a warning message if the V4L2 pixel format
+ * isn't known
+ *
+ * Users of this function might try to convert a V4L2PixelFormat to a
+ * PixelFormat just to check if the format is supported or not. In that case,
+ * they can suppress the warning message by setting the \a warn argument to
+ * false to not pollute the log with unnecessary messages.
+ *
  * \return The PixelFormat corresponding to the V4L2 pixel format
  */
-PixelFormat V4L2PixelFormat::toPixelFormat() const
+PixelFormat V4L2PixelFormat::toPixelFormat(bool warn) const
 {
 	const auto iter = vpf2pf.find(*this);
 	if (iter == vpf2pf.end()) {
-		LOG(V4L2, Warning)
-			<< "Unsupported V4L2 pixel format "
-			<< toString();
+		if (warn)
+			LOG(V4L2, Warning) << "Unsupported V4L2 pixel format "
+					   << toString();
 		return PixelFormat();
 	}
 
@@ -294,26 +318,37 @@ PixelFormat V4L2PixelFormat::toPixelFormat() const
 }
 
 /**
- * \brief Convert \a pixelFormat to its corresponding V4L2PixelFormat
+ * \brief Retrieve the list of V4L2PixelFormat associated with \a pixelFormat
  * \param[in] pixelFormat The PixelFormat to convert
- * \param[in] multiplanar V4L2 Multiplanar API support flag
  *
- * Multiple V4L2 formats may exist for one PixelFormat when the format uses
- * multiple planes, as V4L2 defines separate 4CCs for contiguous and separate
- * planes formats. Set the \a multiplanar parameter to false to select a format
- * with contiguous planes, or to true to select a format with non-contiguous
- * planes.
+ * Multiple V4L2 formats may exist for one PixelFormat as V4L2 defines separate
+ * 4CCs for contiguous and non-contiguous versions of the same image format.
  *
- * \return The V4L2PixelFormat corresponding to \a pixelFormat
+ * \return The list of V4L2PixelFormat corresponding to \a pixelFormat
  */
-V4L2PixelFormat V4L2PixelFormat::fromPixelFormat(const PixelFormat &pixelFormat,
-						 bool multiplanar)
+const std::vector<V4L2PixelFormat> &
+V4L2PixelFormat::fromPixelFormat(const PixelFormat &pixelFormat)
 {
+	static const std::vector<V4L2PixelFormat> empty;
+
 	const PixelFormatInfo &info = PixelFormatInfo::info(pixelFormat);
 	if (!info.isValid())
-		return V4L2PixelFormat();
+		return empty;
 
-	return multiplanar ? info.v4l2Formats.multi : info.v4l2Formats.single;
+	return info.v4l2Formats;
+}
+
+/**
+ * \brief Insert a text representation of a V4L2PixelFormat into an output
+ * stream
+ * \param[in] out The output stream
+ * \param[in] f The V4L2PixelFormat
+ * \return The output stream \a out
+ */
+std::ostream &operator<<(std::ostream &out, const V4L2PixelFormat &f)
+{
+	out << f.toString();
+	return out;
 }
 
 } /* namespace libcamera */

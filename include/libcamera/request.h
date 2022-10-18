@@ -4,11 +4,12 @@
  *
  * request.h - Capture request handling
  */
-#ifndef __LIBCAMERA_REQUEST_H__
-#define __LIBCAMERA_REQUEST_H__
+
+#pragma once
 
 #include <map>
 #include <memory>
+#include <ostream>
 #include <stdint.h>
 #include <string>
 #include <unordered_set>
@@ -17,6 +18,7 @@
 #include <libcamera/base/signal.h>
 
 #include <libcamera/controls.h>
+#include <libcamera/fence.h>
 
 namespace libcamera {
 
@@ -25,8 +27,10 @@ class CameraControlValidator;
 class FrameBuffer;
 class Stream;
 
-class Request
+class Request : public Extensible
 {
+	LIBCAMERA_DECLARE_PRIVATE()
+
 public:
 	enum Status {
 		RequestPending,
@@ -49,39 +53,29 @@ public:
 	ControlList &controls() { return *controls_; }
 	ControlList &metadata() { return *metadata_; }
 	const BufferMap &buffers() const { return bufferMap_; }
-	int addBuffer(const Stream *stream, FrameBuffer *buffer);
+	int addBuffer(const Stream *stream, FrameBuffer *buffer,
+		      std::unique_ptr<Fence> fence = nullptr);
 	FrameBuffer *findBuffer(const Stream *stream) const;
 
-	uint32_t sequence() const { return sequence_; }
+	uint32_t sequence() const;
 	uint64_t cookie() const { return cookie_; }
 	Status status() const { return status_; }
 
-	bool hasPendingBuffers() const { return !pending_.empty(); }
+	bool hasPendingBuffers() const;
 
 	std::string toString() const;
 
 private:
 	LIBCAMERA_DISABLE_COPY(Request)
 
-	friend class PipelineHandler;
-
-	void complete();
-	void cancel();
-
-	bool completeBuffer(FrameBuffer *buffer);
-
-	Camera *camera_;
 	ControlList *controls_;
 	ControlList *metadata_;
 	BufferMap bufferMap_;
-	std::unordered_set<FrameBuffer *> pending_;
 
-	uint32_t sequence_;
 	const uint64_t cookie_;
 	Status status_;
-	bool cancelled_;
 };
 
-} /* namespace libcamera */
+std::ostream &operator<<(std::ostream &out, const Request &r);
 
-#endif /* __LIBCAMERA_REQUEST_H__ */
+} /* namespace libcamera */

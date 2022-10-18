@@ -5,8 +5,7 @@
  * formats.h - libcamera image formats
  */
 
-#ifndef __LIBCAMERA_INTERNAL_FORMATS_H__
-#define __LIBCAMERA_INTERNAL_FORMATS_H__
+#pragma once
 
 #include <array>
 #include <map>
@@ -54,10 +53,7 @@ public:
 	/* \todo Add support for non-contiguous memory planes */
 	const char *name;
 	PixelFormat format;
-	struct {
-		V4L2PixelFormat single;
-		V4L2PixelFormat multi;
-	} v4l2Formats;
+	std::vector<V4L2PixelFormat> v4l2Formats;
 	unsigned int bitsPerPixel;
 	enum ColourEncoding colourEncoding;
 	bool packed;
@@ -68,5 +64,3 @@ public:
 };
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_INTERNAL_FORMATS_H__ */

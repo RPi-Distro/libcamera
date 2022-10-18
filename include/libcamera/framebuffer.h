@@ -4,21 +4,22 @@
  *
  * framebuffer.h - Frame buffer handling
  */
-#ifndef __LIBCAMERA_FRAMEBUFFER_H__
-#define __LIBCAMERA_FRAMEBUFFER_H__
+
+#pragma once
 
 #include <assert.h>
 #include <limits>
+#include <memory>
 #include <stdint.h>
 #include <vector>
 
 #include <libcamera/base/class.h>
+#include <libcamera/base/shared_fd.h>
 #include <libcamera/base/span.h>
-
-#include <libcamera/file_descriptor.h>
 
 namespace libcamera {
 
+class Fence;
 class Request;
 
 struct FrameMetadata {
@@ -52,34 +53,25 @@ class FrameBuffer final : public Extensible
 public:
 	struct Plane {
 		static constexpr unsigned int kInvalidOffset = std::numeric_limits<unsigned int>::max();
-		FileDescriptor fd;
+		SharedFD fd;
 		unsigned int offset = kInvalidOffset;
 		unsigned int length;
 	};
 
 	FrameBuffer(const std::vector<Plane> &planes, unsigned int cookie = 0);
+	FrameBuffer(std::unique_ptr<Private> d);
 
-	const std::vector<Plane> &planes() const { return planes_; }
+	const std::vector<Plane> &planes() const;
 	Request *request() const;
-	const FrameMetadata &metadata() const { return metadata_; }
+	const FrameMetadata &metadata() const;
 
-	unsigned int cookie() const { return cookie_; }
-	void setCookie(unsigned int cookie) { cookie_ = cookie; }
+	uint64_t cookie() const;
+	void setCookie(uint64_t cookie);
 
-	void cancel() { metadata_.status = FrameMetadata::FrameCancelled; }
+	std::unique_ptr<Fence> releaseFence();
 
 private:
 	LIBCAMERA_DISABLE_COPY_AND_MOVE(FrameBuffer)
-
-	friend class V4L2VideoDevice; /* Needed to update metadata_. */
-
-	std::vector<Plane> planes_;
-
-	FrameMetadata metadata_;
-
-	unsigned int cookie_;
 };
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_FRAMEBUFFER_H__ */

@@ -4,11 +4,10 @@
  *
  * camera_hal_manager.h - libcamera Android Camera Manager
  */
-#ifndef __ANDROID_CAMERA_MANAGER_H__
-#define __ANDROID_CAMERA_MANAGER_H__
+
+#pragma once
 
 #include <map>
-#include <mutex>
 #include <stddef.h>
 #include <tuple>
 #include <vector>
@@ -18,6 +17,7 @@
 #include <system/camera_metadata.h>
 
 #include <libcamera/base/class.h>
+#include <libcamera/base/mutex.h>
 
 #include <libcamera/camera_manager.h>
 
@@ -44,9 +44,6 @@ public:
 private:
 	LIBCAMERA_DISABLE_COPY_AND_MOVE(CameraHalManager)
 
-	using Mutex = std::mutex;
-	using MutexLocker = std::unique_lock<std::mutex>;
-
 	static constexpr unsigned int firstExternalCameraId_ = 1000;
 
 	CameraHalManager();
@@ -56,18 +53,16 @@ private:
 	void cameraAdded(std::shared_ptr<libcamera::Camera> cam);
 	void cameraRemoved(std::shared_ptr<libcamera::Camera> cam);
 
-	CameraDevice *cameraDeviceFromHalId(unsigned int id);
+	CameraDevice *cameraDeviceFromHalId(unsigned int id) LIBCAMERA_TSA_REQUIRES(mutex_);
 
 	std::unique_ptr<libcamera::CameraManager> cameraManager_;
 	CameraHalConfig halConfig_;
 
 	const camera_module_callbacks_t *callbacks_;
-	std::vector<std::unique_ptr<CameraDevice>> cameras_;
-	std::map<std::string, unsigned int> cameraIdsMap_;
-	Mutex mutex_;
+	std::vector<std::unique_ptr<CameraDevice>> cameras_ LIBCAMERA_TSA_GUARDED_BY(mutex_);
+	std::map<std::string, unsigned int> cameraIdsMap_ LIBCAMERA_TSA_GUARDED_BY(mutex_);
+	libcamera::Mutex mutex_;
 
 	unsigned int numInternalCameras_;
 	unsigned int nextExternalCameraId_;
 };
-
-#endif /* __ANDROID_CAMERA_MANAGER_H__ */

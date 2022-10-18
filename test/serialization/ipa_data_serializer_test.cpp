@@ -20,11 +20,7 @@
 #include <libcamera/base/thread.h>
 #include <libcamera/base/timer.h>
 
-#include "libcamera/internal/device_enumerator.h"
 #include "libcamera/internal/ipa_data_serializer.h"
-#include "libcamera/internal/ipa_manager.h"
-#include "libcamera/internal/ipa_module.h"
-#include "libcamera/internal/pipeline_handler.h"
 
 #include "serialization_test.h"
 #include "test.h"
@@ -53,7 +49,7 @@ template<typename T>
 int testPodSerdes(T in)
 {
 	std::vector<uint8_t> buf;
-	std::vector<FileDescriptor> fds;
+	std::vector<SharedFD> fds;
 
 	std::tie(buf, fds) = IPADataSerializer<T>::serialize(in);
 	T out = IPADataSerializer<T>::deserialize(buf, fds);
@@ -72,7 +68,7 @@ int testVectorSerdes(const std::vector<T> &in,
 		     ControlSerializer *cs = nullptr)
 {
 	std::vector<uint8_t> buf;
-	std::vector<FileDescriptor> fds;
+	std::vector<SharedFD> fds;
 
 	std::tie(buf, fds) = IPADataSerializer<std::vector<T>>::serialize(in, cs);
 	std::vector<T> out = IPADataSerializer<std::vector<T>>::deserialize(buf, fds, cs);
@@ -92,7 +88,7 @@ int testMapSerdes(const std::map<K, V> &in,
 		  ControlSerializer *cs = nullptr)
 {
 	std::vector<uint8_t> buf;
-	std::vector<FileDescriptor> fds;
+	std::vector<SharedFD> fds;
 
 	std::tie(buf, fds) = IPADataSerializer<std::map<K, V>>::serialize(in, cs);
 	std::map<K, V> out = IPADataSerializer<std::map<K, V>>::deserialize(buf, fds, cs);
@@ -198,7 +194,7 @@ private:
 		ControlSerializer cs(ControlSerializer::Role::Proxy);
 
 		/*
-		 * We don't test FileDescriptor serdes because it dup()s, so we
+		 * We don't test SharedFD serdes because it dup()s, so we
 		 * can't check for equality.
 		 */
 		std::vector<uint8_t>  vecUint8  = { 1, 2, 3, 4, 5, 6 };
@@ -219,7 +215,7 @@ private:
 		};
 
 		std::vector<uint8_t> buf;
-		std::vector<FileDescriptor> fds;
+		std::vector<SharedFD> fds;
 
 		if (testVectorSerdes(vecUint8) != TestPass)
 			return TestFail;
@@ -291,7 +287,7 @@ private:
 			{ { "a", { 1, 2, 3 } }, { "b", { 4, 5, 6 } }, { "c", { 7, 8, 9 } } };
 
 		std::vector<uint8_t> buf;
-		std::vector<FileDescriptor> fds;
+		std::vector<SharedFD> fds;
 
 		if (testMapSerdes(mapUintStr) != TestPass)
 			return TestFail;
@@ -359,7 +355,7 @@ private:
 		std::string strEmpty = "";
 
 		std::vector<uint8_t> buf;
-		std::vector<FileDescriptor> fds;
+		std::vector<SharedFD> fds;
 
 		if (testPodSerdes(u32min) != TestPass)
 			return TestFail;

@@ -32,6 +32,7 @@
 #include "libcamera/internal/camera.h"
 #include "libcamera/internal/camera_sensor.h"
 #include "libcamera/internal/device_enumerator.h"
+#include "libcamera/internal/framebuffer.h"
 #include "libcamera/internal/ipa_manager.h"
 #include "libcamera/internal/media_device.h"
 #include "libcamera/internal/pipeline_handler.h"
@@ -53,7 +54,7 @@ public:
 	int init();
 	int allocateMockIPABuffers();
 	void bufferReady(FrameBuffer *buffer);
-	void paramsFilled(unsigned int id);
+	void paramsBufferReady(unsigned int id);
 
 	MediaDevice *media_;
 	std::unique_ptr<CameraSensor> sensor_;
@@ -91,7 +92,7 @@ public:
 			       std::vector<std::unique_ptr<FrameBuffer>> *buffers) override;
 
 	int start(Camera *camera, const ControlList *controls) override;
-	void stop(Camera *camera) override;
+	void stopDevice(Camera *camera) override;
 
 	int queueRequestDevice(Camera *camera, Request *request) override;
 
@@ -163,14 +164,14 @@ CameraConfiguration::Status VimcCameraConfiguration::validate()
 
 	if (cfg.size != size) {
 		LOG(VIMC, Debug)
-			<< "Adjusting size to " << cfg.size.toString();
+			<< "Adjusting size to " << cfg.size;
 		status = Adjusted;
 	}
 
 	cfg.bufferCount = 4;
 
 	V4L2DeviceFormat format;
-	format.fourcc = V4L2PixelFormat::fromPixelFormat(cfg.pixelFormat);
+	format.fourcc = data_->video_->toV4L2PixelFormat(cfg.pixelFormat);
 	format.size = cfg.size;
 
 	int ret = data_->video_->tryFormat(&format);
@@ -208,7 +209,7 @@ CameraConfiguration *PipelineHandlerVimc::generateConfiguration(Camera *camera,
 			if (pixelformat.first != formats::BGR888) {
 				LOG(VIMC, Info)
 					<< "Skipping unsupported pixel format "
-					<< pixelformat.first.toString();
+					<< pixelformat.first;
 				continue;
 			}
 		}
@@ -274,7 +275,7 @@ int PipelineHandlerVimc::configure(Camera *camera, CameraConfiguration *config)
 		return ret;
 
 	V4L2DeviceFormat format;
-	format.fourcc = V4L2PixelFormat::fromPixelFormat(cfg.pixelFormat);
+	format.fourcc = data->video_->toV4L2PixelFormat(cfg.pixelFormat);
 	format.size = cfg.size;
 
 	ret = data->video_->setFormat(&format);
@@ -282,7 +283,7 @@ int PipelineHandlerVimc::configure(Camera *camera, CameraConfiguration *config)
 		return ret;
 
 	if (format.size != cfg.size ||
-	    format.fourcc != V4L2PixelFormat::fromPixelFormat(cfg.pixelFormat))
+	    format.fourcc != data->video_->toV4L2PixelFormat(cfg.pixelFormat))
 		return -EINVAL;
 
 	/*
@@ -359,7 +360,7 @@ int PipelineHandlerVimc::start(Camera *camera, [[maybe_unused]] const ControlLis
 	return 0;
 }
 
-void PipelineHandlerVimc::stop(Camera *camera)
+void PipelineHandlerVimc::stopDevice(Camera *camera)
 {
 	VimcCameraData *data = cameraData(camera);
 	data->video_->streamOff();
@@ -377,7 +378,7 @@ int PipelineHandlerVimc::processControls(VimcCameraData *data, Request *request)
 {
 	ControlList controls(data->sensor_->controls());
 
-	for (auto it : request->controls()) {
+	for (const auto &it : request->controls()) {
 		unsigned int id = it.first;
 		unsigned int offset;
 		uint32_t cid;
@@ -432,7 +433,7 @@ int PipelineHandlerVimc::queueRequestDevice(Camera *camera, Request *request)
 	if (ret < 0)
 		return ret;
 
-	data->ipa_->processControls(request->sequence(), request->controls());
+	data->ipa_->queueRequest(request->sequence(), request->controls());
 
 	return 0;
 }
@@ -467,7 +468,7 @@ bool PipelineHandlerVimc::match(DeviceEnumerator *enumerator)
 		return false;
 	}
 
-	data->ipa_->paramsFilled.connect(data.get(), &VimcCameraData::paramsFilled);
+	data->ipa_->paramsBufferReady.connect(data.get(), &VimcCameraData::paramsBufferReady);
 
 	std::string conf = data->ipa_->configurationFile("vimc.conf");
 	data->ipa_->init(IPASettings{ conf, data->sensor_->model() });
@@ -574,7 +575,7 @@ void VimcCameraData::bufferReady(FrameBuffer *buffer)
 	if (buffer->metadata().status == FrameMetadata::FrameCancelled) {
 		for (auto it : request->buffers()) {
 			FrameBuffer *b = it.second;
-			b->cancel();
+			b->_d()->cancel();
 			pipe->completeBuffer(request, b);
 		}
 
@@ -589,7 +590,7 @@ void VimcCameraData::bufferReady(FrameBuffer *buffer)
 	pipe->completeBuffer(request, buffer);
 	pipe->completeRequest(request);
 
-	ipa_->fillParams(request->sequence(), mockIPABufs_[0]->cookie());
+	ipa_->fillParamsBuffer(request->sequence(), mockIPABufs_[0]->cookie());
 }
 
 int VimcCameraData::allocateMockIPABuffers()
@@ -597,7 +598,7 @@ int VimcCameraData::allocateMockIPABuffers()
 	constexpr unsigned int kBufCount = 2;
 
 	V4L2DeviceFormat format;
-	format.fourcc = V4L2PixelFormat::fromPixelFormat(formats::BGR888);
+	format.fourcc = video_->toV4L2PixelFormat(formats::BGR888);
 	format.size = Size (160, 120);
 
 	int ret = video_->setFormat(&format);
@@ -607,7 +608,7 @@ int VimcCameraData::allocateMockIPABuffers()
 	return video_->exportBuffers(kBufCount, &mockIPABufs_);
 }
 
-void VimcCameraData::paramsFilled([[maybe_unused]] unsigned int id)
+void VimcCameraData::paramsBufferReady([[maybe_unused]] unsigned int id)
 {
 }
 

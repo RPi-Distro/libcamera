@@ -4,8 +4,8 @@
  *
  * media_device.h - Media device handler
  */
-#ifndef __LIBCAMERA_INTERNAL_MEDIA_DEVICE_H__
-#define __LIBCAMERA_INTERNAL_MEDIA_DEVICE_H__
+
+#pragma once
 
 #include <map>
 #include <sstream>
@@ -16,6 +16,7 @@
 
 #include <libcamera/base/log.h>
 #include <libcamera/base/signal.h>
+#include <libcamera/base/unique_fd.h>
 
 #include "libcamera/internal/media_object.h"
 
@@ -37,9 +38,9 @@ public:
 	int populate();
 	bool isValid() const { return valid_; }
 
-	const std::string driver() const { return driver_; }
-	const std::string deviceNode() const { return deviceNode_; }
-	const std::string model() const { return model_; }
+	const std::string &driver() const { return driver_; }
+	const std::string &deviceNode() const { return deviceNode_; }
+	const std::string &model() const { return model_; }
 	unsigned int version() const { return version_; }
 	unsigned int hwRevision() const { return hwRevision_; }
 
@@ -82,15 +83,12 @@ private:
 	unsigned int version_;
 	unsigned int hwRevision_;
 
-	int fd_;
+	UniqueFD fd_;
 	bool valid_;
 	bool acquired_;
-	bool lockOwner_;
 
 	std::map<unsigned int, MediaObject *> objects_;
 	std::vector<MediaEntity *> entities_;
 };
 
 } /* namespace libcamera */
-
-#endif /* __LIBCAMERA_INTERNAL_MEDIA_DEVICE_H__ */

@@ -1,12 +1,14 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
- * Copyright (C) 2020, Raspberry Pi (Trading) Ltd.
+ * Copyright (C) 2020, Raspberry Pi Ltd
  *
  * stream_options.cpp - Helper to parse options for streams
  */
 #include "stream_options.h"
 
 #include <iostream>
+
+#include <libcamera/color_space.h>
 
 using namespace libcamera;
 
@@ -20,6 +22,8 @@ StreamKeyValueParser::StreamKeyValueParser()
 	addOption("height", OptionInteger, "Height in pixels",
 		  ArgumentRequired);
 	addOption("pixelformat", OptionString, "Pixel format name",
+		  ArgumentRequired);
+	addOption("colorspace", OptionString, "Color space",
 		  ArgumentRequired);
 }
 
@@ -96,6 +100,9 @@ int StreamKeyValueParser::updateConfiguration(CameraConfiguration *config,
 
 		if (opts.isSet("pixelformat"))
 			cfg.pixelFormat = PixelFormat::fromString(opts["pixelformat"].toString());
+
+		if (opts.isSet("colorspace"))
+			cfg.colorSpace = ColorSpace::fromString(opts["colorspace"].toString());
 	}
 
 	return 0;

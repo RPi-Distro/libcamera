@@ -147,6 +147,10 @@ int CamApp::parseOptions(int argc, char *argv[])
 			 "The default file name is 'frame-#.bin'.",
 			 "file", ArgumentOptional, "filename", false,
 			 OptCamera);
+#ifdef HAVE_SDL
+	parser.addOption(OptSDL, OptionNone, "Display viewfinder through SDL",
+			 "sdl", ArgumentNone, "", false, OptCamera);
+#endif
 	parser.addOption(OptStream, &streamKeyValue,
 			 "Set configuration of a camera stream", "stream", true,
 			 OptCamera);
@@ -157,6 +161,10 @@ int CamApp::parseOptions(int argc, char *argv[])
 	parser.addOption(OptMetadata, OptionNone,
 			 "Print the metadata for completed requests",
 			 "metadata", ArgumentNone, nullptr, false,
+			 OptCamera);
+	parser.addOption(OptCaptureScript, OptionString,
+			 "Load a capture session configuration script from a file",
+			 "script", ArgumentRequired, "script", false,
 			 OptCamera);
 
 	options_ = parser.parse(argc, argv);
@@ -292,8 +300,9 @@ std::string CamApp::cameraName(const Camera *camera)
 	 * Construct the name from the camera location, model and ID. The model
 	 * is only used if the location isn't present or is set to External.
 	 */
-	if (props.contains(properties::Location)) {
-		switch (props.get(properties::Location)) {
+	const auto &location = props.get(properties::Location);
+	if (location) {
+		switch (*location) {
 		case properties::CameraLocationFront:
 			addModel = false;
 			name = "Internal front camera ";
@@ -308,12 +317,14 @@ std::string CamApp::cameraName(const Camera *camera)
 		}
 	}
 
-	if (addModel && props.contains(properties::Model)) {
+	if (addModel) {
 		/*
 		 * If the camera location is not availble use the camera model
 		 * to build the camera name.
 		 */
-		name = "'" + props.get(properties::Model) + "' ";
+		const auto &model = props.get(properties::Model);
+		if (model)
+			name = "'" + *model + "' ";
 	}
 
 	name += "(" + camera->id() + ")";

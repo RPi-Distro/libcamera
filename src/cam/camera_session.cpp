@@ -14,12 +14,16 @@
 #include <libcamera/property_ids.h>
 
 #include "camera_session.h"
+#include "capture_script.h"
 #include "event_loop.h"
 #include "file_sink.h"
 #ifdef HAVE_KMS
 #include "kms_sink.h"
 #endif
 #include "main.h"
+#ifdef HAVE_SDL
+#include "sdl_sink.h"
+#endif
 #include "stream_options.h"
 
 using namespace libcamera;
@@ -91,6 +95,16 @@ CameraSession::CameraSession(CameraManager *cm,
 	}
 #endif
 
+	if (options_.isSet(OptCaptureScript)) {
+		std::string scriptName = options_[OptCaptureScript].toString();
+		script_ = std::make_unique<CaptureScript>(camera_, scriptName);
+		if (!script_->valid()) {
+			std::cerr << "Invalid capture script '" << scriptName
+				  << "'" << std::endl;
+			return;
+		}
+	}
+
 	switch (config->validate()) {
 	case CameraConfiguration::Valid:
 		break;
@@ -120,10 +134,7 @@ CameraSession::~CameraSession()
 
 void CameraSession::listControls() const
 {
-	for (const auto &ctrl : camera_->controls()) {
-		const ControlId *id = ctrl.first;
-		const ControlInfo &info = ctrl.second;
-
+	for (const auto &[id, info] : camera_->controls()) {
 		std::cout << "Control: " << id->name() << ": "
 			  << info.toString() << std::endl;
 	}
@@ -131,9 +142,8 @@ void CameraSession::listControls() const
 
 void CameraSession::listProperties() const
 {
-	for (const auto &prop : camera_->properties()) {
-		const ControlId *id = properties::properties.at(prop.first);
-		const ControlValue &value = prop.second;
+	for (const auto &[key, value] : camera_->properties()) {
+		const ControlId *id = properties::properties.at(key);
 
 		std::cout << "Property: " << id->name() << " = "
 			  << value.toString() << std::endl;
@@ -149,13 +159,12 @@ void CameraSession::infoConfiguration() const
 		const StreamFormats &formats = cfg.formats();
 		for (PixelFormat pixelformat : formats.pixelformats()) {
 			std::cout << " * Pixelformat: "
-				  << pixelformat.toString() << " "
+				  << pixelformat << " "
 				  << formats.range(pixelformat).toString()
 				  << std::endl;
 
 			for (const Size &size : formats.sizes(pixelformat))
-				std::cout << "  - " << size.toString()
-					  << std::endl;
+				std::cout << "  - " << size << std::endl;
 		}
 
 		index++;
@@ -189,6 +198,11 @@ int CameraSession::start()
 #ifdef HAVE_KMS
 	if (options_.isSet(OptDisplay))
 		sink_ = std::make_unique<KMSSink>(options_[OptDisplay].toString());
+#endif
+
+#ifdef HAVE_SDL
+	if (options_.isSet(OptSDL))
+		sink_ = std::make_unique<SDLSink>();
 #endif
 
 	if (options_.isSet(OptFile)) {
@@ -327,6 +341,9 @@ int CameraSession::queueRequest(Request *request)
 	if (captureLimit_ && queueCount_ >= captureLimit_)
 		return 0;
 
+	if (script_)
+		request->controls() = script_->frameControls(queueCount_);
+
 	queueCount_++;
 
 	return camera_->queueRequest(request);
@@ -374,10 +391,7 @@ void CameraSession::processRequest(Request *request)
 	     << std::setw(6) << std::setfill('0') << ts / 1000 % 1000000
 	     << " (" << std::fixed << std::setprecision(2) << fps << " fps)";
 
-	for (auto it = buffers.begin(); it != buffers.end(); ++it) {
-		const Stream *stream = it->first;
-		FrameBuffer *buffer = it->second;
-
+	for (const auto &[stream, buffer] : buffers) {
 		const FrameMetadata &metadata = buffer->metadata();
 
 		info << " " << streamNames_[stream]
@@ -401,10 +415,10 @@ void CameraSession::processRequest(Request *request)
 
 	if (printMetadata_) {
 		const ControlList &requestMetadata = request->metadata();
-		for (const auto &ctrl : requestMetadata) {
-			const ControlId *id = controls::controls.at(ctrl.first);
+		for (const auto &[key, value] : requestMetadata) {
+			const ControlId *id = controls::controls.at(key);
 			std::cout << "\t" << id->name() << " = "
-				  << ctrl.second.toString() << std::endl;
+				  << value.toString() << std::endl;
 		}
 	}
 
@@ -426,7 +440,7 @@ void CameraSession::processRequest(Request *request)
 		return;
 
 	request->reuse(Request::ReuseBuffers);
-	camera_->queueRequest(request);
+	queueRequest(request);
 }
 
 void CameraSession::sinkRelease(Request *request)
