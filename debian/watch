@@ -1,5 +1,9 @@
 version=4
 
-opts="mode=git, pgpmode=none, pretty=0~git%cd+%h, repack, compression=xz" \
+opts="mode=git, pgpmode=none, repack, compression=xz" \
+    git://git.linuxtv.org/libcamera.git \
+    refs/tags/v@ANY_VERSION@
+
+opts="mode=git, pgpmode=none, pretty=0.0.1+git%cd+%h, repack, compression=xz" \
     git://git.linuxtv.org/libcamera.git \
     HEAD
