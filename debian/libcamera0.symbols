@@ -406,7 +406,8 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::ControlInfo::ControlInfo(bool)@Base" 0.0.1
  (c++)"libcamera::ControlInfo::ControlInfo(libcamera::ControlInfo const&)@Base" 0.0.1
  (c++)"libcamera::ControlInfo::ControlInfo(libcamera::ControlValue const&, libcamera::ControlValue const&, libcamera::ControlValue const&)@Base" 0.0.1
- (c++)"libcamera::ControlInfo::ControlInfo(libcamera::Span<libcamera::ControlValue const, 18446744073709551615ul>, libcamera::ControlValue const&)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::ControlInfo::ControlInfo(libcamera::Span<libcamera::ControlValue const, 18446744073709551615ul>, libcamera::ControlValue const&)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::ControlInfo::ControlInfo(libcamera::Span<libcamera::ControlValue const, 4294967295u>, libcamera::ControlValue const&)@Base" 0.0.1
  (c++)"libcamera::ControlInfo::ControlInfo(std::set<bool, std::less<bool>, std::allocator<bool> >, bool)@Base" 0.0.1
  (c++)"libcamera::ControlInfoMap::at(unsigned int)@Base" 0.0.1
  (c++)"libcamera::ControlInfoMap::at(unsigned int) const@Base" 0.0.1
@@ -423,12 +424,15 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::Control<libcamera::Rectangle>::~Control()@Base" 0.0.1
  (c++)"libcamera::Control<libcamera::Size>::~Control()@Base" 0.0.1
  (c++)"libcamera::Control<libcamera::Size>::Control(unsigned int, char const*)@Base" 0.0.1
- (c++)"libcamera::Control<libcamera::Span<float const, 2ul> >::~Control()@Base" 0.0.1
- (c++)"libcamera::Control<libcamera::Span<float const, 9ul> >::~Control()@Base" 0.0.1
- (c++)"libcamera::Control<libcamera::Span<int const, 4ul> >::~Control()@Base" 0.0.1
- (c++)"libcamera::Control<libcamera::Span<libcamera::Rectangle const, 18446744073709551615ul> >::~Control()@Base" 0.0.1
- (c++)"libcamera::Control<libcamera::Span<libcamera::Rectangle const, 18446744073709551615ul> >::Control(unsigned int, char const*)@Base" 0.0.1
- (c++)"libcamera::Control<libcamera::Span<long const, 2ul> >::~Control()@Base" 0.0.1
+ (c++|regex)"^libcamera::Control<libcamera::Span<float const, 2ul?> >::.*@Base" 0.0.1
+ (c++|regex)"^libcamera::Control<libcamera::Span<float const, 9ul?> >::.*@Base" 0.0.1
+ (c++|regex)"^libcamera::Control<libcamera::Span<int const, 4ul?> >::.*@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::Control<libcamera::Span<libcamera::Rectangle const, 18446744073709551615ul> >::~Control()@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::Control<libcamera::Span<libcamera::Rectangle const, 18446744073709551615ul> >::Control(unsigned int, char const*)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::Control<libcamera::Span<libcamera::Rectangle const, 4294967295u> >::~Control()@Base" 0.0.1-2+salsaci
+ (c++|arch-bits=32)"libcamera::Control<libcamera::Span<libcamera::Rectangle const, 4294967295u> >::Control(unsigned int, char const*)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::Control<libcamera::Span<long const, 2ul> >::~Control()@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::Control<libcamera::Span<long long const, 2u> >::~Control()@Base" 0.0.1
  (c++)"libcamera::ControlList::contains(unsigned int) const@Base" 0.0.1
  (c++)"libcamera::ControlList::ControlList()@Base" 0.0.1
  (c++)"libcamera::ControlList::ControlList(libcamera::ControlInfoMap const&, libcamera::ControlValidator const*)@Base" 0.0.1
@@ -658,8 +662,10 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::IPCUnixSocket::IPCUnixSocket()@Base" 0.0.1
  (c++)"libcamera::IPCUnixSocket::isBound() const@Base" 0.0.1
  (c++)"libcamera::IPCUnixSocket::receive(libcamera::IPCUnixSocket::Payload*)@Base" 0.0.1
- (c++)"libcamera::IPCUnixSocket::recvData(void*, unsigned long, int*, unsigned int)@Base" 0.0.1
- (c++)"libcamera::IPCUnixSocket::sendData(void const*, unsigned long, int const*, unsigned int)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::IPCUnixSocket::recvData(void*, unsigned long, int*, unsigned int)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::IPCUnixSocket::recvData(void*, unsigned int, int*, unsigned int)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::IPCUnixSocket::sendData(void const*, unsigned long, int const*, unsigned int)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::IPCUnixSocket::sendData(void const*, unsigned int, int const*, unsigned int)@Base" 0.0.1
  (c++)"libcamera::IPCUnixSocket::send(libcamera::IPCUnixSocket::Payload const&)@Base" 0.0.1
  (c++)"libcamera::IPU3CameraConfiguration::~IPU3CameraConfiguration()@Base" 0.0.1
  (c++)"libcamera::IPU3CameraConfiguration::IPU3CameraConfiguration(libcamera::IPU3CameraData*)@Base" 0.0.1
@@ -879,7 +885,8 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::PipelineHandlerVimc::start(libcamera::Camera*, libcamera::ControlList const*)@Base" 0.0.1
  (c++)"libcamera::PipelineHandlerVimc::stopDevice(libcamera::Camera*)@Base" 0.0.1
  (c++)"libcamera::PixelFormat::fromString(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)@Base" 0.0.1
- (c++)"libcamera::PixelFormatInfo::frameSize(libcamera::Size const&, std::array<unsigned int, 3ul> const&) const@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::PixelFormatInfo::frameSize(libcamera::Size const&, std::array<unsigned int, 3ul> const&) const@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::PixelFormatInfo::frameSize(libcamera::Size const&, std::array<unsigned int, 3u> const&) const@Base" 0.0.1
  (c++)"libcamera::PixelFormatInfo::frameSize(libcamera::Size const&, unsigned int) const@Base" 0.0.1
  (c++)"libcamera::PixelFormatInfo::info(libcamera::PixelFormat const&)@Base" 0.0.1
  (c++)"libcamera::PixelFormatInfo::info(libcamera::V4L2PixelFormat const&)@Base" 0.0.1
@@ -1257,7 +1264,8 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"non-virtual thunk to libcamera::ipa::ipu3::IPAProxyIPU3::init(libcamera::IPASettings const&, libcamera::IPACameraSensorInfo const&, libcamera::ControlInfoMap const&, libcamera::ControlInfoMap*)@Base" 0.0.1
  (c++)"non-virtual thunk to libcamera::ipa::ipu3::IPAProxyIPU3::~IPAProxyIPU3()@Base" 0.0.1
  (c++)"non-virtual thunk to libcamera::ipa::ipu3::IPAProxyIPU3::mapBuffers(std::vector<libcamera::IPABuffer, std::allocator<libcamera::IPABuffer> > const&)@Base" 0.0.1
- (c++)"non-virtual thunk to libcamera::ipa::ipu3::IPAProxyIPU3::processStatsBuffer(unsigned int, long, unsigned int, libcamera::ControlList const&)@Base" 0.0.1
+ (c++|arch-bits=64)"non-virtual thunk to libcamera::ipa::ipu3::IPAProxyIPU3::processStatsBuffer(unsigned int, long, unsigned int, libcamera::ControlList const&)@Base" 0.0.1
+ (c++|arch-bits=32)"non-virtual thunk to libcamera::ipa::ipu3::IPAProxyIPU3::processStatsBuffer(unsigned int, long long, unsigned int, libcamera::ControlList const&)@Base" 0.0.1
  (c++)"non-virtual thunk to libcamera::ipa::ipu3::IPAProxyIPU3::queueRequest(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
  (c++)"non-virtual thunk to libcamera::ipa::ipu3::IPAProxyIPU3::start()@Base" 0.0.1
  (c++)"non-virtual thunk to libcamera::ipa::ipu3::IPAProxyIPU3::stop()@Base" 0.0.1
