@@ -6,7 +6,7 @@ Uploaders:
  IOhannes m zmölnig (Debian/GNU) <umlaeute@debian.org>,
  Andrej Shadura <andrewsh@debian.org>
 Build-Depends: debhelper-compat (= 13),
-               meson (>= 0.47),
+               meson (>= 0.56),
                pkgconf | pkg-config,
                libevent-dev,
                libgtest-dev <!nocheck>,
