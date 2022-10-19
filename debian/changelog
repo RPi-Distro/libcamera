@@ -1,6 +1,13 @@
+libcamera (0.0.1-2) unstable; urgency=medium
+
+  * Add the missing build dependency on libyaml-dev.
+  * Bump meson dependency.
+
+ -- Andrej Shadura <andrewsh@debian.org>  Wed, 19 Oct 2022 14:14:02 +0100
+
 libcamera (0.0.1-1) unstable; urgency=medium
 
-  * New upstream release.
+  * New upstream release (Closes: #962650).
   * Update debian/copyright.
   * Update the patch.
   * Update debian/watch.
