@@ -41,16 +41,20 @@ libcamera-base.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::File::~File()@Base" 0.0.1
  (c++)"libcamera::File::File()@Base" 0.0.1
  (c++)"libcamera::File::File(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)@Base" 0.0.1
- (c++)"libcamera::File::map(long, long, libcamera::Flags<libcamera::File::MapFlag>)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::File::map(long, long, libcamera::Flags<libcamera::File::MapFlag>)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::File::map(long long, int, libcamera::Flags<libcamera::File::MapFlag>)@Base" 0.0.1
  (c++)"libcamera::File::open(libcamera::Flags<libcamera::File::OpenModeFlag>)@Base" 0.0.1
  (c++)"libcamera::File::pos() const@Base" 0.0.1
- (c++)"libcamera::File::read(libcamera::Span<unsigned char, 18446744073709551615ul> const&)@Base" 0.0.1
- (c++)"libcamera::File::seek(long)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::File::read(libcamera::Span<unsigned char, 18446744073709551615ul> const&)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::File::read(libcamera::Span<unsigned char, 4294967295u> const&)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::File::seek(long)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::File::seek(long long)@Base" 0.0.1
  (c++)"libcamera::File::setFileName(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)@Base" 0.0.1
  (c++)"libcamera::File::size() const@Base" 0.0.1
  (c++)"libcamera::File::unmapAll()@Base" 0.0.1
  (c++)"libcamera::File::unmap(unsigned char*)@Base" 0.0.1
- (c++)"libcamera::File::write(libcamera::Span<unsigned char const, 18446744073709551615ul> const&)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::File::write(libcamera::Span<unsigned char const, 18446744073709551615ul> const&)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::File::write(libcamera::Span<unsigned char const, 4294967295u> const&)@Base" 0.0.1
  (c++)"libcamera::InvokeMessage::invoke()@Base" 0.0.1
  (c++)"libcamera::InvokeMessage::~InvokeMessage()@Base" 0.0.1
  (c++)"libcamera::InvokeMessage::InvokeMessage(libcamera::BoundMethodBase*, std::shared_ptr<libcamera::BoundMethodPackBase>, libcamera::Semaphore*, bool)@Base" 0.0.1
@@ -152,12 +156,15 @@ libcamera-base.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::Thread::startThread()@Base" 0.0.1
  (c++)"libcamera::Thread::~Thread()@Base" 0.0.1
  (c++)"libcamera::Thread::Thread()@Base" 0.0.1
- (c++)"libcamera::Thread::wait(std::chrono::duration<long, std::ratio<1l, 1000000000l> >)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::Thread::wait(std::chrono::duration<long, std::ratio<1l, 1000000000l> >)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::Thread::wait(std::chrono::duration<long long, std::ratio<1ll, 1000000000ll> >)@Base" 0.0.1
  (c++)"libcamera::Timer::isRunning() const@Base" 0.0.1
  (c++)"libcamera::Timer::message(libcamera::Message*)@Base" 0.0.1
  (c++)"libcamera::Timer::registerTimer()@Base" 0.0.1
- (c++)"libcamera::Timer::start(std::chrono::duration<long, std::ratio<1l, 1000l> >)@Base" 0.0.1
- (c++)"libcamera::Timer::start(std::chrono::time_point<std::chrono::_V2::steady_clock, std::chrono::duration<long, std::ratio<1l, 1000000000l> > >)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::Timer::start(std::chrono::duration<long, std::ratio<1l, 1000l> >)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::Timer::start(std::chrono::duration<long long, std::ratio<1ll, 1000ll> >)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::Timer::start(std::chrono::time_point<std::chrono::_V2::steady_clock, std::chrono::duration<long, std::ratio<1l, 1000000000l> > >)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::Timer::start(std::chrono::time_point<std::chrono::_V2::steady_clock, std::chrono::duration<long long, std::ratio<1ll, 1000000000ll> > >)@Base" 0.0.1
  (c++)"libcamera::Timer::stop()@Base" 0.0.1
  (c++)"libcamera::Timer::~Timer()@Base" 0.0.1
  (c++)"libcamera::Timer::Timer(libcamera::Object*)@Base" 0.0.1
@@ -166,18 +173,22 @@ libcamera-base.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::utils::basename(char const*)@Base" 0.0.1
  (c++)"libcamera::utils::details::StringSplitter::begin() const@Base" 0.0.1
  (c++)"libcamera::utils::details::StringSplitter::end() const@Base" 0.0.1
- (c++)"libcamera::utils::details::StringSplitter::iterator::iterator(libcamera::utils::details::StringSplitter const*, unsigned long)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::utils::details::StringSplitter::iterator::iterator(libcamera::utils::details::StringSplitter const*, unsigned long)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::utils::details::StringSplitter::iterator::iterator(libcamera::utils::details::StringSplitter const*, unsigned int)@Base" 0.0.1
  (c++)"libcamera::utils::details::StringSplitter::iterator::operator*[abi:cxx11]() const@Base" 0.0.1
  (c++)"libcamera::utils::details::StringSplitter::iterator::operator++()@Base" 0.0.1
  (c++)"libcamera::utils::details::StringSplitter::iterator::operator!=(libcamera::utils::details::StringSplitter::iterator const&) const@Base" 0.0.1
  (c++)"libcamera::utils::details::StringSplitter::StringSplitter(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)@Base" 0.0.1
  (c++)"libcamera::utils::dirname(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)@Base" 0.0.1
- (c++)"libcamera::utils::duration_to_timespec(std::chrono::duration<long, std::ratio<1l, 1000000000l> > const&)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::utils::duration_to_timespec(std::chrono::duration<long, std::ratio<1l, 1000000000l> > const&)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::utils::duration_to_timespec(std::chrono::duration<long long, std::ratio<1ll, 1000000000ll> > const&)@Base" 0.0.1
  (c++)"libcamera::utils::operator<<(std::basic_ostream<char, std::char_traits<char> >&, libcamera::utils::_hex const&)@Base" 0.0.1
  (c++)"libcamera::utils::secure_getenv(char const*)@Base" 0.0.1
  (c++)"libcamera::utils::split(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)@Base" 0.0.1
- (c++)"libcamera::utils::strlcpy(char*, char const*, unsigned long)@Base" 0.0.1
- (c++)"libcamera::utils::time_point_to_string[abi:cxx11](std::chrono::time_point<std::chrono::_V2::steady_clock, std::chrono::duration<long, std::ratio<1l, 1000000000l> > > const&)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::utils::strlcpy(char*, char const*, unsigned long)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::utils::strlcpy(char*, char const*, unsigned int)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::utils::time_point_to_string[abi:cxx11](std::chrono::time_point<std::chrono::_V2::steady_clock, std::chrono::duration<long, std::ratio<1l, 1000000000l> > > const&)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::utils::time_point_to_string[abi:cxx11](std::chrono::time_point<std::chrono::_V2::steady_clock, std::chrono::duration<long long, std::ratio<1ll, 1000000000ll> > > const&)@Base" 0.0.1
  (c++)"libcamera::utils::toAscii(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)@Base" 0.0.1
  (c++|regex|optional)"^std::.*@Base" 0.0.1
  (c++)"typeinfo for libcamera::BoundMethodArgs<void>@Base" 0.0.1
@@ -1531,7 +1542,8 @@ libgstlibcamera.so libcamera0 #MINVER#
  (c++)"gst_libcamera_pad_get_role(_GstPad*)@Base" 0.0.1
  (c++)"gst_libcamera_pad_get_stream(_GstPad*)@Base" 0.0.1
  (c++)"gst_libcamera_pad_get_type()@Base" 0.0.1
- (c++)"gst_libcamera_pad_set_latency(_GstPad*, unsigned long)@Base" 0.0.1
+ (c++|arch-bits=64)"gst_libcamera_pad_set_latency(_GstPad*, unsigned long)@Base" 0.0.1
+ (c++|arch-bits=32)"gst_libcamera_pad_set_latency(_GstPad*, unsigned long long)@Base" 0.0.1
  (c++)"gst_libcamera_pad_set_pool(_GstPad*, _GstLibcameraPool*)@Base" 0.0.1
  (c++)"gst_libcamera_pool_get_stream(_GstLibcameraPool*)@Base" 0.0.1
  (c++)"gst_libcamera_pool_get_type()@Base" 0.0.1
