@@ -258,250 +258,24 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::BayerFormat::toString[abi:cxx11]() const@Base" 0.0.1
  (c++)"libcamera::BayerFormat::toV4L2PixelFormat() const@Base" 0.0.1
  (c++)"libcamera::BayerFormat::transform(libcamera::Transform) const@Base" 0.0.1
- (c++)"libcamera::BoundMethodArgs<int>::invokePack(libcamera::BoundMethodPackBase*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodArgs<int, libcamera::Camera*, libcamera::CameraConfiguration*>::invokePack(libcamera::BoundMethodPackBase*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodArgs<int, libcamera::Camera*, libcamera::ControlList const*>::invokePack(libcamera::BoundMethodPackBase*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodArgs<int, libcamera::Camera*, libcamera::Stream*, std::vector<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> >, std::allocator<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> > > >*>::invokePack(libcamera::BoundMethodPackBase*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodArgs<void>::invokePack(libcamera::BoundMethodPackBase*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodArgs<void, libcamera::Camera*>::invokePack(libcamera::BoundMethodPackBase*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodArgs<void, libcamera::ControlList const&>::invokePack(libcamera::BoundMethodPackBase*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodArgs<void, libcamera::ControlList const&, libcamera::ipa::RPi::StartConfig*>::invokePack(libcamera::BoundMethodPackBase*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodArgs<void, libcamera::FrameBuffer*>::invokePack(libcamera::BoundMethodPackBase*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodArgs<void, libcamera::ipa::RPi::ISPConfig const&>::invokePack(libcamera::BoundMethodPackBase*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodArgs<void, libcamera::IPCMessage const&>::invokePack(libcamera::BoundMethodPackBase*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodArgs<void, libcamera::Request*>::invokePack(libcamera::BoundMethodPackBase*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodArgs<void, unsigned int>::invokePack(libcamera::BoundMethodPackBase*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodArgs<void, unsigned int, libcamera::ControlList const&>::invokePack(libcamera::BoundMethodPackBase*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodArgs<void, unsigned int, libcamera::ControlList const&, libcamera::ControlList const&>::invokePack(libcamera::BoundMethodPackBase*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodArgs<void, unsigned int, long, unsigned int, libcamera::ControlList const&>::invokePack(libcamera::BoundMethodPackBase*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodArgs<void, unsigned int, unsigned int>::invokePack(libcamera::BoundMethodPackBase*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodArgs<void, unsigned int, unsigned int, libcamera::ControlList const&>::invokePack(libcamera::BoundMethodPackBase*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::CameraManager::Private, void>::activate(bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::CameraManager::Private, void>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::CameraManager::Private, void>::invoke()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::CIO2Device, void, libcamera::FrameBuffer*>::activate(libcamera::FrameBuffer*, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::CIO2Device, void, libcamera::FrameBuffer*>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::CIO2Device, void, libcamera::FrameBuffer*>::invoke(libcamera::FrameBuffer*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::DelayedControls, void, unsigned int>::activate(unsigned int, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::DelayedControls, void, unsigned int>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::DelayedControls, void, unsigned int>::invoke(unsigned int)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::DeviceEnumeratorUdev, void>::activate(bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::DeviceEnumeratorUdev, void>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::DeviceEnumeratorUdev, void>::invoke()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, int>::activate(bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, int>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, int>::invoke()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, void>::activate(bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, void>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, void>::invoke()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, void, unsigned int, libcamera::ControlList const&>::activate(unsigned int, libcamera::ControlList const&, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, void, unsigned int, libcamera::ControlList const&>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, void, unsigned int, libcamera::ControlList const&>::invoke(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, void, unsigned int, long, unsigned int, libcamera::ControlList const&>::activate(unsigned int, long, unsigned int, libcamera::ControlList const&, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, void, unsigned int, long, unsigned int, libcamera::ControlList const&>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, void, unsigned int, long, unsigned int, libcamera::ControlList const&>::invoke(unsigned int, long, unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, void, unsigned int, unsigned int>::activate(unsigned int, unsigned int, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, void, unsigned int, unsigned int>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, void, unsigned int, unsigned int>::invoke(unsigned int, unsigned int)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3, void, libcamera::IPCMessage const&>::activate(libcamera::IPCMessage const&, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3, void, libcamera::IPCMessage const&>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3, void, libcamera::IPCMessage const&>::invoke(libcamera::IPCMessage const&)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3, void, unsigned int>::activate(unsigned int, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3, void, unsigned int>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3, void, unsigned int>::invoke(unsigned int)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3, void, unsigned int, libcamera::ControlList const&>::activate(unsigned int, libcamera::ControlList const&, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3, void, unsigned int, libcamera::ControlList const&>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3, void, unsigned int, libcamera::ControlList const&>::invoke(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3, void, unsigned int, libcamera::ControlList const&, libcamera::ControlList const&>::activate(unsigned int, libcamera::ControlList const&, libcamera::ControlList const&, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3, void, unsigned int, libcamera::ControlList const&, libcamera::ControlList const&>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3, void, unsigned int, libcamera::ControlList const&, libcamera::ControlList const&>::invoke(unsigned int, libcamera::ControlList const&, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, int>::activate(bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, int>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, int>::invoke()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, void>::activate(bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, void>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, void>::invoke()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, void, unsigned int, libcamera::ControlList const&>::activate(unsigned int, libcamera::ControlList const&, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, void, unsigned int, libcamera::ControlList const&>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, void, unsigned int, libcamera::ControlList const&>::invoke(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, void, unsigned int, unsigned int>::activate(unsigned int, unsigned int, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, void, unsigned int, unsigned int>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, void, unsigned int, unsigned int>::invoke(unsigned int, unsigned int)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, void, unsigned int, unsigned int, libcamera::ControlList const&>::activate(unsigned int, unsigned int, libcamera::ControlList const&, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, void, unsigned int, unsigned int, libcamera::ControlList const&>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, void, unsigned int, unsigned int, libcamera::ControlList const&>::invoke(unsigned int, unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1, void, libcamera::IPCMessage const&>::activate(libcamera::IPCMessage const&, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1, void, libcamera::IPCMessage const&>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1, void, libcamera::IPCMessage const&>::invoke(libcamera::IPCMessage const&)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1, void, unsigned int>::activate(unsigned int, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1, void, unsigned int>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1, void, unsigned int>::invoke(unsigned int)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1, void, unsigned int, libcamera::ControlList const&>::activate(unsigned int, libcamera::ControlList const&, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1, void, unsigned int, libcamera::ControlList const&>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1, void, unsigned int, libcamera::ControlList const&>::invoke(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void>::activate(bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void>::invoke()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void, libcamera::ControlList const&>::activate(libcamera::ControlList const&, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void, libcamera::ControlList const&>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void, libcamera::ControlList const&>::invoke(libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void, libcamera::ControlList const&, libcamera::ipa::RPi::StartConfig*>::activate(libcamera::ControlList const&, libcamera::ipa::RPi::StartConfig*, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void, libcamera::ControlList const&, libcamera::ipa::RPi::StartConfig*>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void, libcamera::ControlList const&, libcamera::ipa::RPi::StartConfig*>::invoke(libcamera::ControlList const&, libcamera::ipa::RPi::StartConfig*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void, libcamera::ipa::RPi::ISPConfig const&>::activate(libcamera::ipa::RPi::ISPConfig const&, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void, libcamera::ipa::RPi::ISPConfig const&>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void, libcamera::ipa::RPi::ISPConfig const&>::invoke(libcamera::ipa::RPi::ISPConfig const&)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void, unsigned int>::activate(unsigned int, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void, unsigned int>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void, unsigned int>::invoke(unsigned int)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi, void, libcamera::ControlList const&>::activate(libcamera::ControlList const&, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi, void, libcamera::ControlList const&>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi, void, libcamera::ControlList const&>::invoke(libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi, void, libcamera::IPCMessage const&>::activate(libcamera::IPCMessage const&, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi, void, libcamera::IPCMessage const&>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi, void, libcamera::IPCMessage const&>::invoke(libcamera::IPCMessage const&)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi, void, unsigned int>::activate(unsigned int, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi, void, unsigned int>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi, void, unsigned int>::invoke(unsigned int)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi, void, unsigned int, libcamera::ControlList const&>::activate(unsigned int, libcamera::ControlList const&, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi, void, unsigned int, libcamera::ControlList const&>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi, void, unsigned int, libcamera::ControlList const&>::invoke(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy, int>::activate(bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy, int>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy, int>::invoke()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy, void>::activate(bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy, void>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy, void>::invoke()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy, void, unsigned int, libcamera::ControlList const&>::activate(unsigned int, libcamera::ControlList const&, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy, void, unsigned int, libcamera::ControlList const&>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy, void, unsigned int, libcamera::ControlList const&>::invoke(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy, void, unsigned int, unsigned int>::activate(unsigned int, unsigned int, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy, void, unsigned int, unsigned int>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy, void, unsigned int, unsigned int>::invoke(unsigned int, unsigned int)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc, void, libcamera::IPCMessage const&>::activate(libcamera::IPCMessage const&, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc, void, libcamera::IPCMessage const&>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc, void, libcamera::IPCMessage const&>::invoke(libcamera::IPCMessage const&)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc, void, unsigned int>::activate(unsigned int, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc, void, unsigned int>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc, void, unsigned int>::invoke(unsigned int)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::IPCPipeUnixSocket, void>::activate(bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::IPCPipeUnixSocket, void>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::IPCPipeUnixSocket, void>::invoke()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::IPCUnixSocket, void>::activate(bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::IPCUnixSocket, void>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::IPCUnixSocket, void>::invoke()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::IPU3CameraData, void>::activate(bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::IPU3CameraData, void>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::IPU3CameraData, void>::invoke()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::IPU3CameraData, void, libcamera::FrameBuffer*>::activate(libcamera::FrameBuffer*, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::IPU3CameraData, void, libcamera::FrameBuffer*>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::IPU3CameraData, void, libcamera::FrameBuffer*>::invoke(libcamera::FrameBuffer*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::IPU3CameraData, void, unsigned int>::activate(unsigned int, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::IPU3CameraData, void, unsigned int>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::IPU3CameraData, void, unsigned int>::invoke(unsigned int)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::IPU3CameraData, void, unsigned int, libcamera::ControlList const&>::activate(unsigned int, libcamera::ControlList const&, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::IPU3CameraData, void, unsigned int, libcamera::ControlList const&>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::IPU3CameraData, void, unsigned int, libcamera::ControlList const&>::invoke(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::IPU3CameraData, void, unsigned int, libcamera::ControlList const&, libcamera::ControlList const&>::activate(unsigned int, libcamera::ControlList const&, libcamera::ControlList const&, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::IPU3CameraData, void, unsigned int, libcamera::ControlList const&, libcamera::ControlList const&>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::IPU3CameraData, void, unsigned int, libcamera::ControlList const&, libcamera::ControlList const&>::invoke(unsigned int, libcamera::ControlList const&, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::PipelineHandler, int, libcamera::Camera*, libcamera::CameraConfiguration*>::activate(libcamera::Camera*, libcamera::CameraConfiguration*, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::PipelineHandler, int, libcamera::Camera*, libcamera::CameraConfiguration*>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::PipelineHandler, int, libcamera::Camera*, libcamera::CameraConfiguration*>::invoke(libcamera::Camera*, libcamera::CameraConfiguration*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::PipelineHandler, int, libcamera::Camera*, libcamera::ControlList const*>::activate(libcamera::Camera*, libcamera::ControlList const*, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::PipelineHandler, int, libcamera::Camera*, libcamera::ControlList const*>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::PipelineHandler, int, libcamera::Camera*, libcamera::ControlList const*>::invoke(libcamera::Camera*, libcamera::ControlList const*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::PipelineHandler, int, libcamera::Camera*, libcamera::Stream*, std::vector<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> >, std::allocator<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> > > >*>::activate(libcamera::Camera*, libcamera::Stream*, std::vector<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> >, std::allocator<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> > > >*, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::PipelineHandler, int, libcamera::Camera*, libcamera::Stream*, std::vector<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> >, std::allocator<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> > > >*>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::PipelineHandler, int, libcamera::Camera*, libcamera::Stream*, std::vector<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> >, std::allocator<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> > > >*>::invoke(libcamera::Camera*, libcamera::Stream*, std::vector<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> >, std::allocator<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> > > >*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::PipelineHandlerRkISP1, void, libcamera::FrameBuffer*>::activate(libcamera::FrameBuffer*, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::PipelineHandlerRkISP1, void, libcamera::FrameBuffer*>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::PipelineHandlerRkISP1, void, libcamera::FrameBuffer*>::invoke(libcamera::FrameBuffer*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::PipelineHandler, void>::activate(bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::PipelineHandler, void>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::PipelineHandler, void>::invoke()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::PipelineHandler, void, libcamera::Camera*>::activate(libcamera::Camera*, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::PipelineHandler, void, libcamera::Camera*>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::PipelineHandler, void, libcamera::Camera*>::invoke(libcamera::Camera*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::PipelineHandler, void, libcamera::Request*>::activate(libcamera::Request*, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::PipelineHandler, void, libcamera::Request*>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::PipelineHandler, void, libcamera::Request*>::invoke(libcamera::Request*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ProcessManager, void>::activate(bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ProcessManager, void>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::ProcessManager, void>::invoke()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::Request::Private, void>::activate(bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::Request::Private, void>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::Request::Private, void>::invoke()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::RkISP1CameraData, void, unsigned int>::activate(unsigned int, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::RkISP1CameraData, void, unsigned int>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::RkISP1CameraData, void, unsigned int>::invoke(unsigned int)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::RkISP1CameraData, void, unsigned int, libcamera::ControlList const&>::activate(unsigned int, libcamera::ControlList const&, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::RkISP1CameraData, void, unsigned int, libcamera::ControlList const&>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::RkISP1CameraData, void, unsigned int, libcamera::ControlList const&>::invoke(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::RPiCameraData, void>::activate(bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::RPiCameraData, void>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::RPiCameraData, void>::invoke()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::RPiCameraData, void, libcamera::ControlList const&>::activate(libcamera::ControlList const&, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::RPiCameraData, void, libcamera::ControlList const&>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::RPiCameraData, void, libcamera::ControlList const&>::invoke(libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::RPiCameraData, void, libcamera::FrameBuffer*>::activate(libcamera::FrameBuffer*, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::RPiCameraData, void, libcamera::FrameBuffer*>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::RPiCameraData, void, libcamera::FrameBuffer*>::invoke(libcamera::FrameBuffer*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::RPiCameraData, void, unsigned int>::activate(unsigned int, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::RPiCameraData, void, unsigned int>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::RPiCameraData, void, unsigned int>::invoke(unsigned int)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::RPiCameraData, void, unsigned int, libcamera::ControlList const&>::activate(unsigned int, libcamera::ControlList const&, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::RPiCameraData, void, unsigned int, libcamera::ControlList const&>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::RPiCameraData, void, unsigned int, libcamera::ControlList const&>::invoke(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::SimpleCameraData, void, libcamera::FrameBuffer*>::activate(libcamera::FrameBuffer*, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::SimpleCameraData, void, libcamera::FrameBuffer*>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::SimpleCameraData, void, libcamera::FrameBuffer*>::invoke(libcamera::FrameBuffer*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::SimpleConverter::Stream, void, libcamera::FrameBuffer*>::activate(libcamera::FrameBuffer*, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::SimpleConverter::Stream, void, libcamera::FrameBuffer*>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::SimpleConverter::Stream, void, libcamera::FrameBuffer*>::invoke(libcamera::FrameBuffer*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::UVCCameraData, void, libcamera::FrameBuffer*>::activate(libcamera::FrameBuffer*, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::UVCCameraData, void, libcamera::FrameBuffer*>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::UVCCameraData, void, libcamera::FrameBuffer*>::invoke(libcamera::FrameBuffer*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::V4L2Device, void>::activate(bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::V4L2Device, void>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::V4L2Device, void>::invoke()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::V4L2VideoDevice, void>::activate(bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::V4L2VideoDevice, void>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::V4L2VideoDevice, void>::invoke()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::VimcCameraData, void, libcamera::FrameBuffer*>::activate(libcamera::FrameBuffer*, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::VimcCameraData, void, libcamera::FrameBuffer*>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::VimcCameraData, void, libcamera::FrameBuffer*>::invoke(libcamera::FrameBuffer*)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::VimcCameraData, void, unsigned int>::activate(unsigned int, bool)@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::VimcCameraData, void, unsigned int>::~BoundMethodMember()@Base" 0.0.1
- (c++)"libcamera::BoundMethodMember<libcamera::VimcCameraData, void, unsigned int>::invoke(unsigned int)@Base" 0.0.1
- (c++)"libcamera::BoundMethodPack<int>::~BoundMethodPack()@Base" 0.0.1
- (c++)"libcamera::BoundMethodPack<int, libcamera::Camera*, libcamera::CameraConfiguration*>::~BoundMethodPack()@Base" 0.0.1
- (c++)"libcamera::BoundMethodPack<int, libcamera::Camera*, libcamera::ControlList const*>::~BoundMethodPack()@Base" 0.0.1
- (c++)"libcamera::BoundMethodPack<int, libcamera::Camera*, libcamera::Stream*, std::vector<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> >, std::allocator<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> > > >*>::~BoundMethodPack()@Base" 0.0.1
- (c++)"libcamera::BoundMethodPack<void>::~BoundMethodPack()@Base" 0.0.1
- (c++)"libcamera::BoundMethodPack<void, libcamera::Camera*>::~BoundMethodPack()@Base" 0.0.1
- (c++)"libcamera::BoundMethodPack<void, libcamera::ControlList const&>::~BoundMethodPack()@Base" 0.0.1
- (c++)"libcamera::BoundMethodPack<void, libcamera::ControlList const&, libcamera::ipa::RPi::StartConfig*>::~BoundMethodPack()@Base" 0.0.1
- (c++)"libcamera::BoundMethodPack<void, libcamera::FrameBuffer*>::~BoundMethodPack()@Base" 0.0.1
- (c++)"libcamera::BoundMethodPack<void, libcamera::ipa::RPi::ISPConfig const&>::~BoundMethodPack()@Base" 0.0.1
- (c++)"libcamera::BoundMethodPack<void, libcamera::IPCMessage const&>::~BoundMethodPack()@Base" 0.0.1
- (c++)"libcamera::BoundMethodPack<void, libcamera::Request*>::~BoundMethodPack()@Base" 0.0.1
- (c++)"libcamera::BoundMethodPack<void, unsigned int>::~BoundMethodPack()@Base" 0.0.1
- (c++)"libcamera::BoundMethodPack<void, unsigned int, libcamera::ControlList const&>::~BoundMethodPack()@Base" 0.0.1
- (c++)"libcamera::BoundMethodPack<void, unsigned int, libcamera::ControlList const&, libcamera::ControlList const&>::~BoundMethodPack()@Base" 0.0.1
- (c++)"libcamera::BoundMethodPack<void, unsigned int, long, unsigned int, libcamera::ControlList const&>::~BoundMethodPack()@Base" 0.0.1
- (c++)"libcamera::BoundMethodPack<void, unsigned int, unsigned int>::~BoundMethodPack()@Base" 0.0.1
- (c++)"libcamera::BoundMethodPack<void, unsigned int, unsigned int, libcamera::ControlList const&>::~BoundMethodPack()@Base" 0.0.1
- (c++)"libcamera::ByteStreamBuffer::ByteStreamBuffer(libcamera::ByteStreamBuffer&&)@Base" 0.0.1
- (c++)"libcamera::ByteStreamBuffer::ByteStreamBuffer(unsigned char const*, unsigned long)@Base" 0.0.1
- (c++)"libcamera::ByteStreamBuffer::ByteStreamBuffer(unsigned char*, unsigned long)@Base" 0.0.1
- (c++)"libcamera::ByteStreamBuffer::carveOut(unsigned long)@Base" 0.0.1
+ (c++|regex|optional)"^libcamera::BoundMethod.*@Base" 0.0.1
  (c++)"libcamera::ByteStreamBuffer::operator=(libcamera::ByteStreamBuffer&&)@Base" 0.0.1
- (c++)"libcamera::ByteStreamBuffer::read(unsigned char*, unsigned long)@Base" 0.0.1
- (c++)"libcamera::ByteStreamBuffer::read(unsigned long, unsigned long)@Base" 0.0.1
  (c++)"libcamera::ByteStreamBuffer::setOverflow()@Base" 0.0.1
- (c++)"libcamera::ByteStreamBuffer::skip(unsigned long)@Base" 0.0.1
- (c++)"libcamera::ByteStreamBuffer::write(unsigned char const*, unsigned long)@Base" 0.0.1
+ (c++)"libcamera::ByteStreamBuffer::ByteStreamBuffer(libcamera::ByteStreamBuffer&&)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::ByteStreamBuffer::ByteStreamBuffer(unsigned char const*, unsigned long)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::ByteStreamBuffer::ByteStreamBuffer(unsigned char*, unsigned long)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::ByteStreamBuffer::carveOut(unsigned long)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::ByteStreamBuffer::read(unsigned char*, unsigned long)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::ByteStreamBuffer::read(unsigned long, unsigned long)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::ByteStreamBuffer::skip(unsigned long)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::ByteStreamBuffer::write(unsigned char const*, unsigned long)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::ByteStreamBuffer::ByteStreamBuffer(unsigned char const*, unsigned int)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::ByteStreamBuffer::ByteStreamBuffer(unsigned char*, unsigned int)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::ByteStreamBuffer::carveOut(unsigned int)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::ByteStreamBuffer::read(unsigned char*, unsigned int)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::ByteStreamBuffer::read(unsigned int, unsigned int)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::ByteStreamBuffer::skip(unsigned int)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::ByteStreamBuffer::write(unsigned char const*, unsigned int)@Base" 0.0.1
  (c++)"libcamera::Camera::acquire()@Base" 0.0.1
  (c++)"libcamera::Camera::~Camera()@Base" 0.0.1
  (c++)"libcamera::Camera::Camera(std::unique_ptr<libcamera::Camera::Private, std::default_delete<libcamera::Camera::Private> >, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::set<libcamera::Stream*, std::less<libcamera::Stream*>, std::allocator<libcamera::Stream*> > const&)@Base" 0.0.1
@@ -523,7 +297,8 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::CameraControlValidator::CameraControlValidator(libcamera::Camera*)@Base" 0.0.1
  (c++)"libcamera::CameraControlValidator::name[abi:cxx11]() const@Base" 0.0.1
  (c++)"libcamera::CameraControlValidator::validate(unsigned int) const@Base" 0.0.1
- (c++)"libcamera::Camera::createRequest(unsigned long)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::Camera::createRequest(unsigned long)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::Camera::createRequest(unsigned long long)@Base" 0.0.1
  (c++)"libcamera::Camera::create(std::unique_ptr<libcamera::Camera::Private, std::default_delete<libcamera::Camera::Private> >, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::set<libcamera::Stream*, std::less<libcamera::Stream*>, std::allocator<libcamera::Stream*> > const&)@Base" 0.0.1
  (c++)"libcamera::Camera::disconnect()@Base" 0.0.1
  (c++)"libcamera::Camera::exportFrameBuffers(libcamera::Stream*, std::vector<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> >, std::allocator<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> > > >*)@Base" 0.0.1
@@ -536,21 +311,15 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::CameraLens::logPrefix[abi:cxx11]() const@Base" 0.0.1
  (c++)"libcamera::CameraLens::setFocusPosition(int)@Base" 0.0.1
  (c++)"libcamera::CameraLens::validateLensDriver()@Base" 0.0.1
- (c++)"libcamera::CameraManager::addCamera(std::shared_ptr<libcamera::Camera>, std::vector<unsigned long, std::allocator<unsigned long> > const&)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::CameraManager::addCamera(std::shared_ptr<libcamera::Camera>, std::vector<unsigned long, std::allocator<unsigned long> > const&)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::CameraManager::addCamera(std::shared_ptr<libcamera::Camera>, std::vector<unsigned long long, std::allocator<unsigned long long> > const&)@Base" 0.0.1
  (c++)"libcamera::CameraManager::~CameraManager()@Base" 0.0.1
  (c++)"libcamera::CameraManager::CameraManager()@Base" 0.0.1
  (c++)"libcamera::CameraManager::cameras() const@Base" 0.0.1
  (c++)"libcamera::CameraManager::get(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)@Base" 0.0.1
- (c++)"libcamera::CameraManager::get(unsigned long)@Base" 0.0.1
- (c++)"libcamera::CameraManager::Private::addCamera(std::shared_ptr<libcamera::Camera>, std::vector<unsigned long, std::allocator<unsigned long> > const&)@Base" 0.0.1
- (c++)"libcamera::CameraManager::Private::cleanup()@Base" 0.0.1
- (c++)"libcamera::CameraManager::Private::createPipelineHandlers()@Base" 0.0.1
- (c++)"libcamera::CameraManager::Private::init()@Base" 0.0.1
- (c++)"libcamera::CameraManager::Private::~Private()@Base" 0.0.1
- (c++)"libcamera::CameraManager::Private::Private()@Base" 0.0.1
- (c++)"libcamera::CameraManager::Private::removeCamera(libcamera::Camera*)@Base" 0.0.1
- (c++)"libcamera::CameraManager::Private::run()@Base" 0.0.1
- (c++)"libcamera::CameraManager::Private::start()@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::CameraManager::get(unsigned long)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::CameraManager::get(unsigned long long)@Base" 0.0.1
+ (c++|regex|optional)"^libcamera::CameraManager::Private::.*@Base" 0.0.1
  (c++)"libcamera::CameraManager::removeCamera(std::shared_ptr<libcamera::Camera>)@Base" 0.0.1
  (c++)"libcamera::CameraManager::self_@Base" 0.0.1
  (c++)"libcamera::CameraManager::start()@Base" 0.0.1
@@ -659,8 +428,10 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::ControlList libcamera::ControlSerializer::deserialize<libcamera::ControlList>(libcamera::ByteStreamBuffer&)@Base" 0.0.1
  (c++)"libcamera::ControlList::merge(libcamera::ControlList const&)@Base" 0.0.1
  (c++)"libcamera::ControlList::set(unsigned int, libcamera::ControlValue const&)@Base" 0.0.1
- (c++)"libcamera::Control<long>::~Control()@Base" 0.0.1
- (c++)"libcamera::Control<long>::Control(unsigned int, char const*)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::Control<long>::~Control()@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::Control<long>::Control(unsigned int, char const*)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::Control<long long>::~Control()@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::Control<long long>::Control(unsigned int, char const*)@Base" 0.0.1
  (c++)"libcamera::controls::AeConstraintMode@Base" 0.0.1
  (c++)"libcamera::controls::AeConstraintModeValues@Base" 0.0.1
  (c++)"libcamera::controls::AeEnable@Base" 0.0.1
@@ -754,8 +525,10 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::ControlValue::operator=(libcamera::ControlValue const&)@Base" 0.0.1
  (c++)"libcamera::ControlValue::operator==(libcamera::ControlValue const&) const@Base" 0.0.1
  (c++)"libcamera::ControlValue::release()@Base" 0.0.1
- (c++)"libcamera::ControlValue::reserve(libcamera::ControlType, bool, unsigned long)@Base" 0.0.1
- (c++)"libcamera::ControlValue::set(libcamera::ControlType, bool, void const*, unsigned long, unsigned long)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::ControlValue::reserve(libcamera::ControlType, bool, unsigned long)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::ControlValue::reserve(libcamera::ControlType, bool, unsigned int)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::ControlValue::set(libcamera::ControlType, bool, void const*, unsigned long, unsigned long)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::ControlValue::set(libcamera::ControlType, bool, void const*, unsigned int, unsigned int)@Base" 0.0.1
  (c++)"libcamera::ControlValue* std::__do_uninit_copy<__gnu_cxx::__normal_iterator<libcamera::ControlValue const*, std::vector<libcamera::ControlValue, std::allocator<libcamera::ControlValue> > >, libcamera::ControlValue*>(__gnu_cxx::__normal_iterator<libcamera::ControlValue const*, std::vector<libcamera::ControlValue, std::allocator<libcamera::ControlValue> > >, __gnu_cxx::__normal_iterator<libcamera::ControlValue const*, std::vector<libcamera::ControlValue, std::allocator<libcamera::ControlValue> > >, libcamera::ControlValue*)@Base" 0.0.1
  (c++)"libcamera::ControlValue* std::__do_uninit_copy<libcamera::ControlValue const*, libcamera::ControlValue*>(libcamera::ControlValue const*, libcamera::ControlValue const*, libcamera::ControlValue*)@Base" 0.0.1
  (c++)"libcamera::ControlValue::toString[abi:cxx11]() const@Base" 0.0.1
@@ -776,13 +549,16 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::DeviceEnumeratorSysfs::lookupDeviceNode[abi:cxx11](int, int)@Base" 0.0.1
  (c++)"libcamera::DeviceEnumeratorSysfs::populateMediaDevice(libcamera::MediaDevice*)@Base" 0.0.1
  (c++)"libcamera::DeviceEnumeratorUdev::addUdevDevice(udev_device*)@Base" 0.0.1
- (c++)"libcamera::DeviceEnumeratorUdev::addV4L2Device(unsigned long)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::DeviceEnumeratorUdev::addV4L2Device(unsigned long)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::DeviceEnumeratorUdev::addV4L2Device(unsigned long long)@Base" 0.0.1
  (c++)"libcamera::DeviceEnumeratorUdev::~DeviceEnumeratorUdev()@Base" 0.0.1
  (c++)"libcamera::DeviceEnumeratorUdev::DeviceEnumeratorUdev()@Base" 0.0.1
  (c++)"libcamera::DeviceEnumeratorUdev::enumerate()@Base" 0.0.1
  (c++)"libcamera::DeviceEnumeratorUdev::init()@Base" 0.0.1
- (c++)"libcamera::DeviceEnumeratorUdev::lookupDeviceNode[abi:cxx11](unsigned long)@Base" 0.0.1
- (c++)"libcamera::DeviceEnumeratorUdev::populateMediaDevice(libcamera::MediaDevice*, std::map<unsigned long, std::__cxx11::list<libcamera::MediaEntity*, std::allocator<libcamera::MediaEntity*> >, std::less<unsigned long>, std::allocator<std::pair<unsigned long const, std::__cxx11::list<libcamera::MediaEntity*, std::allocator<libcamera::MediaEntity*> > > > >*)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::DeviceEnumeratorUdev::lookupDeviceNode[abi:cxx11](unsigned long)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::DeviceEnumeratorUdev::lookupDeviceNode[abi:cxx11](unsigned long long)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::DeviceEnumeratorUdev::populateMediaDevice(libcamera::MediaDevice*, std::map<unsigned long, std::__cxx11::list<libcamera::MediaEntity*, std::allocator<libcamera::MediaEntity*> >, std::less<unsigned long>, std::allocator<std::pair<unsigned long const, std::__cxx11::list<libcamera::MediaEntity*, std::allocator<libcamera::MediaEntity*> > > > >*)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::DeviceEnumeratorUdev::populateMediaDevice(libcamera::MediaDevice*, std::map<unsigned long long, std::__cxx11::list<libcamera::MediaEntity*, std::allocator<libcamera::MediaEntity*> >, std::less<unsigned long long>, std::allocator<std::pair<unsigned long long const, std::__cxx11::list<libcamera::MediaEntity*, std::allocator<libcamera::MediaEntity*> > > > >*)@Base" 0.0.1
  (c++)"libcamera::DeviceEnumeratorUdev::udevNotify()@Base" 0.0.1
  (c++)"libcamera::DeviceMatch::add(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)@Base" 0.0.1
  (c++)"libcamera::DeviceMatch::DeviceMatch(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&)@Base" 0.0.1
@@ -799,11 +575,11 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::FrameBuffer::metadata() const@Base" 0.0.1
  (c++)"libcamera::FrameBuffer::planes() const@Base" 0.0.1
  (c++)"libcamera::FrameBuffer::Plane* std::__do_uninit_copy<libcamera::FrameBuffer::Plane const*, libcamera::FrameBuffer::Plane*>(libcamera::FrameBuffer::Plane const*, libcamera::FrameBuffer::Plane const*, libcamera::FrameBuffer::Plane*)@Base" 0.0.1
- (c++)"libcamera::FrameBuffer::Private::~Private()@Base" 0.0.1
- (c++)"libcamera::FrameBuffer::Private::Private(std::vector<libcamera::FrameBuffer::Plane, std::allocator<libcamera::FrameBuffer::Plane> > const&, unsigned long)@Base" 0.0.1
+ (c++|regex|optional)"^libcamera::FrameBuffer::Private.*@Base" 0.0.1
  (c++)"libcamera::FrameBuffer::releaseFence()@Base" 0.0.1
  (c++)"libcamera::FrameBuffer::request() const@Base" 0.0.1
- (c++)"libcamera::FrameBuffer::setCookie(unsigned long)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::FrameBuffer::setCookie(unsigned long)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::FrameBuffer::setCookie(unsigned long long)@Base" 0.0.1
  (c++)"libcamera::ImgUDevice::allocateBuffers(unsigned int)@Base" 0.0.1
  (c++)"libcamera::ImgUDevice::calculatePipeConfig(libcamera::ImgUDevice::Pipe*)@Base" 0.0.1
  (c++)"libcamera::ImgUDevice::configure(libcamera::ImgUDevice::PipeConfig const&, libcamera::V4L2DeviceFormat*)@Base" 0.0.1
@@ -816,137 +592,10 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::ImgUDevice::linkSetup(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, unsigned int, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, unsigned int, bool)@Base" 0.0.1
  (c++)"libcamera::ImgUDevice::start()@Base" 0.0.1
  (c++)"libcamera::ImgUDevice::stop()@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<bool>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<bool>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<bool>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<bool>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<bool>::serialize(bool const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<double>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<double>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<double>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<double>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<double>::serialize(double const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<float>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<float>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<float>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<float>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<float>::serialize(float const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<int>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<int>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<int>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<int>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<int>::serialize(int const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<libcamera::ControlInfoMap>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<libcamera::ControlInfoMap>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<libcamera::ControlInfoMap>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<libcamera::ControlInfoMap>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<libcamera::ControlInfoMap>::serialize(libcamera::ControlInfoMap const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<libcamera::ControlList>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<libcamera::ControlList>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<libcamera::ControlList>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<libcamera::ControlList>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<libcamera::ControlList>::serialize(libcamera::ControlList const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<libcamera::FrameBuffer::Plane>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<libcamera::FrameBuffer::Plane>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<libcamera::FrameBuffer::Plane>::serialize(libcamera::FrameBuffer::Plane const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<libcamera::IPABuffer>::serialize(libcamera::IPABuffer const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<libcamera::ipa::ipu3::IPAConfigInfo>::serialize(libcamera::ipa::ipu3::IPAConfigInfo const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<libcamera::ipa::RPi::IPAConfigResult>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<libcamera::ipa::RPi::IPAInitResult>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<libcamera::ipa::RPi::ISPConfig>::serialize(libcamera::ipa::RPi::ISPConfig const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<libcamera::ipa::RPi::StartConfig>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<libcamera::SharedFD>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<libcamera::SharedFD>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<libcamera::SharedFD>::serialize(libcamera::SharedFD const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<long>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<long>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<long>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<long>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<long>::serialize(long const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<short>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<short>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<short>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<short>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<short>::serialize(short const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<signed char>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<signed char>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<signed char>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<signed char>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<signed char>::serialize(signed char const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >::serialize(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<std::map<unsigned int, libcamera::ControlInfoMap, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::ControlInfoMap> > > >::serialize(std::map<unsigned int, libcamera::ControlInfoMap, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::ControlInfoMap> > > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<std::map<unsigned int, libcamera::IPAStream, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::IPAStream> > > >::serialize(std::map<unsigned int, libcamera::IPAStream, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::IPAStream> > > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<std::vector<libcamera::FrameBuffer::Plane, std::allocator<libcamera::FrameBuffer::Plane> > >::serialize(std::vector<libcamera::FrameBuffer::Plane, std::allocator<libcamera::FrameBuffer::Plane> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<std::vector<libcamera::IPABuffer, std::allocator<libcamera::IPABuffer> > >::serialize(std::vector<libcamera::IPABuffer, std::allocator<libcamera::IPABuffer> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<std::vector<unsigned int, std::allocator<unsigned int> > >::serialize(std::vector<unsigned int, std::allocator<unsigned int> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<unsigned char>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<unsigned char>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<unsigned char>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<unsigned char>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<unsigned char>::serialize(unsigned char const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<unsigned int>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<unsigned int>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<unsigned int>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<unsigned int>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<unsigned int>::serialize(unsigned int const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<unsigned long>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<unsigned long>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<unsigned long>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<unsigned long>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<unsigned long>::serialize(unsigned long const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<unsigned short>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD const*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<unsigned short>::deserialize(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, __gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<unsigned short>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<unsigned short>::deserialize(std::vector<unsigned char, std::allocator<unsigned char> > const&, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&, libcamera::ControlSerializer*)@Base" 0.0.1
- (c++)"libcamera::IPADataSerializer<unsigned short>::serialize(unsigned short const&, libcamera::ControlSerializer*)@Base" 0.0.1
+ (c++|regex)"^libcamera::IPADataSerializer.*@Base" 0.0.1
  (c++)"libcamera::ipa::ipu3::IPAConfigInfo::~IPAConfigInfo()@Base" 0.0.1
  (c++)"libcamera::ipa::ipu3::IPAIPU3Interface::~IPAIPU3Interface()@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::configureIPC(libcamera::ipa::ipu3::IPAConfigInfo const&, libcamera::ControlInfoMap*)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::configure(libcamera::ipa::ipu3::IPAConfigInfo const&, libcamera::ControlInfoMap*)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::configureThread(libcamera::ipa::ipu3::IPAConfigInfo const&, libcamera::ControlInfoMap*)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::fillParamsBufferIPC(unsigned int, unsigned int)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::fillParamsBufferThread(unsigned int, unsigned int)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::fillParamsBuffer(unsigned int, unsigned int)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::initIPC(libcamera::IPASettings const&, libcamera::IPACameraSensorInfo const&, libcamera::ControlInfoMap const&, libcamera::ControlInfoMap*)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::init(libcamera::IPASettings const&, libcamera::IPACameraSensorInfo const&, libcamera::ControlInfoMap const&, libcamera::ControlInfoMap*)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::initThread(libcamera::IPASettings const&, libcamera::IPACameraSensorInfo const&, libcamera::ControlInfoMap const&, libcamera::ControlInfoMap*)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::~IPAProxyIPU3()@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::IPAProxyIPU3(libcamera::IPAModule*, bool)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::mapBuffersIPC(std::vector<libcamera::IPABuffer, std::allocator<libcamera::IPABuffer> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::mapBuffers(std::vector<libcamera::IPABuffer, std::allocator<libcamera::IPABuffer> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::mapBuffersThread(std::vector<libcamera::IPABuffer, std::allocator<libcamera::IPABuffer> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::metadataReadyIPC(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, unsigned long, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::metadataReadyThread(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::paramsBufferReadyIPC(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, unsigned long, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::paramsBufferReadyThread(unsigned int)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::processStatsBufferIPC(unsigned int, long, unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::processStatsBufferThread(unsigned int, long, unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::processStatsBuffer(unsigned int, long, unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::queueRequestIPC(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::queueRequestThread(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::queueRequest(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::recvMessage(libcamera::IPCMessage const&)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::setSensorControlsIPC(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, unsigned long, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::setSensorControlsThread(unsigned int, libcamera::ControlList const&, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::start()@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::startIPC()@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::startThread()@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::stop()@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::stopIPC()@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::stopThread()@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy::fillParamsBuffer(unsigned int, unsigned int)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy::processStatsBuffer(unsigned int, long, unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy::queueRequest(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy::start()@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy::stop()@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy::~ThreadProxy()@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::unmapBuffersIPC(std::vector<unsigned int, std::allocator<unsigned int> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::unmapBuffers(std::vector<unsigned int, std::allocator<unsigned int> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::ipu3::IPAProxyIPU3::unmapBuffersThread(std::vector<unsigned int, std::allocator<unsigned int> > const&)@Base" 0.0.1
+ (c++|regex)"^libcamera::ipa::ipu3::IPAProxyIPU3::.*@Base" 0.0.1
  (c++)"libcamera::IPAManager::addDir(char const*, unsigned int)@Base" 0.0.1
  (c++)"libcamera::IPAManager::~IPAManager()@Base" 0.0.1
  (c++)"libcamera::IPAManager::IPAManager()@Base" 0.0.1
@@ -971,130 +620,11 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::IPAProxy::~IPAProxy()@Base" 0.0.1
  (c++)"libcamera::IPAProxy::IPAProxy(libcamera::IPAModule*)@Base" 0.0.1
  (c++)"libcamera::IPAProxy::resolvePath(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) const@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::configureIPC(libcamera::IPACameraSensorInfo const&, std::map<unsigned int, libcamera::IPAStream, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::IPAStream> > > const&, std::map<unsigned int, libcamera::ControlInfoMap, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::ControlInfoMap> > > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::configure(libcamera::IPACameraSensorInfo const&, std::map<unsigned int, libcamera::IPAStream, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::IPAStream> > > const&, std::map<unsigned int, libcamera::ControlInfoMap, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::ControlInfoMap> > > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::configureThread(libcamera::IPACameraSensorInfo const&, std::map<unsigned int, libcamera::IPAStream, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::IPAStream> > > const&, std::map<unsigned int, libcamera::ControlInfoMap, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::ControlInfoMap> > > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::fillParamsBufferIPC(unsigned int, unsigned int)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::fillParamsBufferThread(unsigned int, unsigned int)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::fillParamsBuffer(unsigned int, unsigned int)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::initIPC(libcamera::IPASettings const&, unsigned int, libcamera::ControlInfoMap*)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::init(libcamera::IPASettings const&, unsigned int, libcamera::ControlInfoMap*)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::initThread(libcamera::IPASettings const&, unsigned int, libcamera::ControlInfoMap*)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::~IPAProxyRkISP1()@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::IPAProxyRkISP1(libcamera::IPAModule*, bool)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::mapBuffersIPC(std::vector<libcamera::IPABuffer, std::allocator<libcamera::IPABuffer> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::mapBuffers(std::vector<libcamera::IPABuffer, std::allocator<libcamera::IPABuffer> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::mapBuffersThread(std::vector<libcamera::IPABuffer, std::allocator<libcamera::IPABuffer> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::metadataReadyIPC(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, unsigned long, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::metadataReadyThread(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::paramsBufferReadyIPC(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, unsigned long, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::paramsBufferReadyThread(unsigned int)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::processStatsBufferIPC(unsigned int, unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::processStatsBufferThread(unsigned int, unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::processStatsBuffer(unsigned int, unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::queueRequestIPC(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::queueRequestThread(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::queueRequest(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::recvMessage(libcamera::IPCMessage const&)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::setSensorControlsIPC(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, unsigned long, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::setSensorControlsThread(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::start()@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::startIPC()@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::startThread()@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::stop()@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::stopIPC()@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::stopThread()@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy::fillParamsBuffer(unsigned int, unsigned int)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy::processStatsBuffer(unsigned int, unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy::queueRequest(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy::start()@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy::stop()@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy::~ThreadProxy()@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::unmapBuffersIPC(std::vector<unsigned int, std::allocator<unsigned int> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::unmapBuffers(std::vector<unsigned int, std::allocator<unsigned int> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::rkisp1::IPAProxyRkISP1::unmapBuffersThread(std::vector<unsigned int, std::allocator<unsigned int> > const&)@Base" 0.0.1
+ (c++|regex)"^libcamera::ipa::rkisp1::IPAProxyRkISP1::.*@Base" 0.0.1
  (c++)"libcamera::ipa::rkisp1::IPARkISP1Interface::~IPARkISP1Interface()@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::configureIPC(libcamera::IPACameraSensorInfo const&, std::map<unsigned int, libcamera::IPAStream, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::IPAStream> > > const&, std::map<unsigned int, libcamera::ControlInfoMap, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::ControlInfoMap> > > const&, libcamera::ipa::RPi::IPAConfig const&, libcamera::ControlList*, libcamera::ipa::RPi::IPAConfigResult*)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::configure(libcamera::IPACameraSensorInfo const&, std::map<unsigned int, libcamera::IPAStream, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::IPAStream> > > const&, std::map<unsigned int, libcamera::ControlInfoMap, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::ControlInfoMap> > > const&, libcamera::ipa::RPi::IPAConfig const&, libcamera::ControlList*, libcamera::ipa::RPi::IPAConfigResult*)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::configureThread(libcamera::IPACameraSensorInfo const&, std::map<unsigned int, libcamera::IPAStream, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::IPAStream> > > const&, std::map<unsigned int, libcamera::ControlInfoMap, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::ControlInfoMap> > > const&, libcamera::ipa::RPi::IPAConfig const&, libcamera::ControlList*, libcamera::ipa::RPi::IPAConfigResult*)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::embeddedCompleteIPC(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, unsigned long, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::embeddedCompleteThread(unsigned int)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::initIPC(libcamera::IPASettings const&, libcamera::ipa::RPi::IPAInitResult*)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::init(libcamera::IPASettings const&, libcamera::ipa::RPi::IPAInitResult*)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::initThread(libcamera::IPASettings const&, libcamera::ipa::RPi::IPAInitResult*)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::~IPAProxyRPi()@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::IPAProxyRPi(libcamera::IPAModule*, bool)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::mapBuffersIPC(std::vector<libcamera::IPABuffer, std::allocator<libcamera::IPABuffer> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::mapBuffers(std::vector<libcamera::IPABuffer, std::allocator<libcamera::IPABuffer> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::mapBuffersThread(std::vector<libcamera::IPABuffer, std::allocator<libcamera::IPABuffer> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::recvMessage(libcamera::IPCMessage const&)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::runIspIPC(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, unsigned long, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::runIspThread(unsigned int)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::setDelayedControlsIPC(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, unsigned long, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::setDelayedControlsThread(libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::setIspControlsIPC(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, unsigned long, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::setIspControlsThread(libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::signalIspPrepareIPC(libcamera::ipa::RPi::ISPConfig const&)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::signalIspPrepare(libcamera::ipa::RPi::ISPConfig const&)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::signalIspPrepareThread(libcamera::ipa::RPi::ISPConfig const&)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::signalQueueRequestIPC(libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::signalQueueRequest(libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::signalQueueRequestThread(libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::signalStatReadyIPC(unsigned int)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::signalStatReadyThread(unsigned int)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::signalStatReady(unsigned int)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::startIPC(libcamera::ControlList const&, libcamera::ipa::RPi::StartConfig*)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::start(libcamera::ControlList const&, libcamera::ipa::RPi::StartConfig*)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::startThread(libcamera::ControlList const&, libcamera::ipa::RPi::StartConfig*)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::statsMetadataCompleteIPC(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, unsigned long, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::statsMetadataCompleteThread(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::stop()@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::stopIPC()@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::stopThread()@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy::signalIspPrepare(libcamera::ipa::RPi::ISPConfig const&)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy::signalQueueRequest(libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy::signalStatReady(unsigned int)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy::start(libcamera::ControlList const&, libcamera::ipa::RPi::StartConfig*)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy::stop()@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy::~ThreadProxy()@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::unmapBuffersIPC(std::vector<unsigned int, std::allocator<unsigned int> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::unmapBuffers(std::vector<unsigned int, std::allocator<unsigned int> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::RPi::IPAProxyRPi::unmapBuffersThread(std::vector<unsigned int, std::allocator<unsigned int> > const&)@Base" 0.0.1
+ (c++|regex)"^libcamera::ipa::RPi::IPAProxyRPi::.*@Base" 0.0.1
  (c++)"libcamera::ipa::RPi::IPARPiInterface::~IPARPiInterface()@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::configureIPC(libcamera::IPACameraSensorInfo const&, std::map<unsigned int, libcamera::IPAStream, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::IPAStream> > > const&, std::map<unsigned int, libcamera::ControlInfoMap, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::ControlInfoMap> > > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::configure(libcamera::IPACameraSensorInfo const&, std::map<unsigned int, libcamera::IPAStream, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::IPAStream> > > const&, std::map<unsigned int, libcamera::ControlInfoMap, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::ControlInfoMap> > > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::configureThread(libcamera::IPACameraSensorInfo const&, std::map<unsigned int, libcamera::IPAStream, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::IPAStream> > > const&, std::map<unsigned int, libcamera::ControlInfoMap, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::ControlInfoMap> > > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::fillParamsBufferIPC(unsigned int, unsigned int)@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::fillParamsBufferThread(unsigned int, unsigned int)@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::fillParamsBuffer(unsigned int, unsigned int)@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::initIPC(libcamera::IPASettings const&)@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::init(libcamera::IPASettings const&)@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::initThread(libcamera::IPASettings const&)@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::~IPAProxyVimc()@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::IPAProxyVimc(libcamera::IPAModule*, bool)@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::mapBuffersIPC(std::vector<libcamera::IPABuffer, std::allocator<libcamera::IPABuffer> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::mapBuffers(std::vector<libcamera::IPABuffer, std::allocator<libcamera::IPABuffer> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::mapBuffersThread(std::vector<libcamera::IPABuffer, std::allocator<libcamera::IPABuffer> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::paramsBufferReadyIPC(__gnu_cxx::__normal_iterator<unsigned char const*, std::vector<unsigned char, std::allocator<unsigned char> > >, unsigned long, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::paramsBufferReadyThread(unsigned int)@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::queueRequestIPC(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::queueRequestThread(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::queueRequest(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::recvMessage(libcamera::IPCMessage const&)@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::start()@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::startIPC()@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::startThread()@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::stop()@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::stopIPC()@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::stopThread()@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy::fillParamsBuffer(unsigned int, unsigned int)@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy::queueRequest(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy::start()@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy::stop()@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy::~ThreadProxy()@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::unmapBuffersIPC(std::vector<unsigned int, std::allocator<unsigned int> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::unmapBuffers(std::vector<unsigned int, std::allocator<unsigned int> > const&)@Base" 0.0.1
- (c++)"libcamera::ipa::vimc::IPAProxyVimc::unmapBuffersThread(std::vector<unsigned int, std::allocator<unsigned int> > const&)@Base" 0.0.1
+ (c++|regex)"^libcamera::ipa::vimc::IPAProxyVimc::.*@Base" 0.0.1
  (c++)"libcamera::ipa::vimc::IPAVimcInterface::~IPAVimcInterface()@Base" 0.0.1
  (c++)"libcamera::IPCMessage::IPCMessage()@Base" 0.0.1
  (c++)"libcamera::IPCMessage::IPCMessage(libcamera::IPCMessage::Header const&)@Base" 0.0.1
@@ -1382,8 +912,10 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::properties::SensorSensitivity@Base" 0.0.1
  (c++)"libcamera::properties::UnitCellSize@Base" 0.0.1
  (c++)"libcamera::PubKey::~PubKey()@Base" 0.0.1
- (c++)"libcamera::PubKey::PubKey(libcamera::Span<unsigned char const, 18446744073709551615ul>)@Base" 0.0.1
- (c++)"libcamera::PubKey::verify(libcamera::Span<unsigned char const, 18446744073709551615ul>, libcamera::Span<unsigned char const, 18446744073709551615ul>) const@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::PubKey::PubKey(libcamera::Span<unsigned char const, 18446744073709551615ul>)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::PubKey::verify(libcamera::Span<unsigned char const, 18446744073709551615ul>, libcamera::Span<unsigned char const, 18446744073709551615ul>) const@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::PubKey::PubKey(libcamera::Span<unsigned char const, 4294967295u>)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::PubKey::verify(libcamera::Span<unsigned char const, 4294967295u>, libcamera::Span<unsigned char const, 4294967295u>) const@Base" 0.0.1
  (c++)"libcamera::Rectangle::boundedTo(libcamera::Rectangle const&) const@Base" 0.0.1
  (c++)"libcamera::Rectangle::center() const@Base" 0.0.1
  (c++)"libcamera::Rectangle::enclosedIn(libcamera::Rectangle const&) const@Base" 0.0.1
@@ -1402,13 +934,15 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::Request::Private::emitPrepareCompleted()@Base" 0.0.1
  (c++)"libcamera::Request::Private::hasPendingBuffers() const@Base" 0.0.1
  (c++)"libcamera::Request::Private::notifierActivated(libcamera::FrameBuffer*)@Base" 0.0.1
- (c++)"libcamera::Request::Private::prepare(std::chrono::duration<long, std::ratio<1l, 1000l> >)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::Request::Private::prepare(std::chrono::duration<long, std::ratio<1l, 1000l> >)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::Request::Private::prepare(std::chrono::duration<long long, std::ratio<1ll, 1000ll> >)@Base" 0.0.1
  (c++)"libcamera::Request::Private::~Private()@Base" 0.0.1
  (c++)"libcamera::Request::Private::Private(libcamera::Camera*)@Base" 0.0.1
  (c++)"libcamera::Request::Private::reset()@Base" 0.0.1
  (c++)"libcamera::Request::Private::timeout()@Base" 0.0.1
  (c++)"libcamera::Request::~Request()@Base" 0.0.1
- (c++)"libcamera::Request::Request(libcamera::Camera*, unsigned long)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::Request::Request(libcamera::Camera*, unsigned long)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::Request::Request(libcamera::Camera*, unsigned long long)@Base" 0.0.1
  (c++)"libcamera::Request::reuse(libcamera::Request::ReuseFlag)@Base" 0.0.1
  (c++)"libcamera::Request::sequence() const@Base" 0.0.1
  (c++)"libcamera::Request::toString[abi:cxx11]() const@Base" 0.0.1
@@ -1433,7 +967,7 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::RkISP1Path::configure(libcamera::StreamConfiguration const&, libcamera::V4L2SubdeviceFormat const&)@Base" 0.0.1
  (c++)"libcamera::RkISP1Path::generateConfiguration(libcamera::Size const&)@Base" 0.0.1
  (c++)"libcamera::RkISP1Path::init(libcamera::MediaDevice*)@Base" 0.0.1
- (c++)"libcamera::RkISP1Path::RkISP1Path(char const*, libcamera::Span<libcamera::PixelFormat const, 18446744073709551615ul> const&, libcamera::Size const&, libcamera::Size const&)@Base" 0.0.1
+ (c++|regex)"^libcamera::RkISP1Path::RkISP1Path(char const*, libcamera::Span<libcamera::PixelFormat const, .*> const&, libcamera::Size const&, libcamera::Size const&)@Base" 0.0.1
  (c++)"libcamera::RkISP1Path::start()@Base" 0.0.1
  (c++)"libcamera::RkISP1Path::stop()@Base" 0.0.1
  (c++)"libcamera::RkISP1Path::validate(libcamera::StreamConfiguration*)@Base" 0.0.1
@@ -1468,7 +1002,8 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::RPiCameraData::tryRunPipeline()@Base" 0.0.1
  (c++)"libcamera::RPiCameraData::unicamBufferDequeue(libcamera::FrameBuffer*)@Base" 0.0.1
  (c++)"libcamera::RPiCameraData::unicamTimeout()@Base" 0.0.1
- (c++)"libcamera::RPi::DmaHeap::alloc(char const*, unsigned long)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::RPi::DmaHeap::alloc(char const*, unsigned long)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::RPi::DmaHeap::alloc(char const*, unsigned int)@Base" 0.0.1
  (c++)"libcamera::RPi::DmaHeap::~DmaHeap()@Base" 0.0.1
  (c++)"libcamera::RPi::DmaHeap::DmaHeap()@Base" 0.0.1
  (c++)"libcamera::RPi::Stream::clearBuffers()@Base" 0.0.1
@@ -1581,7 +1116,8 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::UVCCameraData::init(libcamera::MediaDevice*)@Base" 0.0.1
  (c++)"libcamera::UVCCameraData::~UVCCameraData()@Base" 0.0.1
  (c++)"libcamera::V4L2BufferCache::Entry::Entry()@Base" 0.0.1
- (c++)"libcamera::V4L2BufferCache::Entry::Entry(bool, unsigned long, libcamera::FrameBuffer const&)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::V4L2BufferCache::Entry::Entry(bool, unsigned long, libcamera::FrameBuffer const&)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::V4L2BufferCache::Entry::Entry(bool, unsigned long long, libcamera::FrameBuffer const&)@Base" 0.0.1
  (c++)"libcamera::V4L2BufferCache::Entry::operator==(libcamera::FrameBuffer const&) const@Base" 0.0.1
  (c++)"libcamera::V4L2BufferCache::get(libcamera::FrameBuffer const&)@Base" 0.0.1
  (c++)"libcamera::V4L2BufferCache::isEmpty() const@Base" 0.0.1
@@ -1602,7 +1138,8 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::V4L2Device::setFd(libcamera::UniqueFD)@Base" 0.0.1
  (c++)"libcamera::V4L2Device::setFrameStartEnabled(bool)@Base" 0.0.1
  (c++)"libcamera::V4L2Device::updateControlInfo()@Base" 0.0.1
- (c++)"libcamera::V4L2Device::updateControls(libcamera::ControlList*, libcamera::Span<v4l2_ext_control const, 18446744073709551615ul>)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::V4L2Device::updateControls(libcamera::ControlList*, libcamera::Span<v4l2_ext_control const, 18446744073709551615ul>)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::V4L2Device::updateControls(libcamera::ControlList*, libcamera::Span<v4l2_ext_control const, 4294967295u>)@Base" 0.0.1
  (c++)"libcamera::V4L2Device::v4l2ControlId(v4l2_query_ext_ctrl const&)@Base" 0.0.1
  (c++)"libcamera::V4L2Device::v4l2ControlInfo(v4l2_query_ext_ctrl const&)@Base" 0.0.1
  (c++)"libcamera::V4L2Device::v4l2CtrlType(unsigned int)@Base" 0.0.1
@@ -1684,7 +1221,8 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::VimcCameraData::~VimcCameraData()@Base" 0.0.1
  (c++)"libcamera::YamlObject::contains(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) const@Base" 0.0.1
  (c++)"libcamera::YamlObject::operator[](std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) const@Base" 0.0.1
- (c++)"libcamera::YamlObject::operator[](unsigned long) const@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::YamlObject::operator[](unsigned long) const@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::YamlObject::operator[](unsigned int) const@Base" 0.0.1
  (c++)"libcamera::YamlObject::size() const@Base" 0.0.1
  (c++)"libcamera::YamlObject::~YamlObject()@Base" 0.0.1
  (c++)"libcamera::YamlObject::YamlObject()@Base" 0.0.1
@@ -1696,7 +1234,8 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::YamlParserContext::readValue(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&, std::unique_ptr<yaml_event_s, libcamera::YamlParserContext::EventDeleter>)@Base" 0.0.1
  (c++)"libcamera::YamlParserContext::~YamlParserContext()@Base" 0.0.1
  (c++)"libcamera::YamlParserContext::YamlParserContext()@Base" 0.0.1
- (c++)"libcamera::YamlParserContext::yamlRead(void*, unsigned char*, unsigned long, unsigned long*)@Base" 0.0.1
+ (c++|arch-bits=64)"libcamera::YamlParserContext::yamlRead(void*, unsigned char*, unsigned long, unsigned long*)@Base" 0.0.1
+ (c++|arch-bits=32)"libcamera::YamlParserContext::yamlRead(void*, unsigned char*, unsigned int, unsigned int*)@Base" 0.0.1
  (c++)"libcamera::YamlParser::parse(libcamera::File&)@Base" 0.0.1
  (c++)"lttng::ust::details::lttng_ust_constructor_destructor_libcamera::~lttng_ust_constructor_destructor_libcamera()@Base" 0.0.1
  (c++)"lttng::ust::details::lttng_ust_constructor_destructor_libcamera::lttng_ust_constructor_destructor_libcamera()@Base" 0.0.1
@@ -1742,110 +1281,7 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"non-virtual thunk to libcamera::ipa::vimc::IPAProxyVimc::stop()@Base" 0.0.1
  (c++)"non-virtual thunk to libcamera::ipa::vimc::IPAProxyVimc::unmapBuffers(std::vector<unsigned int, std::allocator<unsigned int> > const&)@Base" 0.0.1
  (c++|regex|optional)"^std::.*@Base" 0~git20200417+35269f0
- (c++)"typeinfo for libcamera::BoundMethodArgs<int>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodArgs<int, libcamera::Camera*, libcamera::CameraConfiguration*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodArgs<int, libcamera::Camera*, libcamera::ControlList const*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodArgs<int, libcamera::Camera*, libcamera::Stream*, std::vector<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> >, std::allocator<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> > > >*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodArgs<void>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodArgs<void, libcamera::Camera*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodArgs<void, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodArgs<void, libcamera::ControlList const&, libcamera::ipa::RPi::StartConfig*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodArgs<void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodArgs<void, libcamera::ipa::RPi::ISPConfig const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodArgs<void, libcamera::IPCMessage const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodArgs<void, libcamera::Request*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodArgs<void, unsigned int>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodArgs<void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodArgs<void, unsigned int, libcamera::ControlList const&, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodArgs<void, unsigned int, long, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodArgs<void, unsigned int, unsigned int>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodArgs<void, unsigned int, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodBase@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::CameraManager::Private, void>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::CIO2Device, void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::DelayedControls, void, unsigned int>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::DeviceEnumeratorUdev, void>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, int>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, void>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, void, unsigned int, long, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, void, unsigned int, unsigned int>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3, void, libcamera::IPCMessage const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3, void, unsigned int>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3, void, unsigned int, libcamera::ControlList const&, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, int>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, void>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, void, unsigned int, unsigned int>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, void, unsigned int, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1, void, libcamera::IPCMessage const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1, void, unsigned int>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void, libcamera::ControlList const&, libcamera::ipa::RPi::StartConfig*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void, libcamera::ipa::RPi::ISPConfig const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void, unsigned int>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi, void, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi, void, libcamera::IPCMessage const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi, void, unsigned int>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy, int>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy, void>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy, void, unsigned int, unsigned int>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc, void, libcamera::IPCMessage const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc, void, unsigned int>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::IPCPipeUnixSocket, void>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::IPCUnixSocket, void>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::IPU3CameraData, void>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::IPU3CameraData, void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::IPU3CameraData, void, unsigned int>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::IPU3CameraData, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::IPU3CameraData, void, unsigned int, libcamera::ControlList const&, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::PipelineHandler, int, libcamera::Camera*, libcamera::CameraConfiguration*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::PipelineHandler, int, libcamera::Camera*, libcamera::ControlList const*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::PipelineHandler, int, libcamera::Camera*, libcamera::Stream*, std::vector<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> >, std::allocator<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> > > >*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::PipelineHandlerRkISP1, void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::PipelineHandler, void>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::PipelineHandler, void, libcamera::Camera*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::PipelineHandler, void, libcamera::Request*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::ProcessManager, void>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::Request::Private, void>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::RkISP1CameraData, void, unsigned int>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::RkISP1CameraData, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::RPiCameraData, void>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::RPiCameraData, void, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::RPiCameraData, void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::RPiCameraData, void, unsigned int>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::RPiCameraData, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::SimpleCameraData, void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::SimpleConverter::Stream, void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::UVCCameraData, void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::V4L2Device, void>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::V4L2VideoDevice, void>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::VimcCameraData, void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodMember<libcamera::VimcCameraData, void, unsigned int>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodPackBase@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodPack<int>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodPack<int, libcamera::Camera*, libcamera::CameraConfiguration*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodPack<int, libcamera::Camera*, libcamera::ControlList const*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodPack<int, libcamera::Camera*, libcamera::Stream*, std::vector<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> >, std::allocator<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> > > >*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodPack<void>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodPack<void, libcamera::Camera*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodPack<void, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodPack<void, libcamera::ControlList const&, libcamera::ipa::RPi::StartConfig*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodPack<void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodPack<void, libcamera::ipa::RPi::ISPConfig const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodPack<void, libcamera::IPCMessage const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodPack<void, libcamera::Request*>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodPack<void, unsigned int>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodPack<void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodPack<void, unsigned int, libcamera::ControlList const&, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodPack<void, unsigned int, long, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodPack<void, unsigned int, unsigned int>@Base" 0.0.1
- (c++)"typeinfo for libcamera::BoundMethodPack<void, unsigned int, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
+ (c++|rexex)"^typeinfo for libcamera::BoundMethod.*@Base" 0.0.1
  (c++)"typeinfo for libcamera::Camera@Base" 0.0.1
  (c++)"typeinfo for libcamera::CameraConfiguration@Base" 0.0.1
  (c++)"typeinfo for libcamera::CameraControlValidator@Base" 0.0.1
@@ -1928,110 +1364,7 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"typeinfo for libcamera::VimcCameraConfiguration@Base" 0.0.1
  (c++)"typeinfo for libcamera::VimcCameraData@Base" 0.0.1
  (c++|regex|optional)"^typeinfo for std::.*@Base" 0~git20200116+30f9624
- (c++)"typeinfo name for libcamera::BoundMethodArgs<int>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodArgs<int, libcamera::Camera*, libcamera::CameraConfiguration*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodArgs<int, libcamera::Camera*, libcamera::ControlList const*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodArgs<int, libcamera::Camera*, libcamera::Stream*, std::vector<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> >, std::allocator<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> > > >*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodArgs<void>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodArgs<void, libcamera::Camera*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodArgs<void, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodArgs<void, libcamera::ControlList const&, libcamera::ipa::RPi::StartConfig*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodArgs<void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodArgs<void, libcamera::ipa::RPi::ISPConfig const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodArgs<void, libcamera::IPCMessage const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodArgs<void, libcamera::Request*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodArgs<void, unsigned int>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodArgs<void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodArgs<void, unsigned int, libcamera::ControlList const&, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodArgs<void, unsigned int, long, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodArgs<void, unsigned int, unsigned int>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodArgs<void, unsigned int, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodBase@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::CameraManager::Private, void>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::CIO2Device, void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::DelayedControls, void, unsigned int>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::DeviceEnumeratorUdev, void>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, int>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, void>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, void, unsigned int, long, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, void, unsigned int, unsigned int>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3, void, libcamera::IPCMessage const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3, void, unsigned int>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3, void, unsigned int, libcamera::ControlList const&, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, int>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, void>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, void, unsigned int, unsigned int>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, void, unsigned int, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1, void, libcamera::IPCMessage const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1, void, unsigned int>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void, libcamera::ControlList const&, libcamera::ipa::RPi::StartConfig*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void, libcamera::ipa::RPi::ISPConfig const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void, unsigned int>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi, void, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi, void, libcamera::IPCMessage const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi, void, unsigned int>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy, int>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy, void>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy, void, unsigned int, unsigned int>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc, void, libcamera::IPCMessage const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc, void, unsigned int>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::IPCPipeUnixSocket, void>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::IPCUnixSocket, void>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::IPU3CameraData, void>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::IPU3CameraData, void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::IPU3CameraData, void, unsigned int>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::IPU3CameraData, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::IPU3CameraData, void, unsigned int, libcamera::ControlList const&, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::PipelineHandler, int, libcamera::Camera*, libcamera::CameraConfiguration*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::PipelineHandler, int, libcamera::Camera*, libcamera::ControlList const*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::PipelineHandler, int, libcamera::Camera*, libcamera::Stream*, std::vector<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> >, std::allocator<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> > > >*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::PipelineHandlerRkISP1, void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::PipelineHandler, void>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::PipelineHandler, void, libcamera::Camera*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::PipelineHandler, void, libcamera::Request*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::ProcessManager, void>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::Request::Private, void>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::RkISP1CameraData, void, unsigned int>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::RkISP1CameraData, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::RPiCameraData, void>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::RPiCameraData, void, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::RPiCameraData, void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::RPiCameraData, void, unsigned int>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::RPiCameraData, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::SimpleCameraData, void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::SimpleConverter::Stream, void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::UVCCameraData, void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::V4L2Device, void>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::V4L2VideoDevice, void>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::VimcCameraData, void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodMember<libcamera::VimcCameraData, void, unsigned int>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodPackBase@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodPack<int>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodPack<int, libcamera::Camera*, libcamera::CameraConfiguration*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodPack<int, libcamera::Camera*, libcamera::ControlList const*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodPack<int, libcamera::Camera*, libcamera::Stream*, std::vector<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> >, std::allocator<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> > > >*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodPack<void>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodPack<void, libcamera::Camera*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodPack<void, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodPack<void, libcamera::ControlList const&, libcamera::ipa::RPi::StartConfig*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodPack<void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodPack<void, libcamera::ipa::RPi::ISPConfig const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodPack<void, libcamera::IPCMessage const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodPack<void, libcamera::Request*>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodPack<void, unsigned int>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodPack<void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodPack<void, unsigned int, libcamera::ControlList const&, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodPack<void, unsigned int, long, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodPack<void, unsigned int, unsigned int>@Base" 0.0.1
- (c++)"typeinfo name for libcamera::BoundMethodPack<void, unsigned int, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
+ (c++|regex)"^typeinfo name for libcamera::BoundMethod.*@Base" 0.0.1
  (c++)"typeinfo name for libcamera::Camera@Base" 0.0.1
  (c++)"typeinfo name for libcamera::CameraConfiguration@Base" 0.0.1
  (c++)"typeinfo name for libcamera::CameraControlValidator@Base" 0.0.1
@@ -2115,90 +1448,7 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"typeinfo name for libcamera::VimcCameraData@Base" 0.0.1
  (c++|regex|optional)"^typeinfo name for std::.*@Base" 0~git20200513+924778e
  (c++|regex|optional)"^void std::.*@Base" 0~git20200513+924778e
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::CameraManager::Private, void>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::CIO2Device, void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::DelayedControls, void, unsigned int>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::DeviceEnumeratorUdev, void>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, int>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, void>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, void, unsigned int, long, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3::ThreadProxy, void, unsigned int, unsigned int>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3, void, libcamera::IPCMessage const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3, void, unsigned int>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::ipu3::IPAProxyIPU3, void, unsigned int, libcamera::ControlList const&, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, int>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, void>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, void, unsigned int, unsigned int>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1::ThreadProxy, void, unsigned int, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1, void, libcamera::IPCMessage const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1, void, unsigned int>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::rkisp1::IPAProxyRkISP1, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void, libcamera::ControlList const&, libcamera::ipa::RPi::StartConfig*>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void, libcamera::ipa::RPi::ISPConfig const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi::ThreadProxy, void, unsigned int>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi, void, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi, void, libcamera::IPCMessage const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi, void, unsigned int>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::RPi::IPAProxyRPi, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy, int>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy, void>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc::ThreadProxy, void, unsigned int, unsigned int>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc, void, libcamera::IPCMessage const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ipa::vimc::IPAProxyVimc, void, unsigned int>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::IPCPipeUnixSocket, void>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::IPCUnixSocket, void>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::IPU3CameraData, void>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::IPU3CameraData, void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::IPU3CameraData, void, unsigned int>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::IPU3CameraData, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::IPU3CameraData, void, unsigned int, libcamera::ControlList const&, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::PipelineHandler, int, libcamera::Camera*, libcamera::CameraConfiguration*>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::PipelineHandler, int, libcamera::Camera*, libcamera::ControlList const*>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::PipelineHandler, int, libcamera::Camera*, libcamera::Stream*, std::vector<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> >, std::allocator<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> > > >*>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::PipelineHandlerRkISP1, void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::PipelineHandler, void>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::PipelineHandler, void, libcamera::Camera*>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::PipelineHandler, void, libcamera::Request*>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::ProcessManager, void>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::Request::Private, void>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::RkISP1CameraData, void, unsigned int>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::RkISP1CameraData, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::RPiCameraData, void>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::RPiCameraData, void, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::RPiCameraData, void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::RPiCameraData, void, unsigned int>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::RPiCameraData, void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::SimpleCameraData, void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::SimpleConverter::Stream, void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::UVCCameraData, void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::V4L2Device, void>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::V4L2VideoDevice, void>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::VimcCameraData, void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodMember<libcamera::VimcCameraData, void, unsigned int>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodPack<int>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodPack<int, libcamera::Camera*, libcamera::CameraConfiguration*>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodPack<int, libcamera::Camera*, libcamera::ControlList const*>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodPack<int, libcamera::Camera*, libcamera::Stream*, std::vector<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> >, std::allocator<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> > > >*>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodPack<void>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodPack<void, libcamera::Camera*>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodPack<void, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodPack<void, libcamera::ControlList const&, libcamera::ipa::RPi::StartConfig*>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodPack<void, libcamera::FrameBuffer*>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodPack<void, libcamera::ipa::RPi::ISPConfig const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodPack<void, libcamera::IPCMessage const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodPack<void, libcamera::Request*>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodPack<void, unsigned int>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodPack<void, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodPack<void, unsigned int, libcamera::ControlList const&, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodPack<void, unsigned int, long, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodPack<void, unsigned int, unsigned int>@Base" 0.0.1
- (c++)"vtable for libcamera::BoundMethodPack<void, unsigned int, unsigned int, libcamera::ControlList const&>@Base" 0.0.1
+ (c++|regex)"^vtable for libcamera::BoundMethod.*@Base" 0.0.1
  (c++)"vtable for libcamera::Camera@Base" 0.0.1
  (c++)"vtable for libcamera::CameraConfiguration@Base" 0.0.1
  (c++)"vtable for libcamera::CameraControlValidator@Base" 0.0.1
