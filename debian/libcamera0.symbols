@@ -239,7 +239,7 @@ libcamera-base.so.0.0.1 libcamera0 #MINVER#
  (c++)"vtable for libcamera::ThreadMain@Base" 0.0.1
  (c++)"vtable for libcamera::Timer@Base" 0.0.1
  (c++|regex|optional)"^vtable for std::.*@Base" 0.0.1
- 
+
 libcamera.so.0.0.1 libcamera0 #MINVER#
 * Build-Depends-Package: libcamera-dev
  (optional)"__start_lttng_ust_tracepoints_ptrs@Base" 0.0.1
@@ -967,7 +967,7 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::RkISP1Path::configure(libcamera::StreamConfiguration const&, libcamera::V4L2SubdeviceFormat const&)@Base" 0.0.1
  (c++)"libcamera::RkISP1Path::generateConfiguration(libcamera::Size const&)@Base" 0.0.1
  (c++)"libcamera::RkISP1Path::init(libcamera::MediaDevice*)@Base" 0.0.1
- (c++|regex)"^libcamera::RkISP1Path::RkISP1Path(char const*, libcamera::Span<libcamera::PixelFormat const, .*> const&, libcamera::Size const&, libcamera::Size const&)@Base" 0.0.1
+ (c++|regex)"^libcamera::RkISP1Path::RkISP1Path\(char const\*, libcamera::Span<libcamera::PixelFormat const, .*> const&, libcamera::Size const&, libcamera::Size const&\)@Base" 0.0.1
  (c++)"libcamera::RkISP1Path::start()@Base" 0.0.1
  (c++)"libcamera::RkISP1Path::stop()@Base" 0.0.1
  (c++)"libcamera::RkISP1Path::validate(libcamera::StreamConfiguration*)@Base" 0.0.1
@@ -1281,7 +1281,7 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"non-virtual thunk to libcamera::ipa::vimc::IPAProxyVimc::stop()@Base" 0.0.1
  (c++)"non-virtual thunk to libcamera::ipa::vimc::IPAProxyVimc::unmapBuffers(std::vector<unsigned int, std::allocator<unsigned int> > const&)@Base" 0.0.1
  (c++|regex|optional)"^std::.*@Base" 0~git20200417+35269f0
- (c++|rexex)"^typeinfo for libcamera::BoundMethod.*@Base" 0.0.1
+ (c++|regex)"^typeinfo for libcamera::BoundMethod.*@Base" 0.0.1
  (c++)"typeinfo for libcamera::Camera@Base" 0.0.1
  (c++)"typeinfo for libcamera::CameraConfiguration@Base" 0.0.1
  (c++)"typeinfo for libcamera::CameraControlValidator@Base" 0.0.1
