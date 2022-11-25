@@ -1,0 +1,3 @@
+libcamera0: lacks-unversioned-link-to-shared-library example: usr/lib/x86_64-linux-gnu/v4l2-compat.so [usr/lib/x86_64-linux-gnu/v4l2-compat.so]
+package-name-doesnt-match-sonames libcamera-base0.0.1 libcamera0.0.1 v4l2-compat
+shared-library-lacks-version usr/lib/x86_64-linux-gnu/v4l2-compat.so v4l2-compat.so
