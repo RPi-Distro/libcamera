@@ -18,8 +18,6 @@ Copyright:
 License: GPL-2+
 
 Files:
- meson.build
- */meson.build
  */*/meson.build
 Copyright:
  2018—2020 Libcamera contributors
@@ -83,7 +81,6 @@ Copyright:
 License: BSD-3-Clause or GPL-2+
 
 Files:
- include/linux/drm.h
  include/linux/drm_fourcc.h
 Copyright:
  2011 Intel Corporation
@@ -91,25 +88,9 @@ Copyright:
  2000 VA Linux Systems, Inc., Sunnyvale, California
 License: Expat
 
-Files:
- include/linux/drm_mode.h
-Copyright:
- 2007 Dave Airlie <airlied@linux.ie>
- 2007 Jakob Bornecrantz <wallbraker@gmail.com>
- 2008 Red Hat Inc.
- 2007—2008 Tungsten Graphics, Inc., Cedar Park, TX., USA
- 2007—2008 Intel Corporation
-License: Expat
-
 Files: include/linux/bcm2835-isp.h
 Copyright: 2019—2020 Raspberry Pi Ltd
 License: GPL-2+ with Linux-syscall-note or BSD-3-Clause
-
-Files: include/linux/vc_sm_cma_ioctl.h
-Copyright:
- 2012, Broadcom Europe Ltd
- 2019, Raspberry Pi Ltd
-License: BSD-3-Clause
 
 Files:
  include/linux/media-bus-format.h
