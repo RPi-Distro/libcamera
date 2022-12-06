@@ -861,7 +861,7 @@ libcamera.so.0.0.2 libcamera0 #MINVER#
  (c++)"libcamera::PipelineHandler::queueRequest(libcamera::Request*)@Base" 0.0.1
  (c++)"libcamera::PipelineHandler::registerCamera(std::shared_ptr<libcamera::Camera>)@Base" 0.0.1
  (c++)"libcamera::PipelineHandler::registerRequest(libcamera::Request*)@Base" 0.0.1
- (c++)"libcamera::PipelineHandler::release()@Base" 0.0.1
+#MISSING: 0.0.2-1# (c++)"libcamera::PipelineHandler::release()@Base" 0.0.1
  (c++)"libcamera::PipelineHandler::releaseDevice(libcamera::Camera*)@Base" 0.0.2
  (c++)"libcamera::PipelineHandler::release(libcamera::Camera*)@Base" 0.0.2
  (c++)"libcamera::PipelineHandlerRkISP1::allocateBuffers(libcamera::Camera*)@Base" 0.0.1
@@ -880,7 +880,7 @@ libcamera.so.0.0.2 libcamera0 #MINVER#
  (c++)"libcamera::PipelineHandlerRkISP1::start(libcamera::Camera*, libcamera::ControlList const*)@Base" 0.0.1
  (c++)"libcamera::PipelineHandlerRkISP1::statReady(libcamera::FrameBuffer*)@Base" 0.0.1
  (c++)"libcamera::PipelineHandlerRkISP1::stopDevice(libcamera::Camera*)@Base" 0.0.1
- (c++)"libcamera::PipelineHandlerRkISP1::tryCompleteRequest(libcamera::Request*)@Base" 0.0.1
+#MISSING: 0.0.2-1# (c++)"libcamera::PipelineHandlerRkISP1::tryCompleteRequest(libcamera::Request*)@Base" 0.0.1
  (c++)"libcamera::PipelineHandlerRkISP1::tryCompleteRequest(libcamera::RkISP1FrameInfo*)@Base" 0.0.2
  (c++)"libcamera::PipelineHandlerRPi::configure(libcamera::Camera*, libcamera::CameraConfiguration*)@Base" 0.0.1
  (c++)"libcamera::PipelineHandlerRPi::exportFrameBuffers(libcamera::Camera*, libcamera::Stream*, std::vector<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> >, std::allocator<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> > > >*)@Base" 0.0.1
@@ -1270,7 +1270,7 @@ libcamera.so.0.0.2 libcamera0 #MINVER#
  (c++)"libcamera::VimcCameraData::allocateMockIPABuffers()@Base" 0.0.1
  (c++)"libcamera::VimcCameraData::bufferReady(libcamera::FrameBuffer*)@Base" 0.0.1
  (c++)"libcamera::VimcCameraData::init()@Base" 0.0.1
- (c++)"libcamera::VimcCameraData::paramsBufferReady(unsigned int)@Base" 0.0.1
+#MISSING: 0.0.2-1# (c++)"libcamera::VimcCameraData::paramsBufferReady(unsigned int)@Base" 0.0.1
  (c++)"libcamera::VimcCameraData::paramsBufferReady(unsigned int, libcamera::Flags<libcamera::ipa::vimc::TestFlag>)@Base" 0.0.2
  (c++)"libcamera::VimcCameraData::~VimcCameraData()@Base" 0.0.1
  (c++)"libcamera::YamlObject::contains(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) const@Base" 0.0.1
@@ -1328,7 +1328,7 @@ libcamera.so.0.0.2 libcamera0 #MINVER#
  (c++)"non-virtual thunk to libcamera::ipa::RPi::IPAProxyRPi::unmapBuffers(std::vector<unsigned int, std::allocator<unsigned int> > const&)@Base" 0.0.1
  (c++)"non-virtual thunk to libcamera::ipa::vimc::IPAProxyVimc::configure(libcamera::IPACameraSensorInfo const&, std::map<unsigned int, libcamera::IPAStream, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::IPAStream> > > const&, std::map<unsigned int, libcamera::ControlInfoMap, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::ControlInfoMap> > > const&)@Base" 0.0.1
  (c++)"non-virtual thunk to libcamera::ipa::vimc::IPAProxyVimc::fillParamsBuffer(unsigned int, unsigned int)@Base" 0.0.1
- (c++)"non-virtual thunk to libcamera::ipa::vimc::IPAProxyVimc::init(libcamera::IPASettings const&)@Base" 0.0.1
+#MISSING: 0.0.2-1# (c++)"non-virtual thunk to libcamera::ipa::vimc::IPAProxyVimc::init(libcamera::IPASettings const&)@Base" 0.0.1
  (c++)"non-virtual thunk to libcamera::ipa::vimc::IPAProxyVimc::init(libcamera::IPASettings const&, libcamera::ipa::vimc::IPAOperationCode, libcamera::Flags<libcamera::ipa::vimc::TestFlag>, libcamera::Flags<libcamera::ipa::vimc::TestFlag>*)@Base" 0.0.2
  (c++)"non-virtual thunk to libcamera::ipa::vimc::IPAProxyVimc::~IPAProxyVimc()@Base" 0.0.1
  (c++)"non-virtual thunk to libcamera::ipa::vimc::IPAProxyVimc::mapBuffers(std::vector<libcamera::IPABuffer, std::allocator<libcamera::IPABuffer> > const&)@Base" 0.0.1
