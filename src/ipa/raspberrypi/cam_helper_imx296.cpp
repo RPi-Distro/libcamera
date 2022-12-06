@@ -21,9 +21,10 @@ public:
 	CamHelperImx296();
 	uint32_t gainCode(double gain) const override;
 	double gain(uint32_t gainCode) const override;
-	uint32_t exposureLines(Duration exposure) const override;
-	Duration exposure(uint32_t exposureLines) const override;
-	void getDelays(int &exposureDelay, int &gainDelay, int &vblankDelay) const override;
+	uint32_t exposureLines(const Duration exposure, const Duration lineLength) const override;
+	Duration exposure(uint32_t exposureLines, const Duration lineLength) const override;
+	void getDelays(int &exposureDelay, int &gainDelay,
+		       int &vblankDelay, int &hblankDelay) const override;
 
 private:
 	static constexpr uint32_t minExposureLines = 1;
@@ -53,22 +54,25 @@ double CamHelperImx296::gain(uint32_t gainCode) const
 	return std::pow(10.0, gainCode / 200.0);
 }
 
-uint32_t CamHelperImx296::exposureLines(Duration exposure) const
+uint32_t CamHelperImx296::exposureLines(const Duration exposure,
+					[[maybe_unused]] const Duration lineLength) const
 {
 	return std::max<uint32_t>(minExposureLines, (exposure - 14.26us) / timePerLine);
 }
 
-Duration CamHelperImx296::exposure(uint32_t exposureLines) const
+Duration CamHelperImx296::exposure(uint32_t exposureLines,
+				   [[maybe_unused]] const Duration lineLength) const
 {
 	return std::max<uint32_t>(minExposureLines, exposureLines) * timePerLine + 14.26us;
 }
 
 void CamHelperImx296::getDelays(int &exposureDelay, int &gainDelay,
-				int &vblankDelay) const
+				int &vblankDelay, int &hblankDelay) const
 {
 	exposureDelay = 2;
 	gainDelay = 2;
 	vblankDelay = 2;
+	hblankDelay = 2;
 }
 
 static CamHelper *create()

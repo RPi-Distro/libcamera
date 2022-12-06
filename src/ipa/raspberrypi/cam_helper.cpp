@@ -7,7 +7,7 @@
 
 #include <linux/videodev2.h>
 
-#include <assert.h>
+#include <limits>
 #include <map>
 #include <string.h>
 
@@ -19,6 +19,7 @@
 using namespace RPiController;
 using namespace libcamera;
 using libcamera::utils::Duration;
+using namespace std::literals::chrono_literals;
 
 namespace libcamera {
 LOG_DECLARE_CATEGORY(IPARPI)
@@ -41,8 +42,7 @@ CamHelper *CamHelper::create(std::string const &camName)
 }
 
 CamHelper::CamHelper(std::unique_ptr<MdParser> parser, unsigned int frameIntegrationDiff)
-	: parser_(std::move(parser)), initialized_(false),
-	  frameIntegrationDiff_(frameIntegrationDiff)
+	: parser_(std::move(parser)), frameIntegrationDiff_(frameIntegrationDiff)
 {
 }
 
@@ -61,45 +61,81 @@ void CamHelper::process([[maybe_unused]] StatisticsPtr &stats,
 {
 }
 
-uint32_t CamHelper::exposureLines(const Duration exposure) const
+uint32_t CamHelper::exposureLines(const Duration exposure, const Duration lineLength) const
 {
-	assert(initialized_);
-	return exposure / mode_.lineLength;
+	return exposure / lineLength;
 }
 
-Duration CamHelper::exposure(uint32_t exposureLines) const
+Duration CamHelper::exposure(uint32_t exposureLines, const Duration lineLength) const
 {
-	assert(initialized_);
-	return exposureLines * mode_.lineLength;
+	return exposureLines * lineLength;
 }
 
-uint32_t CamHelper::getVBlanking(Duration &exposure,
-				 Duration minFrameDuration,
-				 Duration maxFrameDuration) const
+std::pair<uint32_t, uint32_t> CamHelper::getBlanking(Duration &exposure,
+						     Duration minFrameDuration,
+						     Duration maxFrameDuration) const
 {
-	uint32_t frameLengthMin, frameLengthMax, vblank;
-	uint32_t exposureLines = CamHelper::exposureLines(exposure);
-
-	assert(initialized_);
+	uint32_t frameLengthMin, frameLengthMax, vblank, hblank;
+	Duration lineLength = mode_.minLineLength;
 
 	/*
 	 * minFrameDuration and maxFrameDuration are clamped by the caller
 	 * based on the limits for the active sensor mode.
+	 *
+	 * frameLengthMax gets calculated on the smallest line length as we do
+	 * not want to extend that unless absolutely necessary.
 	 */
-	frameLengthMin = minFrameDuration / mode_.lineLength;
-	frameLengthMax = maxFrameDuration / mode_.lineLength;
+	frameLengthMin = minFrameDuration / mode_.minLineLength;
+	frameLengthMax = maxFrameDuration / mode_.minLineLength;
+
+	/*
+	 * Watch out for (exposureLines + frameIntegrationDiff_) overflowing a
+	 * uint32_t in the std::clamp() below when the exposure time is
+	 * extremely (extremely!) long - as happens when the IPA calculates the
+	 * maximum possible exposure time.
+	 */
+	uint32_t exposureLines = std::min(CamHelper::exposureLines(exposure, lineLength),
+					  std::numeric_limits<uint32_t>::max() - frameIntegrationDiff_);
+	uint32_t frameLengthLines = std::clamp(exposureLines + frameIntegrationDiff_,
+					       frameLengthMin, frameLengthMax);
+
+	/*
+	 * If our frame length lines is above the maximum allowed, see if we can
+	 * extend the line length to accommodate the requested frame length.
+	 */
+	if (frameLengthLines > mode_.maxFrameLength) {
+		Duration lineLengthAdjusted = lineLength * frameLengthLines / mode_.maxFrameLength;
+		lineLength = std::min(mode_.maxLineLength, lineLengthAdjusted);
+		frameLengthLines = mode_.maxFrameLength;
+	}
+
+	hblank = lineLengthToHblank(lineLength);
+	vblank = frameLengthLines - mode_.height;
 
 	/*
 	 * Limit the exposure to the maximum frame duration requested, and
 	 * re-calculate if it has been clipped.
 	 */
-	exposureLines = std::min(frameLengthMax - frameIntegrationDiff_, exposureLines);
-	exposure = CamHelper::exposure(exposureLines);
+	exposureLines = std::min(frameLengthLines - frameIntegrationDiff_,
+				 CamHelper::exposureLines(exposure, lineLength));
+	exposure = CamHelper::exposure(exposureLines, lineLength);
 
-	/* Limit the vblank to the range allowed by the frame length limits. */
-	vblank = std::clamp(exposureLines + frameIntegrationDiff_,
-			    frameLengthMin, frameLengthMax) - mode_.height;
-	return vblank;
+	return { vblank, hblank };
+}
+
+Duration CamHelper::hblankToLineLength(uint32_t hblank) const
+{
+	return (mode_.width + hblank) * (1.0s / mode_.pixelRate);
+}
+
+uint32_t CamHelper::lineLengthToHblank(const Duration &lineLength) const
+{
+	return (lineLength * mode_.pixelRate / 1.0s) - mode_.width;
+}
+
+Duration CamHelper::lineLengthPckToDuration(uint32_t lineLengthPck) const
+{
+	return lineLengthPck * (1.0s / mode_.pixelRate);
 }
 
 void CamHelper::setCameraMode(const CameraMode &mode)
@@ -110,11 +146,10 @@ void CamHelper::setCameraMode(const CameraMode &mode)
 		parser_->setBitsPerPixel(mode.bitdepth);
 		parser_->setLineLengthBytes(0); /* We use SetBufferSize. */
 	}
-	initialized_ = true;
 }
 
 void CamHelper::getDelays(int &exposureDelay, int &gainDelay,
-			  int &vblankDelay) const
+			  int &vblankDelay, int &hblankDelay) const
 {
 	/*
 	 * These values are correct for many sensors. Other sensors will
@@ -123,6 +158,7 @@ void CamHelper::getDelays(int &exposureDelay, int &gainDelay,
 	exposureDelay = 2;
 	gainDelay = 1;
 	vblankDelay = 2;
+	hblankDelay = 2;
 }
 
 bool CamHelper::sensorEmbeddedDataPresent() const
@@ -186,7 +222,7 @@ void CamHelper::parseEmbeddedData(Span<const uint8_t> buffer,
 	metadata.merge(parsedMetadata);
 
 	/*
-	 * Overwrite the exposure/gain, frame length and sensor temperature values
+	 * Overwrite the exposure/gain, line/frame length and sensor temperature values
 	 * in the existing DeviceStatus with values from the parsed embedded buffer.
 	 * Fetch it first in case any other fields were set meaningfully.
 	 */
@@ -200,6 +236,7 @@ void CamHelper::parseEmbeddedData(Span<const uint8_t> buffer,
 	deviceStatus.shutterSpeed = parsedDeviceStatus.shutterSpeed;
 	deviceStatus.analogueGain = parsedDeviceStatus.analogueGain;
 	deviceStatus.frameLength = parsedDeviceStatus.frameLength;
+	deviceStatus.lineLength = parsedDeviceStatus.lineLength;
 	if (parsedDeviceStatus.sensorTemperature)
 		deviceStatus.sensorTemperature = parsedDeviceStatus.sensorTemperature;
 

@@ -14,8 +14,8 @@ module libcamera;
  * - structs
  *
  * Attributes:
- * - skipHeader - structs only, and only in core.mojom
- *   - Do not generate a C++ definition for the structure
+ * - skipHeader - allowed only for structs and enums in core.mojom
+ *   - Do not generate a C++ definition for the structure or enum
  *   - Any type used in a mojom interface definition must have a corresponding
  *     definition in a mojom file for the code generator to accept it, except
  *     for types solely used as map/array members for which a definition is not
@@ -33,6 +33,15 @@ module libcamera;
  *     available for the type and there's no need to generate one
  * - hasFd - struct fields or empty structs only
  *   - Designate that this field or empty struct contains a SharedFD
+ * - scopedEnum - enum definitions
+ *   - Designate that this enum should be an enum class, as opposed to a pure
+ *     enum
+ * - flags - struct fields or function parameters that are enums
+ *   - Designate that this enum type E should be Flags<E> in the generated C++
+ *     code
+ *   - For example, if a struct field is defined as `[flags] ErrorFlag f;`
+ *     (where ErrorFlag is defined as an enum elsewhere in mojom), then the
+ *     generated code for this field will be `Flags<ErrorFlag> f`
  *
  * Rules:
  * - If the type is defined in a libcamera C++ header *and* a (de)serializer is
@@ -43,6 +52,8 @@ module libcamera;
  *   then the type definition in the core.mojom file should have the
  *   [skipHeader] attribute only
  *   - A (de)serializer will be generated for the type
+ *   - enums that are defined in a libcamera C++ header also fall in this
+ *     category
  * - If a type definition has [skipHeader], then the header where the type is
  *   defined must be included in ipa_interface.h
  * - Types that are solely used as array/map members do not require a mojom
@@ -172,10 +183,17 @@ module libcamera;
  */
 
 /**
- * \var IPACameraSensorInfo::lineLength
- * \brief Total line length in pixels
+ * \var IPACameraSensorInfo::minLineLength
+ * \brief The minimum line length in pixels
  *
- * The total line length in pixel clock periods, including blanking.
+ * The minimum allowable line length in pixel clock periods, including blanking.
+ */
+
+/**
+ * \var IPACameraSensorInfo::maxLineLength
+ * \brief The maximum line length in pixels
+ *
+ * The maximum allowable line length in pixel clock periods, including blanking.
  */
 
 /**
@@ -189,7 +207,7 @@ module libcamera;
  * To obtain the minimum frame duration:
  *
  * \verbatim
-       frameDuration(s) = minFrameLength(lines) * lineLength(pixels) / pixelRate(pixels per second)
+       frameDuration(s) = minFrameLength(lines) * minLineLength(pixels) / pixelRate(pixels per second)
    \endverbatim
  */
 
@@ -204,7 +222,7 @@ module libcamera;
  * To obtain the maximum frame duration:
  *
  * \verbatim
-       frameDuration(s) = maxFrameLength(lines) * lineLength(pixels) / pixelRate(pixels per second)
+       frameDuration(s) = maxFrameLength(lines) * maxLineLength(pixels) / pixelRate(pixels per second)
    \endverbatim
  */
 struct IPACameraSensorInfo {
@@ -217,7 +235,9 @@ struct IPACameraSensorInfo {
 	Size outputSize;
 
 	uint64 pixelRate;
-	uint32 lineLength;
+
+	uint32 minLineLength;
+	uint32 maxLineLength;
 
 	uint32 minFrameLength;
 	uint32 maxFrameLength;

@@ -219,13 +219,14 @@ int IPARPi::init(const IPASettings &settings, IPAInitResult *result)
 	 * Pass out the sensor config to the pipeline handler in order
 	 * to setup the staggered writer class.
 	 */
-	int gainDelay, exposureDelay, vblankDelay, sensorMetadata;
-	helper_->getDelays(exposureDelay, gainDelay, vblankDelay);
+	int gainDelay, exposureDelay, vblankDelay, hblankDelay, sensorMetadata;
+	helper_->getDelays(exposureDelay, gainDelay, vblankDelay, hblankDelay);
 	sensorMetadata = helper_->sensorEmbeddedDataPresent();
 
 	result->sensorConfig.gainDelay = gainDelay;
 	result->sensorConfig.exposureDelay = exposureDelay;
 	result->sensorConfig.vblankDelay = vblankDelay;
+	result->sensorConfig.hblankDelay = hblankDelay;
 	result->sensorConfig.sensorMetadata = sensorMetadata;
 
 	/* Load the tuning file for this sensor. */
@@ -314,7 +315,7 @@ void IPARPi::start(const ControlList &controls, StartConfig *startConfig)
 	}
 
 	startConfig->dropFrameCount = dropFrameCount_;
-	const Duration maxSensorFrameDuration = mode_.maxFrameLength * mode_.lineLength;
+	const Duration maxSensorFrameDuration = mode_.maxFrameLength * mode_.maxLineLength;
 	startConfig->maxSensorFrameLengthMs = maxSensorFrameDuration.get<std::milli>();
 
 	firstStart_ = false;
@@ -330,6 +331,7 @@ void IPARPi::setMode(const IPACameraSensorInfo &sensorInfo)
 	mode_.sensorHeight = sensorInfo.activeAreaSize.height;
 	mode_.cropX = sensorInfo.analogCrop.x;
 	mode_.cropY = sensorInfo.analogCrop.y;
+	mode_.pixelRate = sensorInfo.pixelRate;
 
 	/*
 	 * Calculate scaling parameters. The scale_[xy] factors are determined
@@ -356,7 +358,8 @@ void IPARPi::setMode(const IPACameraSensorInfo &sensorInfo)
 	 * Calculate the line length as the ratio between the line length in
 	 * pixels and the pixel rate.
 	 */
-	mode_.lineLength = sensorInfo.lineLength * (1.0s / sensorInfo.pixelRate);
+	mode_.minLineLength = sensorInfo.minLineLength * (1.0s / sensorInfo.pixelRate);
+	mode_.maxLineLength = sensorInfo.maxLineLength * (1.0s / sensorInfo.pixelRate);
 
 	/*
 	 * Set the frame length limits for the mode to ensure exposure and
@@ -458,8 +461,8 @@ int IPARPi::configure(const IPACameraSensorInfo &sensorInfo,
 	 * based on the current sensor mode.
 	 */
 	ControlInfoMap::Map ctrlMap = ipaControls;
-	const Duration minSensorFrameDuration = mode_.minFrameLength * mode_.lineLength;
-	const Duration maxSensorFrameDuration = mode_.maxFrameLength * mode_.lineLength;
+	const Duration minSensorFrameDuration = mode_.minFrameLength * mode_.minLineLength;
+	const Duration maxSensorFrameDuration = mode_.maxFrameLength * mode_.maxLineLength;
 	ctrlMap[&controls::FrameDurationLimits] =
 		ControlInfo(static_cast<int64_t>(minSensorFrameDuration.get<std::micro>()),
 			    static_cast<int64_t>(maxSensorFrameDuration.get<std::micro>()));
@@ -472,11 +475,11 @@ int IPARPi::configure(const IPACameraSensorInfo &sensorInfo,
 	 * will limit the maximum control value based on the current VBLANK value.
 	 */
 	Duration maxShutter = Duration::max();
-	helper_->getVBlanking(maxShutter, minSensorFrameDuration, maxSensorFrameDuration);
+	helper_->getBlanking(maxShutter, minSensorFrameDuration, maxSensorFrameDuration);
 	const uint32_t exposureMin = sensorCtrls_.at(V4L2_CID_EXPOSURE).min().get<int32_t>();
 
 	ctrlMap[&controls::ExposureTime] =
-		ControlInfo(static_cast<int32_t>(helper_->exposure(exposureMin).get<std::micro>()),
+		ControlInfo(static_cast<int32_t>(helper_->exposure(exposureMin, mode_.minLineLength).get<std::micro>()),
 			    static_cast<int32_t>(maxShutter.get<std::micro>()));
 
 	result->controlInfo = ControlInfoMap(std::move(ctrlMap), controls::controls);
@@ -549,7 +552,7 @@ void IPARPi::reportMetadata()
 				       deviceStatus->shutterSpeed.get<std::micro>());
 		libcameraMetadata_.set(controls::AnalogueGain, deviceStatus->analogueGain);
 		libcameraMetadata_.set(controls::FrameDuration,
-				       helper_->exposure(deviceStatus->frameLength).get<std::micro>());
+				       helper_->exposure(deviceStatus->frameLength, deviceStatus->lineLength).get<std::micro>());
 		if (deviceStatus->sensorTemperature)
 			libcameraMetadata_.set(controls::SensorTemperature, *deviceStatus->sensorTemperature);
 	}
@@ -605,6 +608,7 @@ bool IPARPi::validateSensorControls()
 		V4L2_CID_ANALOGUE_GAIN,
 		V4L2_CID_EXPOSURE,
 		V4L2_CID_VBLANK,
+		V4L2_CID_HBLANK,
 	};
 
 	for (auto c : ctrls) {
@@ -1103,8 +1107,10 @@ void IPARPi::fillDeviceStatus(const ControlList &sensorControls)
 	int32_t exposureLines = sensorControls.get(V4L2_CID_EXPOSURE).get<int32_t>();
 	int32_t gainCode = sensorControls.get(V4L2_CID_ANALOGUE_GAIN).get<int32_t>();
 	int32_t vblank = sensorControls.get(V4L2_CID_VBLANK).get<int32_t>();
+	int32_t hblank = sensorControls.get(V4L2_CID_HBLANK).get<int32_t>();
 
-	deviceStatus.shutterSpeed = helper_->exposure(exposureLines);
+	deviceStatus.lineLength = helper_->hblankToLineLength(hblank);
+	deviceStatus.shutterSpeed = helper_->exposure(exposureLines, deviceStatus.lineLength);
 	deviceStatus.analogueGain = helper_->gain(gainCode);
 	deviceStatus.frameLength = mode_.height + vblank;
 
@@ -1149,8 +1155,8 @@ void IPARPi::applyAWB(const struct AwbStatus *awbStatus, ControlList &ctrls)
 
 void IPARPi::applyFrameDurations(Duration minFrameDuration, Duration maxFrameDuration)
 {
-	const Duration minSensorFrameDuration = mode_.minFrameLength * mode_.lineLength;
-	const Duration maxSensorFrameDuration = mode_.maxFrameLength * mode_.lineLength;
+	const Duration minSensorFrameDuration = mode_.minFrameLength * mode_.minLineLength;
+	const Duration maxSensorFrameDuration = mode_.maxFrameLength * mode_.maxLineLength;
 
 	/*
 	 * This will only be applied once AGC recalculations occur.
@@ -1171,11 +1177,11 @@ void IPARPi::applyFrameDurations(Duration minFrameDuration, Duration maxFrameDur
 
 	/*
 	 * Calculate the maximum exposure time possible for the AGC to use.
-	 * getVBlanking() will update maxShutter with the largest exposure
+	 * getBlanking() will update maxShutter with the largest exposure
 	 * value possible.
 	 */
 	Duration maxShutter = Duration::max();
-	helper_->getVBlanking(maxShutter, minFrameDuration_, maxFrameDuration_);
+	helper_->getBlanking(maxShutter, minFrameDuration_, maxFrameDuration_);
 
 	RPiController::AgcAlgorithm *agc = dynamic_cast<RPiController::AgcAlgorithm *>(
 		controller_.getAlgorithm("agc"));
@@ -1193,10 +1199,11 @@ void IPARPi::applyAGC(const struct AgcStatus *agcStatus, ControlList &ctrls)
 	 */
 	gainCode = std::min<int32_t>(gainCode, maxSensorGainCode_);
 
-	/* getVBlanking might clip exposure time to the fps limits. */
+	/* getBlanking might clip exposure time to the fps limits. */
 	Duration exposure = agcStatus->shutterTime;
-	int32_t vblanking = helper_->getVBlanking(exposure, minFrameDuration_, maxFrameDuration_);
-	int32_t exposureLines = helper_->exposureLines(exposure);
+	auto [vblank, hblank] = helper_->getBlanking(exposure, minFrameDuration_, maxFrameDuration_);
+	int32_t exposureLines = helper_->exposureLines(exposure,
+						       helper_->hblankToLineLength(hblank));
 
 	LOG(IPARPI, Debug) << "Applying AGC Exposure: " << exposure
 			   << " (Shutter lines: " << exposureLines << ", AGC requested "
@@ -1204,14 +1211,22 @@ void IPARPi::applyAGC(const struct AgcStatus *agcStatus, ControlList &ctrls)
 			   << agcStatus->analogueGain << " (Gain Code: "
 			   << gainCode << ")";
 
-	/*
-	 * Due to the behavior of V4L2, the current value of VBLANK could clip the
-	 * exposure time without us knowing. The next time though this function should
-	 * clip exposure correctly.
-	 */
-	ctrls.set(V4L2_CID_VBLANK, vblanking);
+	ctrls.set(V4L2_CID_VBLANK, static_cast<int32_t>(vblank));
 	ctrls.set(V4L2_CID_EXPOSURE, exposureLines);
 	ctrls.set(V4L2_CID_ANALOGUE_GAIN, gainCode);
+
+	/*
+	 * At present, there is no way of knowing if a control is read-only.
+	 * As a workaround, assume that if the minimum and maximum values of
+	 * the V4L2_CID_HBLANK control are the same, it implies the control
+	 * is read-only. This seems to be the case for all the cameras our IPA
+	 * works with.
+	 *
+	 * \todo The control API ought to have a flag to specify if a control
+	 * is read-only which could be used below.
+	 */
+	if (mode_.minLineLength != mode_.maxLineLength)
+		ctrls.set(V4L2_CID_HBLANK, static_cast<int32_t>(hblank));
 }
 
 void IPARPi::applyDG(const struct AgcStatus *dgStatus, ControlList &ctrls)

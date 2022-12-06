@@ -1533,6 +1533,9 @@ int V4L2VideoDevice::importBuffers(unsigned int count)
  */
 int V4L2VideoDevice::releaseBuffers()
 {
+	if (!cache_)
+		return 0;
+
 	LOG(V4L2, Debug) << "Releasing buffers";
 
 	delete cache_;
@@ -1814,7 +1817,7 @@ FrameBuffer *V4L2VideoDevice::dequeueBuffer()
 	 */
 	if (!firstFrame_) {
 		if (buf.sequence)
-			LOG(V4L2, Warning)
+			LOG(V4L2, Info)
 				<< "Zero sequence expected for first frame (got "
 				<< buf.sequence << ")";
 		firstFrame_ = buf.sequence;

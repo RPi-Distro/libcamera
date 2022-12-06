@@ -13,6 +13,7 @@
 #include <map>
 #include <vector>
 
+#include <libcamera/base/flags.h>
 #include <libcamera/base/signal.h>
 
 #include <libcamera/controls.h>
@@ -22,8 +23,8 @@
 namespace libcamera {
 
 /*
- * Structs that are defined in core.mojom and have the skipHeader tag must be
- * #included here.
+ * Structs and enums that are defined in core.mojom that have the skipHeader
+ * tag must be #included here.
  */
 
 class IPAInterface

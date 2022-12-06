@@ -142,7 +142,7 @@ class PipelineHandlerRkISP1 : public PipelineHandler
 public:
 	PipelineHandlerRkISP1(CameraManager *manager);
 
-	CameraConfiguration *generateConfiguration(Camera *camera,
+	std::unique_ptr<CameraConfiguration> generateConfiguration(Camera *camera,
 		const StreamRoles &roles) override;
 	int configure(Camera *camera, CameraConfiguration *config) override;
 
@@ -168,7 +168,7 @@ private:
 	int initLinks(Camera *camera, const CameraSensor *sensor,
 		      const RkISP1CameraConfiguration &config);
 	int createCamera(MediaEntity *sensor);
-	void tryCompleteRequest(Request *request);
+	void tryCompleteRequest(RkISP1FrameInfo *info);
 	void bufferReady(FrameBuffer *buffer);
 	void paramReady(FrameBuffer *buffer);
 	void statReady(FrameBuffer *buffer);
@@ -391,7 +391,7 @@ void RkISP1CameraData::metadataReady(unsigned int frame, const ControlList &meta
 	info->request->metadata().merge(metadata);
 	info->metadataProcessed = true;
 
-	pipe()->tryCompleteRequest(info->request);
+	pipe()->tryCompleteRequest(info);
 }
 
 RkISP1CameraConfiguration::RkISP1CameraConfiguration(Camera *camera,
@@ -539,7 +539,8 @@ PipelineHandlerRkISP1::PipelineHandlerRkISP1(CameraManager *manager)
  * Pipeline Operations
  */
 
-CameraConfiguration *PipelineHandlerRkISP1::generateConfiguration(Camera *camera,
+std::unique_ptr<CameraConfiguration>
+PipelineHandlerRkISP1::generateConfiguration(Camera *camera,
 	const StreamRoles &roles)
 {
 	RkISP1CameraData *data = cameraData(camera);
@@ -550,7 +551,8 @@ CameraConfiguration *PipelineHandlerRkISP1::generateConfiguration(Camera *camera
 		return nullptr;
 	}
 
-	CameraConfiguration *config = new RkISP1CameraConfiguration(camera, data);
+	std::unique_ptr<CameraConfiguration> config =
+		std::make_unique<RkISP1CameraConfiguration>(camera, data);
 	if (roles.empty())
 		return config;
 
@@ -595,7 +597,6 @@ CameraConfiguration *PipelineHandlerRkISP1::generateConfiguration(Camera *camera
 		default:
 			LOG(RkISP1, Warning)
 				<< "Requested stream role not supported: " << role;
-			delete config;
 			return nullptr;
 		}
 
@@ -1122,12 +1123,10 @@ bool PipelineHandlerRkISP1::match(DeviceEnumerator *enumerator)
  * Buffer Handling
  */
 
-void PipelineHandlerRkISP1::tryCompleteRequest(Request *request)
+void PipelineHandlerRkISP1::tryCompleteRequest(RkISP1FrameInfo *info)
 {
 	RkISP1CameraData *data = cameraData(activeCamera_);
-	RkISP1FrameInfo *info = data->frameInfo_.find(request);
-	if (!info)
-		return;
+	Request *request = info->request;
 
 	if (request->hasPendingBuffers())
 		return;
@@ -1145,6 +1144,13 @@ void PipelineHandlerRkISP1::tryCompleteRequest(Request *request)
 
 void PipelineHandlerRkISP1::bufferReady(FrameBuffer *buffer)
 {
+	ASSERT(activeCamera_);
+	RkISP1CameraData *data = cameraData(activeCamera_);
+
+	RkISP1FrameInfo *info = data->frameInfo_.find(buffer);
+	if (!info)
+		return;
+
 	Request *request = buffer->request();
 
 	/*
@@ -1157,7 +1163,7 @@ void PipelineHandlerRkISP1::bufferReady(FrameBuffer *buffer)
 				buffer->metadata().timestamp);
 
 	completeBuffer(request, buffer);
-	tryCompleteRequest(request);
+	tryCompleteRequest(info);
 }
 
 void PipelineHandlerRkISP1::paramReady(FrameBuffer *buffer)
@@ -1170,7 +1176,7 @@ void PipelineHandlerRkISP1::paramReady(FrameBuffer *buffer)
 		return;
 
 	info->paramDequeued = true;
-	tryCompleteRequest(info->request);
+	tryCompleteRequest(info);
 }
 
 void PipelineHandlerRkISP1::statReady(FrameBuffer *buffer)
@@ -1184,7 +1190,7 @@ void PipelineHandlerRkISP1::statReady(FrameBuffer *buffer)
 
 	if (buffer->metadata().status == FrameMetadata::FrameCancelled) {
 		info->metadataProcessed = true;
-		tryCompleteRequest(info->request);
+		tryCompleteRequest(info);
 		return;
 	}
 

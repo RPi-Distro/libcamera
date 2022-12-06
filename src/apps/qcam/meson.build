@@ -15,9 +15,6 @@ endif
 qcam_enabled = true
 
 qcam_sources = files([
-    '../cam/image.cpp',
-    '../cam/options.cpp',
-    '../cam/stream_options.cpp',
     'cam_select_dialog.cpp',
     'format_converter.cpp',
     'main.cpp',
@@ -36,22 +33,7 @@ qcam_resources = files([
     'assets/feathericons/feathericons.qrc',
 ])
 
-qcam_deps = [
-    libatomic,
-    libcamera_public,
-    qt5_dep,
-]
-
-qt5_cpp_args = ['-DQT_NO_KEYWORDS']
-
-tiff_dep = dependency('libtiff-4', required : false)
-if tiff_dep.found()
-    qt5_cpp_args += ['-DHAVE_TIFF']
-    qcam_deps += [tiff_dep]
-    qcam_sources += files([
-        'dng_writer.cpp',
-    ])
-endif
+qt5_cpp_args = [apps_cpp_args, '-DQT_NO_KEYWORDS']
 
 if cxx.has_header_symbol('QOpenGLWidget', 'QOpenGLWidget',
                          dependencies : qt5_dep, args : '-fPIC')
@@ -81,5 +63,11 @@ resources = qt5.preprocess(moc_headers: qcam_moc_headers,
 
 qcam  = executable('qcam', qcam_sources, resources,
                    install : true,
-                   dependencies : qcam_deps,
+                   link_with : apps_lib,
+                   dependencies : [
+                       libatomic,
+                       libcamera_public,
+                       libtiff,
+                       qt5_dep,
+                   ],
                    cpp_args : qt5_cpp_args)

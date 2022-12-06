@@ -14,6 +14,7 @@
 #include <libcamera/base/log.h>
 #include <libcamera/base/utils.h>
 
+#include <libcamera/control_ids.h>
 #include <libcamera/ipa/core_ipa_interface.h>
 
 #include "libipa/histogram.h"
@@ -320,13 +321,15 @@ double Agc::estimateLuminance(IPAActiveState &activeState,
  * \param[in] frame The current frame sequence number
  * \param[in] frameContext The current frame context
  * \param[in] stats The IPU3 statistics and ISP results
+ * \param[out] metadata Metadata for the frame, to be filled by the algorithm
  *
  * Identify the current image brightness, and use that to estimate the optimal
  * new exposure and gain for the scene.
  */
 void Agc::process(IPAContext &context, [[maybe_unused]] const uint32_t frame,
 		  IPAFrameContext &frameContext,
-		  const ipu3_uapi_stats_3a *stats)
+		  const ipu3_uapi_stats_3a *stats,
+		  ControlList &metadata)
 {
 	/*
 	 * Estimate the gain needed to have the proportion of pixels in a given
@@ -363,6 +366,19 @@ void Agc::process(IPAContext &context, [[maybe_unused]] const uint32_t frame,
 
 	computeExposure(context, frameContext, yGain, iqMeanGain);
 	frameCount_++;
+
+	utils::Duration exposureTime = context.configuration.sensor.lineDuration
+				     * frameContext.sensor.exposure;
+	metadata.set(controls::AnalogueGain, frameContext.sensor.gain);
+	metadata.set(controls::ExposureTime, exposureTime.get<std::micro>());
+
+	/* \todo Use VBlank value calculated from each frame exposure. */
+	uint32_t vTotal = context.configuration.sensor.size.height
+			+ context.configuration.sensor.defVBlank;
+	utils::Duration frameDuration = context.configuration.sensor.lineDuration
+				      * vTotal;
+	metadata.set(controls::FrameDuration, frameDuration.get<std::micro>());
+
 }
 
 REGISTER_IPA_ALGORITHM(Agc, "Agc")

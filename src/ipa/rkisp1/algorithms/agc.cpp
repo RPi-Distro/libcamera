@@ -14,6 +14,7 @@
 #include <libcamera/base/log.h>
 #include <libcamera/base/utils.h>
 
+#include <libcamera/control_ids.h>
 #include <libcamera/ipa/core_ipa_interface.h>
 
 #include "libipa/histogram.h"
@@ -73,7 +74,8 @@ Agc::Agc()
 int Agc::configure(IPAContext &context, const IPACameraSensorInfo &configInfo)
 {
 	/* Configure the default exposure and gain. */
-	context.activeState.agc.gain = std::max(context.configuration.agc.minAnalogueGain, kMinAnalogueGain);
+	context.activeState.agc.gain = std::max(context.configuration.sensor.minAnalogueGain,
+						kMinAnalogueGain);
 	context.activeState.agc.exposure = 10ms / context.configuration.sensor.lineDuration;
 
 	/*
@@ -104,6 +106,46 @@ int Agc::configure(IPAContext &context, const IPACameraSensorInfo &configInfo)
 	 */
 	frameCount_ = 0;
 	return 0;
+}
+
+/**
+ * \copydoc libcamera::ipa::Algorithm::prepare
+ */
+void Agc::prepare(IPAContext &context, const uint32_t frame,
+		  IPAFrameContext &frameContext, rkisp1_params_cfg *params)
+{
+	frameContext.agc.exposure = context.activeState.agc.exposure;
+	frameContext.agc.gain = context.activeState.agc.gain;
+
+	if (frame > 0)
+		return;
+
+	/* Configure the measurement window. */
+	params->meas.aec_config.meas_window = context.configuration.agc.measureWindow;
+	/* Use a continuous method for measure. */
+	params->meas.aec_config.autostop = RKISP1_CIF_ISP_EXP_CTRL_AUTOSTOP_0;
+	/* Estimate Y as (R + G + B) x (85/256). */
+	params->meas.aec_config.mode = RKISP1_CIF_ISP_EXP_MEASURING_MODE_1;
+
+	params->module_cfg_update |= RKISP1_CIF_ISP_MODULE_AEC;
+	params->module_ens |= RKISP1_CIF_ISP_MODULE_AEC;
+	params->module_en_update |= RKISP1_CIF_ISP_MODULE_AEC;
+
+	/* Configure histogram. */
+	params->meas.hst_config.meas_window = context.configuration.agc.measureWindow;
+	/* Produce the luminance histogram. */
+	params->meas.hst_config.mode = RKISP1_CIF_ISP_HISTOGRAM_MODE_Y_HISTOGRAM;
+	/* Set an average weighted histogram. */
+	for (unsigned int histBin = 0; histBin < numHistBins_; histBin++)
+		params->meas.hst_config.hist_weight[histBin] = 1;
+	/* Step size can't be less than 3. */
+	params->meas.hst_config.histogram_predivider = 4;
+
+	/* Update the configuration for histogram. */
+	params->module_cfg_update |= RKISP1_CIF_ISP_MODULE_HST;
+	/* Enable the histogram measure unit. */
+	params->module_ens |= RKISP1_CIF_ISP_MODULE_HST;
+	params->module_en_update |= RKISP1_CIF_ISP_MODULE_HST;
 }
 
 /**
@@ -161,13 +203,13 @@ void Agc::computeExposure(IPAContext &context, IPAFrameContext &frameContext,
 	/* Use the highest of the two gain estimates. */
 	double evGain = std::max(yGain, iqMeanGain);
 
-	utils::Duration minShutterSpeed = configuration.agc.minShutterSpeed;
-	utils::Duration maxShutterSpeed = std::min(configuration.agc.maxShutterSpeed,
+	utils::Duration minShutterSpeed = configuration.sensor.minShutterSpeed;
+	utils::Duration maxShutterSpeed = std::min(configuration.sensor.maxShutterSpeed,
 						   kMaxShutterSpeed);
 
-	double minAnalogueGain = std::max(configuration.agc.minAnalogueGain,
+	double minAnalogueGain = std::max(configuration.sensor.minAnalogueGain,
 					  kMinAnalogueGain);
-	double maxAnalogueGain = std::min(configuration.agc.maxAnalogueGain,
+	double maxAnalogueGain = std::min(configuration.sensor.maxAnalogueGain,
 					  kMaxAnalogueGain);
 
 	/* Consider within 1% of the target as correctly exposed. */
@@ -283,12 +325,14 @@ double Agc::measureBrightness(const rkisp1_cif_isp_hist_stat *hist) const
  * \param[in] frame The frame context sequence number
  * \param[in] frameContext The current frame context
  * \param[in] stats The RKISP1 statistics and ISP results
+ * \param[out] metadata Metadata for the frame, to be filled by the algorithm
  *
  * Identify the current image brightness, and use that to estimate the optimal
  * new exposure and gain for the scene.
  */
 void Agc::process(IPAContext &context, [[maybe_unused]] const uint32_t frame,
-		  IPAFrameContext &frameContext, const rkisp1_stat_buffer *stats)
+		  IPAFrameContext &frameContext, const rkisp1_stat_buffer *stats,
+		  ControlList &metadata)
 {
 	/*
 	 * \todo Verify that the exposure and gain applied by the sensor for
@@ -331,46 +375,18 @@ void Agc::process(IPAContext &context, [[maybe_unused]] const uint32_t frame,
 
 	computeExposure(context, frameContext, yGain, iqMeanGain);
 	frameCount_++;
-}
 
-/**
- * \copydoc libcamera::ipa::Algorithm::prepare
- */
-void Agc::prepare(IPAContext &context, const uint32_t frame,
-		  IPAFrameContext &frameContext, rkisp1_params_cfg *params)
-{
-	frameContext.agc.exposure = context.activeState.agc.exposure;
-	frameContext.agc.gain = context.activeState.agc.gain;
+	utils::Duration exposureTime = context.configuration.sensor.lineDuration
+				     * frameContext.sensor.exposure;
+	metadata.set(controls::AnalogueGain, frameContext.sensor.gain);
+	metadata.set(controls::ExposureTime, exposureTime.get<std::micro>());
 
-	if (frame > 0)
-		return;
-
-	/* Configure the measurement window. */
-	params->meas.aec_config.meas_window = context.configuration.agc.measureWindow;
-	/* Use a continuous method for measure. */
-	params->meas.aec_config.autostop = RKISP1_CIF_ISP_EXP_CTRL_AUTOSTOP_0;
-	/* Estimate Y as (R + G + B) x (85/256). */
-	params->meas.aec_config.mode = RKISP1_CIF_ISP_EXP_MEASURING_MODE_1;
-
-	params->module_cfg_update |= RKISP1_CIF_ISP_MODULE_AEC;
-	params->module_ens |= RKISP1_CIF_ISP_MODULE_AEC;
-	params->module_en_update |= RKISP1_CIF_ISP_MODULE_AEC;
-
-	/* Configure histogram. */
-	params->meas.hst_config.meas_window = context.configuration.agc.measureWindow;
-	/* Produce the luminance histogram. */
-	params->meas.hst_config.mode = RKISP1_CIF_ISP_HISTOGRAM_MODE_Y_HISTOGRAM;
-	/* Set an average weighted histogram. */
-	for (unsigned int histBin = 0; histBin < numHistBins_; histBin++)
-		params->meas.hst_config.hist_weight[histBin] = 1;
-	/* Step size can't be less than 3. */
-	params->meas.hst_config.histogram_predivider = 4;
-
-	/* Update the configuration for histogram. */
-	params->module_cfg_update |= RKISP1_CIF_ISP_MODULE_HST;
-	/* Enable the histogram measure unit. */
-	params->module_ens |= RKISP1_CIF_ISP_MODULE_HST;
-	params->module_en_update |= RKISP1_CIF_ISP_MODULE_HST;
+	/* \todo Use VBlank value calculated from each frame exposure. */
+	uint32_t vTotal = context.configuration.sensor.size.height
+			+ context.configuration.sensor.defVBlank;
+	utils::Duration frameDuration = context.configuration.sensor.lineDuration
+				      * vTotal;
+	metadata.set(controls::FrameDuration, frameDuration.get<std::micro>());
 }
 
 REGISTER_IPA_ALGORITHM(Agc, "Agc")

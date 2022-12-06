@@ -13,9 +13,11 @@
 #include <libcamera/control_ids.h>
 #include <libcamera/property_ids.h>
 
+#include "../common/event_loop.h"
+#include "../common/stream_options.h"
+
 #include "camera_session.h"
 #include "capture_script.h"
-#include "event_loop.h"
 #include "file_sink.h"
 #ifdef HAVE_KMS
 #include "kms_sink.h"
@@ -24,7 +26,6 @@
 #ifdef HAVE_SDL
 #include "sdl_sink.h"
 #endif
-#include "stream_options.h"
 
 using namespace libcamera;
 
@@ -207,10 +208,10 @@ int CameraSession::start()
 
 	if (options_.isSet(OptFile)) {
 		if (!options_[OptFile].toString().empty())
-			sink_ = std::make_unique<FileSink>(streamNames_,
+			sink_ = std::make_unique<FileSink>(camera_.get(), streamNames_,
 							   options_[OptFile]);
 		else
-			sink_ = std::make_unique<FileSink>(streamNames_);
+			sink_ = std::make_unique<FileSink>(camera_.get(), streamNames_);
 	}
 
 	if (sink_) {

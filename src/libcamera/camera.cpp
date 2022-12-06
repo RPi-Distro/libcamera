@@ -501,7 +501,7 @@ static const char *const camera_state_names[] = {
 
 bool Camera::Private::isAcquired() const
 {
-	return state_.load(std::memory_order_acquire) == CameraRunning;
+	return state_.load(std::memory_order_acquire) != CameraAvailable;
 }
 
 bool Camera::Private::isRunning() const
@@ -870,7 +870,7 @@ int Camera::release()
 		return ret == -EACCES ? -EBUSY : ret;
 
 	if (d->isAcquired())
-		d->pipe_->release();
+		d->pipe_->release(this);
 
 	d->setState(Private::CameraAvailable);
 
@@ -934,8 +934,7 @@ const std::set<Stream *> &Camera::streams() const
  * \context This function is \threadsafe.
  *
  * \return A CameraConfiguration if the requested roles can be satisfied, or a
- * null pointer otherwise. The ownership of the returned configuration is
- * passed to the caller.
+ * null pointer otherwise.
  */
 std::unique_ptr<CameraConfiguration> Camera::generateConfiguration(const StreamRoles &roles)
 {
@@ -949,7 +948,8 @@ std::unique_ptr<CameraConfiguration> Camera::generateConfiguration(const StreamR
 	if (roles.size() > streams().size())
 		return nullptr;
 
-	CameraConfiguration *config = d->pipe_->generateConfiguration(this, roles);
+	std::unique_ptr<CameraConfiguration> config =
+		d->pipe_->generateConfiguration(this, roles);
 	if (!config) {
 		LOG(Camera, Debug)
 			<< "Pipeline handler failed to generate configuration";
@@ -966,7 +966,7 @@ std::unique_ptr<CameraConfiguration> Camera::generateConfiguration(const StreamR
 
 	LOG(Camera, Debug) << msg.str();
 
-	return std::unique_ptr<CameraConfiguration>(config);
+	return config;
 }
 
 /**
