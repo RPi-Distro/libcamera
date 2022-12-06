@@ -1,4 +1,5 @@
-libcamera-base.so.0.0.1 libcamera0 #MINVER#
+libcamera-base.so.0.0.2 libcamera0 #MINVER#
+* Build-Depends-Package: libcamera-dev
  (c++)"libcamera::Backtrace::Backtrace()@Base" 0.0.1
  (c++)"libcamera::Backtrace::backtraceTrace()@Base" 0.0.1
  (c++)"libcamera::Backtrace::toString[abi:cxx11](unsigned int) const@Base" 0.0.1
@@ -58,6 +59,7 @@ libcamera-base.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::InvokeMessage::invoke()@Base" 0.0.1
  (c++)"libcamera::InvokeMessage::~InvokeMessage()@Base" 0.0.1
  (c++)"libcamera::InvokeMessage::InvokeMessage(libcamera::BoundMethodBase*, std::shared_ptr<libcamera::BoundMethodPackBase>, libcamera::Semaphore*, bool)@Base" 0.0.1
+ (c++)"libcamera::LogCategory::create(char const*)@Base" 0.0.2
  (c++)"libcamera::LogCategory::defaultCategory()@Base" 0.0.1
  (c++)"libcamera::logCategoryEvent()@Base" 0.0.1
  (c++)"libcamera::logCategoryFile()@Base" 0.0.1
@@ -73,6 +75,7 @@ libcamera-base.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::Loggable::_log(libcamera::LogCategory const*, libcamera::LogSeverity, char const*, unsigned int) const@Base" 0.0.1
  (c++)"libcamera::Logger::backtrace()@Base" 0.0.1
  (c++)"libcamera::Logger::destroyed_@Base" 0.0.1
+ (c++)"libcamera::Logger::findCategory(char const*) const@Base" 0.0.2
  (c++)"libcamera::Logger::instance()@Base" 0.0.1
  (c++)"libcamera::Logger::~Logger()@Base" 0.0.1
  (c++)"libcamera::Logger::Logger()@Base" 0.0.1
@@ -251,7 +254,7 @@ libcamera-base.so.0.0.1 libcamera0 #MINVER#
  (c++)"vtable for libcamera::Timer@Base" 0.0.1
  (c++|regex|optional)"^vtable for std::.*@Base" 0.0.1
 
-libcamera.so.0.0.1 libcamera0 #MINVER#
+libcamera.so.0.0.2 libcamera0 #MINVER#
 * Build-Depends-Package: libcamera-dev
  (optional)"__start_lttng_ust_tracepoints_ptrs@Base" 0.0.1
  (optional)"__stop_lttng_ust_tracepoints_ptrs@Base" 0.0.1
@@ -429,7 +432,7 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++|regex)"^libcamera::Control<libcamera::Span<int const, 4ul?> >::.*@Base" 0.0.1
  (c++|arch-bits=64)"libcamera::Control<libcamera::Span<libcamera::Rectangle const, 18446744073709551615ul> >::~Control()@Base" 0.0.1
  (c++|arch-bits=64)"libcamera::Control<libcamera::Span<libcamera::Rectangle const, 18446744073709551615ul> >::Control(unsigned int, char const*)@Base" 0.0.1
- (c++|arch-bits=32)"libcamera::Control<libcamera::Span<libcamera::Rectangle const, 4294967295u> >::~Control()@Base" 0.0.1-2+salsaci
+ (c++|arch-bits=32)"libcamera::Control<libcamera::Span<libcamera::Rectangle const, 4294967295u> >::~Control()@Base" 0.0.1
  (c++|arch-bits=32)"libcamera::Control<libcamera::Span<libcamera::Rectangle const, 4294967295u> >::Control(unsigned int, char const*)@Base" 0.0.1
  (c++|arch-bits=64)"libcamera::Control<libcamera::Span<long const, 2ul> >::~Control()@Base" 0.0.1
  (c++|arch-bits=32)"libcamera::Control<libcamera::Span<long long const, 2u> >::~Control()@Base" 0.0.1
@@ -691,6 +694,14 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::IPU3Frames::IPU3Frames()@Base" 0.0.1
  (c++)"libcamera::IPU3Frames::remove(libcamera::IPU3Frames::Info*)@Base" 0.0.1
  (c++)"libcamera::IPU3Frames::tryComplete(libcamera::IPU3Frames::Info*)@Base" 0.0.1
+ (c++)"libcamera::ISICameraConfiguration::formatsMap_@Base" 0.0.2
+ (c++)"libcamera::ISICameraConfiguration::~ISICameraConfiguration()@Base" 0.0.2
+ (c++)"libcamera::ISICameraConfiguration::validate()@Base" 0.0.2
+ (c++)"libcamera::ISICameraConfiguration::validateRaw(std::set<libcamera::Stream*, std::less<libcamera::Stream*>, std::allocator<libcamera::Stream*> >&, libcamera::Size const&)@Base" 0.0.2
+ (c++)"libcamera::ISICameraConfiguration::validateYuv(std::set<libcamera::Stream*, std::less<libcamera::Stream*>, std::allocator<libcamera::Stream*> >&, libcamera::Size const&)@Base" 0.0.2
+ (c++)"libcamera::ISICameraData::init()@Base" 0.0.2
+ (c++)"libcamera::ISICameraData::~ISICameraData()@Base" 0.0.2
+ (c++)"libcamera::ISICameraData::pipe()@Base" 0.0.2
  (c++)"libcamera::logCategoryAllocator()@Base" 0.0.1
  (c++)"libcamera::logCategoryBuffer()@Base" 0.0.1
  (c++)"libcamera::logCategoryCamera()@Base" 0.0.1
@@ -708,6 +719,7 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::logCategoryIPCPipe()@Base" 0.0.1
  (c++)"libcamera::logCategoryIPCUnixSocket()@Base" 0.0.1
  (c++)"libcamera::logCategoryIPU3()@Base" 0.0.1
+ (c++)"libcamera::logCategoryISI()@Base" 0.0.2
  (c++)"libcamera::logCategoryMediaDevice()@Base" 0.0.1
  (c++)"libcamera::logCategoryPipeline()@Base" 0.0.1
  (c++)"libcamera::logCategoryProcess()@Base" 0.0.1
@@ -798,6 +810,10 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::PipelineHandlerFactoryBase::registerType(libcamera::PipelineHandlerFactoryBase*)@Base" 0.0.1
  (c++)"libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerIPU3>::createInstance(libcamera::CameraManager*) const@Base" 0.0.1
  (c++)"libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerIPU3>::~PipelineHandlerFactory()@Base" 0.0.1
+ (c++)"libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerISI>::createInstance(libcamera::CameraManager*) const@Base" 0.0.2
+ (c++)"libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerISI>::~PipelineHandlerFactory()@Base" 0.0.2
+ (c++)"libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerISI>::~PipelineHandlerFactory()@Base" 0.0.2
+ (c++)"libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerISI>::~PipelineHandlerFactory()@Base" 0.0.2
  (c++)"libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerRkISP1>::createInstance(libcamera::CameraManager*) const@Base" 0.0.1
  (c++)"libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerRkISP1>::~PipelineHandlerFactory()@Base" 0.0.1
  (c++)"libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerRPi>::createInstance(libcamera::CameraManager*) const@Base" 0.0.1
@@ -824,6 +840,21 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::PipelineHandlerIPU3::start(libcamera::Camera*, libcamera::ControlList const*)@Base" 0.0.1
  (c++)"libcamera::PipelineHandlerIPU3::stopDevice(libcamera::Camera*)@Base" 0.0.1
  (c++)"libcamera::PipelineHandlerIPU3::updateControls(libcamera::IPU3CameraData*)@Base" 0.0.1
+ (c++)"libcamera::PipelineHandlerISI::bufferReady(libcamera::FrameBuffer*)@Base" 0.0.2
+ (c++)"libcamera::PipelineHandlerISI::configure(libcamera::Camera*, libcamera::CameraConfiguration*)@Base" 0.0.2
+ (c++)"libcamera::PipelineHandlerISI::exportFrameBuffers(libcamera::Camera*, libcamera::Stream*, std::vector<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> >, std::allocator<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> > > >*)@Base" 0.0.2
+ (c++)"libcamera::PipelineHandlerISI::generateConfiguration(libcamera::Camera*, std::vector<libcamera::StreamRole, std::allocator<libcamera::StreamRole> > const&)@Base" 0.0.2
+ (c++)"libcamera::PipelineHandlerISI::kMinISISize@Base" 0.0.2
+ (c++)"libcamera::PipelineHandlerISI::match(libcamera::DeviceEnumerator*)@Base" 0.0.2
+ (c++)"libcamera::PipelineHandlerISI::pipeFromStream(libcamera::Camera*, libcamera::Stream const*)@Base" 0.0.2
+ (c++)"libcamera::PipelineHandlerISI::~PipelineHandlerISI()@Base" 0.0.2
+ (c++)"libcamera::PipelineHandlerISI::~PipelineHandlerISI()@Base" 0.0.2
+ (c++)"libcamera::PipelineHandlerISI::~PipelineHandlerISI()@Base" 0.0.2
+ (c++)"libcamera::PipelineHandlerISI::PipelineHandlerISI(libcamera::CameraManager*)@Base" 0.0.2
+ (c++)"libcamera::PipelineHandlerISI::PipelineHandlerISI(libcamera::CameraManager*)@Base" 0.0.2
+ (c++)"libcamera::PipelineHandlerISI::queueRequestDevice(libcamera::Camera*, libcamera::Request*)@Base" 0.0.2
+ (c++)"libcamera::PipelineHandlerISI::start(libcamera::Camera*, libcamera::ControlList const*)@Base" 0.0.2
+ (c++)"libcamera::PipelineHandlerISI::stopDevice(libcamera::Camera*)@Base" 0.0.2
  (c++)"libcamera::PipelineHandler::mediaDeviceDisconnected(libcamera::MediaDevice*)@Base" 0.0.1
  (c++)"libcamera::PipelineHandler::~PipelineHandler()@Base" 0.0.1
  (c++)"libcamera::PipelineHandler::PipelineHandler(libcamera::CameraManager*)@Base" 0.0.1
@@ -831,6 +862,8 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::PipelineHandler::registerCamera(std::shared_ptr<libcamera::Camera>)@Base" 0.0.1
  (c++)"libcamera::PipelineHandler::registerRequest(libcamera::Request*)@Base" 0.0.1
  (c++)"libcamera::PipelineHandler::release()@Base" 0.0.1
+ (c++)"libcamera::PipelineHandler::releaseDevice(libcamera::Camera*)@Base" 0.0.2
+ (c++)"libcamera::PipelineHandler::release(libcamera::Camera*)@Base" 0.0.2
  (c++)"libcamera::PipelineHandlerRkISP1::allocateBuffers(libcamera::Camera*)@Base" 0.0.1
  (c++)"libcamera::PipelineHandlerRkISP1::bufferReady(libcamera::FrameBuffer*)@Base" 0.0.1
  (c++)"libcamera::PipelineHandlerRkISP1::configure(libcamera::Camera*, libcamera::CameraConfiguration*)@Base" 0.0.1
@@ -848,6 +881,7 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::PipelineHandlerRkISP1::statReady(libcamera::FrameBuffer*)@Base" 0.0.1
  (c++)"libcamera::PipelineHandlerRkISP1::stopDevice(libcamera::Camera*)@Base" 0.0.1
  (c++)"libcamera::PipelineHandlerRkISP1::tryCompleteRequest(libcamera::Request*)@Base" 0.0.1
+ (c++)"libcamera::PipelineHandlerRkISP1::tryCompleteRequest(libcamera::RkISP1FrameInfo*)@Base" 0.0.2
  (c++)"libcamera::PipelineHandlerRPi::configure(libcamera::Camera*, libcamera::CameraConfiguration*)@Base" 0.0.1
  (c++)"libcamera::PipelineHandlerRPi::exportFrameBuffers(libcamera::Camera*, libcamera::Stream*, std::vector<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> >, std::allocator<std::unique_ptr<libcamera::FrameBuffer, std::default_delete<libcamera::FrameBuffer> > > >*)@Base" 0.0.1
  (c++)"libcamera::PipelineHandlerRPi::generateConfiguration(libcamera::Camera*, std::vector<libcamera::StreamRole, std::allocator<libcamera::StreamRole> > const&)@Base" 0.0.1
@@ -858,6 +892,7 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::PipelineHandlerRPi::prepareBuffers(libcamera::Camera*)@Base" 0.0.1
  (c++)"libcamera::PipelineHandlerRPi::queueAllBuffers(libcamera::Camera*)@Base" 0.0.1
  (c++)"libcamera::PipelineHandlerRPi::queueRequestDevice(libcamera::Camera*, libcamera::Request*)@Base" 0.0.1
+ (c++)"libcamera::PipelineHandlerRPi::releaseDevice(libcamera::Camera*)@Base" 0.0.2
  (c++)"libcamera::PipelineHandlerRPi::registerCamera(libcamera::MediaDevice*, libcamera::MediaDevice*, libcamera::MediaEntity*)@Base" 0.0.1
  (c++)"libcamera::PipelineHandlerRPi::start(libcamera::Camera*, libcamera::ControlList const*)@Base" 0.0.1
  (c++)"libcamera::PipelineHandlerRPi::stopDevice(libcamera::Camera*)@Base" 0.0.1
@@ -1236,6 +1271,7 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"libcamera::VimcCameraData::bufferReady(libcamera::FrameBuffer*)@Base" 0.0.1
  (c++)"libcamera::VimcCameraData::init()@Base" 0.0.1
  (c++)"libcamera::VimcCameraData::paramsBufferReady(unsigned int)@Base" 0.0.1
+ (c++)"libcamera::VimcCameraData::paramsBufferReady(unsigned int, libcamera::Flags<libcamera::ipa::vimc::TestFlag>)@Base" 0.0.2
  (c++)"libcamera::VimcCameraData::~VimcCameraData()@Base" 0.0.1
  (c++)"libcamera::YamlObject::contains(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) const@Base" 0.0.1
  (c++)"libcamera::YamlObject::operator[](std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&) const@Base" 0.0.1
@@ -1293,6 +1329,7 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"non-virtual thunk to libcamera::ipa::vimc::IPAProxyVimc::configure(libcamera::IPACameraSensorInfo const&, std::map<unsigned int, libcamera::IPAStream, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::IPAStream> > > const&, std::map<unsigned int, libcamera::ControlInfoMap, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, libcamera::ControlInfoMap> > > const&)@Base" 0.0.1
  (c++)"non-virtual thunk to libcamera::ipa::vimc::IPAProxyVimc::fillParamsBuffer(unsigned int, unsigned int)@Base" 0.0.1
  (c++)"non-virtual thunk to libcamera::ipa::vimc::IPAProxyVimc::init(libcamera::IPASettings const&)@Base" 0.0.1
+ (c++)"non-virtual thunk to libcamera::ipa::vimc::IPAProxyVimc::init(libcamera::IPASettings const&, libcamera::ipa::vimc::IPAOperationCode, libcamera::Flags<libcamera::ipa::vimc::TestFlag>, libcamera::Flags<libcamera::ipa::vimc::TestFlag>*)@Base" 0.0.2
  (c++)"non-virtual thunk to libcamera::ipa::vimc::IPAProxyVimc::~IPAProxyVimc()@Base" 0.0.1
  (c++)"non-virtual thunk to libcamera::ipa::vimc::IPAProxyVimc::mapBuffers(std::vector<libcamera::IPABuffer, std::allocator<libcamera::IPABuffer> > const&)@Base" 0.0.1
  (c++)"non-virtual thunk to libcamera::ipa::vimc::IPAProxyVimc::queueRequest(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
@@ -1334,6 +1371,8 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"typeinfo for libcamera::IPCPipeUnixSocket@Base" 0.0.1
  (c++)"typeinfo for libcamera::IPU3CameraConfiguration@Base" 0.0.1
  (c++)"typeinfo for libcamera::IPU3CameraData@Base" 0.0.1
+ (c++)"typeinfo for libcamera::ISICameraConfiguration@Base" 0.0.2
+ (c++)"typeinfo for libcamera::ISICameraData@Base" 0.0.2
  (c++)"typeinfo for libcamera::MediaDevice@Base" 0.0.1
  (c++)"typeinfo for libcamera::MediaEntity@Base" 0.0.1
  (c++)"typeinfo for libcamera::MediaLink@Base" 0.0.1
@@ -1342,12 +1381,14 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"typeinfo for libcamera::PipelineHandler@Base" 0.0.1
  (c++)"typeinfo for libcamera::PipelineHandlerFactoryBase@Base" 0.0.1
  (c++)"typeinfo for libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerIPU3>@Base" 0.0.1
+ (c++)"typeinfo for libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerISI>@Base" 0.0.2
  (c++)"typeinfo for libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerRkISP1>@Base" 0.0.1
  (c++)"typeinfo for libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerRPi>@Base" 0.0.1
  (c++)"typeinfo for libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerUVC>@Base" 0.0.1
  (c++)"typeinfo for libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerVimc>@Base" 0.0.1
  (c++)"typeinfo for libcamera::PipelineHandlerFactory<libcamera::SimplePipelineHandler>@Base" 0.0.1
  (c++)"typeinfo for libcamera::PipelineHandlerIPU3@Base" 0.0.1
+ (c++)"typeinfo for libcamera::PipelineHandlerISI@Base" 0.0.2
  (c++)"typeinfo for libcamera::PipelineHandlerRkISP1@Base" 0.0.1
  (c++)"typeinfo for libcamera::PipelineHandlerRPi@Base" 0.0.1
  (c++)"typeinfo for libcamera::PipelineHandlerUVC@Base" 0.0.1
@@ -1371,6 +1412,7 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"typeinfo for libcamera::Signal<unsigned int>::disconnect()::{lambda(std::_List_iterator<libcamera::BoundMethodBase*>&)#1}@Base" 0.0.1
  (c++)"typeinfo for libcamera::Signal<unsigned int, libcamera::ControlList const&>::disconnect()::{lambda(std::_List_iterator<libcamera::BoundMethodBase*>&)#1}@Base" 0.0.1
  (c++)"typeinfo for libcamera::Signal<unsigned int, libcamera::ControlList const&, libcamera::ControlList const&>::disconnect()::{lambda(std::_List_iterator<libcamera::BoundMethodBase*>&)#1}@Base" 0.0.1
+ (c++)"typeinfo for libcamera::Signal<unsigned int, libcamera::Flags<libcamera::ipa::vimc::TestFlag> const>::disconnect()::{lambda(std::_List_iterator<libcamera::BoundMethodBase*>&)#1}@Base" 0.0.2
  (c++)"typeinfo for libcamera::SimpleCameraConfiguration@Base" 0.0.1
  (c++)"typeinfo for libcamera::SimpleCameraData@Base" 0.0.1
  (c++)"typeinfo for libcamera::SimpleConverter::Stream@Base" 0.0.1
@@ -1417,6 +1459,8 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"typeinfo name for libcamera::IPCPipeUnixSocket@Base" 0.0.1
  (c++)"typeinfo name for libcamera::IPU3CameraConfiguration@Base" 0.0.1
  (c++)"typeinfo name for libcamera::IPU3CameraData@Base" 0.0.1
+ (c++)"typeinfo name for libcamera::ISICameraConfiguration@Base" 0.0.2
+ (c++)"typeinfo name for libcamera::ISICameraData@Base" 0.0.2
  (c++)"typeinfo name for libcamera::MediaDevice@Base" 0.0.1
  (c++)"typeinfo name for libcamera::MediaEntity@Base" 0.0.1
  (c++)"typeinfo name for libcamera::MediaLink@Base" 0.0.1
@@ -1425,12 +1469,14 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"typeinfo name for libcamera::PipelineHandler@Base" 0.0.1
  (c++)"typeinfo name for libcamera::PipelineHandlerFactoryBase@Base" 0.0.1
  (c++)"typeinfo name for libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerIPU3>@Base" 0.0.1
+ (c++)"typeinfo name for libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerISI>@Base" 0.0.2
  (c++)"typeinfo name for libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerRkISP1>@Base" 0.0.1
  (c++)"typeinfo name for libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerRPi>@Base" 0.0.1
  (c++)"typeinfo name for libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerUVC>@Base" 0.0.1
  (c++)"typeinfo name for libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerVimc>@Base" 0.0.1
  (c++)"typeinfo name for libcamera::PipelineHandlerFactory<libcamera::SimplePipelineHandler>@Base" 0.0.1
  (c++)"typeinfo name for libcamera::PipelineHandlerIPU3@Base" 0.0.1
+ (c++)"typeinfo name for libcamera::PipelineHandlerISI@Base" 0.0.2
  (c++)"typeinfo name for libcamera::PipelineHandlerRkISP1@Base" 0.0.1
  (c++)"typeinfo name for libcamera::PipelineHandlerRPi@Base" 0.0.1
  (c++)"typeinfo name for libcamera::PipelineHandlerUVC@Base" 0.0.1
@@ -1454,6 +1500,7 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"typeinfo name for libcamera::Signal<unsigned int>::disconnect()::{lambda(std::_List_iterator<libcamera::BoundMethodBase*>&)#1}@Base" 0.0.1
  (c++)"typeinfo name for libcamera::Signal<unsigned int, libcamera::ControlList const&>::disconnect()::{lambda(std::_List_iterator<libcamera::BoundMethodBase*>&)#1}@Base" 0.0.1
  (c++)"typeinfo name for libcamera::Signal<unsigned int, libcamera::ControlList const&, libcamera::ControlList const&>::disconnect()::{lambda(std::_List_iterator<libcamera::BoundMethodBase*>&)#1}@Base" 0.0.1
+ (c++)"typeinfo name for libcamera::Signal<unsigned int, libcamera::Flags<libcamera::ipa::vimc::TestFlag> const>::disconnect()::{lambda(std::_List_iterator<libcamera::BoundMethodBase*>&)#1}@Base" 0.0.2
  (c++)"typeinfo name for libcamera::SimpleCameraConfiguration@Base" 0.0.1
  (c++)"typeinfo name for libcamera::SimpleCameraData@Base" 0.0.1
  (c++)"typeinfo name for libcamera::SimpleConverter::Stream@Base" 0.0.1
@@ -1498,6 +1545,8 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"vtable for libcamera::IPCPipeUnixSocket@Base" 0.0.1
  (c++)"vtable for libcamera::IPU3CameraConfiguration@Base" 0.0.1
  (c++)"vtable for libcamera::IPU3CameraData@Base" 0.0.1
+ (c++)"vtable for libcamera::ISICameraConfiguration@Base" 0.0.2
+ (c++)"vtable for libcamera::ISICameraData@Base" 0.0.2
  (c++)"vtable for libcamera::MediaDevice@Base" 0.0.1
  (c++)"vtable for libcamera::MediaEntity@Base" 0.0.1
  (c++)"vtable for libcamera::MediaLink@Base" 0.0.1
@@ -1505,12 +1554,14 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++)"vtable for libcamera::PipelineHandler@Base" 0.0.1
  (c++)"vtable for libcamera::PipelineHandlerFactoryBase@Base" 0.0.1
  (c++)"vtable for libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerIPU3>@Base" 0.0.1
+ (c++)"vtable for libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerISI>@Base" 0.0.2
  (c++)"vtable for libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerRkISP1>@Base" 0.0.1
  (c++)"vtable for libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerRPi>@Base" 0.0.1
  (c++)"vtable for libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerUVC>@Base" 0.0.1
  (c++)"vtable for libcamera::PipelineHandlerFactory<libcamera::PipelineHandlerVimc>@Base" 0.0.1
  (c++)"vtable for libcamera::PipelineHandlerFactory<libcamera::SimplePipelineHandler>@Base" 0.0.1
  (c++)"vtable for libcamera::PipelineHandlerIPU3@Base" 0.0.1
+ (c++)"vtable for libcamera::PipelineHandlerISI@Base" 0.0.2
  (c++)"vtable for libcamera::PipelineHandlerRkISP1@Base" 0.0.1
  (c++)"vtable for libcamera::PipelineHandlerRPi@Base" 0.0.1
  (c++)"vtable for libcamera::PipelineHandlerUVC@Base" 0.0.1
@@ -1534,6 +1585,7 @@ libcamera.so.0.0.1 libcamera0 #MINVER#
  (c++|regex|optional)"^vtable for std::.*@Base" 0~git20200116+30f9624
 
 libgstlibcamera.so libcamera0 #MINVER#
+* Build-Depends-Package: libcamera-dev
  (c++)"FrameWrap::~FrameWrap()@Base" 0.0.1
  (c++)"FrameWrap::FrameWrap(_GstAllocator*, libcamera::FrameBuffer*, void*)@Base" 0.0.1
  (c++)"FrameWrap::getQuark()@Base" 0.0.1
@@ -1542,9 +1594,12 @@ libgstlibcamera.so libcamera0 #MINVER#
  (c++)"gst_libcamera_allocator_new(std::shared_ptr<libcamera::Camera>, libcamera::CameraConfiguration*)@Base" 0.0.1
  (c++)"gst_libcamera_allocator_prepare_buffer(_GstLibcameraAllocator*, libcamera::Stream*, _GstBuffer*)@Base" 0.0.1
  (c++)"gst_libcamera_buffer_get_frame_buffer(_GstBuffer*)@Base" 0.0.1
+ (c++)"gst_libcamera_clamp_and_set_frameduration(libcamera::ControlList&, libcamera::ControlInfoMap const&, _GstStructure*)@Base" 0.0.2
  (c++)"gst_libcamera_configure_stream_from_caps(libcamera::StreamConfiguration&, _GstCaps*)@Base" 0.0.1
  (c++)"gst_libcamera_device_get_type()@Base" 0.0.1
+ (c++)"gst_libcamera_framerate_to_caps(_GstCaps*, _GstStructure const*)@Base" 0.0.2
  (c++)"gst_libcamera_get_camera_manager(int&)@Base" 0.0.1
+ (c++)"gst_libcamera_get_framerate_from_caps(_GstCaps*, _GstStructure*)@Base" 0.0.2
  (c++)"gst_libcamera_memory_get_frame_buffer(_GstMemory*)@Base" 0.0.1
  (c++)"gst_libcamera_pad_get_pool(_GstPad*)@Base" 0.0.1
  (c++)"gst_libcamera_pad_get_role(_GstPad*)@Base" 0.0.1
@@ -1595,6 +1650,7 @@ libgstlibcamera.so libcamera0 #MINVER#
  (c++|regex|optional)"^vtable for std::.*@Base" 0.0.1
 
 v4l2-compat.so libcamera0 #MINVER#
+* Build-Depends-Package: libcamera-dev
  (c++|regex|optional)"^std::.*@Base" 0.0.1
  (c++|regex|optional)"^typeinfo for std::.*@Base" 0.0.1
  (c++|regex|optional)"^typeinfo name for std::.*@Base" 0.0.1
