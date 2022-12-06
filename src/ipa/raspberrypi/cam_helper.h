@@ -8,6 +8,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 
 #include <libcamera/base/span.h>
 #include <libcamera/base/utils.h>
@@ -78,15 +79,20 @@ public:
 	virtual void prepare(libcamera::Span<const uint8_t> buffer,
 			     Metadata &metadata);
 	virtual void process(StatisticsPtr &stats, Metadata &metadata);
-	virtual uint32_t exposureLines(libcamera::utils::Duration exposure) const;
-	virtual libcamera::utils::Duration exposure(uint32_t exposureLines) const;
-	virtual uint32_t getVBlanking(libcamera::utils::Duration &exposure,
-				      libcamera::utils::Duration minFrameDuration,
-				      libcamera::utils::Duration maxFrameDuration) const;
+	virtual uint32_t exposureLines(const libcamera::utils::Duration exposure,
+				       const libcamera::utils::Duration lineLength) const;
+	virtual libcamera::utils::Duration exposure(uint32_t exposureLines,
+						    const libcamera::utils::Duration lineLength) const;
+	virtual std::pair<uint32_t, uint32_t> getBlanking(libcamera::utils::Duration &exposure,
+							  libcamera::utils::Duration minFrameDuration,
+							  libcamera::utils::Duration maxFrameDuration) const;
+	libcamera::utils::Duration hblankToLineLength(uint32_t hblank) const;
+	uint32_t lineLengthToHblank(const libcamera::utils::Duration &duration) const;
+	libcamera::utils::Duration lineLengthPckToDuration(uint32_t lineLengthPck) const;
 	virtual uint32_t gainCode(double gain) const = 0;
 	virtual double gain(uint32_t gainCode) const = 0;
 	virtual void getDelays(int &exposureDelay, int &gainDelay,
-			       int &vblankDelay) const;
+			       int &vblankDelay, int &hblankDelay) const;
 	virtual bool sensorEmbeddedDataPresent() const;
 	virtual double getModeSensitivity(const CameraMode &mode) const;
 	virtual unsigned int hideFramesStartup() const;
@@ -104,7 +110,6 @@ protected:
 	CameraMode mode_;
 
 private:
-	bool initialized_;
 	/*
 	 * Smallest difference between the frame length and integration time,
 	 * in units of lines.

@@ -54,7 +54,7 @@ public:
 	int init();
 	int allocateMockIPABuffers();
 	void bufferReady(FrameBuffer *buffer);
-	void paramsBufferReady(unsigned int id);
+	void paramsBufferReady(unsigned int id, const Flags<ipa::vimc::TestFlag> flags);
 
 	MediaDevice *media_;
 	std::unique_ptr<CameraSensor> sensor_;
@@ -84,7 +84,7 @@ class PipelineHandlerVimc : public PipelineHandler
 public:
 	PipelineHandlerVimc(CameraManager *manager);
 
-	CameraConfiguration *generateConfiguration(Camera *camera,
+	std::unique_ptr<CameraConfiguration> generateConfiguration(Camera *camera,
 		const StreamRoles &roles) override;
 	int configure(Camera *camera, CameraConfiguration *config) override;
 
@@ -189,11 +189,13 @@ PipelineHandlerVimc::PipelineHandlerVimc(CameraManager *manager)
 {
 }
 
-CameraConfiguration *PipelineHandlerVimc::generateConfiguration(Camera *camera,
+std::unique_ptr<CameraConfiguration>
+PipelineHandlerVimc::generateConfiguration(Camera *camera,
 	const StreamRoles &roles)
 {
 	VimcCameraData *data = cameraData(camera);
-	CameraConfiguration *config = new VimcCameraConfiguration(data);
+	std::unique_ptr<CameraConfiguration> config =
+		std::make_unique<VimcCameraConfiguration>(data);
 
 	if (roles.empty())
 		return config;
@@ -471,7 +473,15 @@ bool PipelineHandlerVimc::match(DeviceEnumerator *enumerator)
 	data->ipa_->paramsBufferReady.connect(data.get(), &VimcCameraData::paramsBufferReady);
 
 	std::string conf = data->ipa_->configurationFile("vimc.conf");
-	data->ipa_->init(IPASettings{ conf, data->sensor_->model() });
+	Flags<ipa::vimc::TestFlag> inFlags = ipa::vimc::TestFlag::Flag2;
+	Flags<ipa::vimc::TestFlag> outFlags;
+	data->ipa_->init(IPASettings{ conf, data->sensor_->model() },
+			 ipa::vimc::IPAOperationInit, inFlags, &outFlags);
+
+	LOG(VIMC, Debug)
+		<< "Flag 1 was "
+		<< (outFlags & ipa::vimc::TestFlag::Flag1 ? "" : "not ")
+		<< "set";
 
 	/* Create and register the camera. */
 	std::set<Stream *> streams{ &data->stream_ };
@@ -608,7 +618,8 @@ int VimcCameraData::allocateMockIPABuffers()
 	return video_->exportBuffers(kBufCount, &mockIPABufs_);
 }
 
-void VimcCameraData::paramsBufferReady([[maybe_unused]] unsigned int id)
+void VimcCameraData::paramsBufferReady([[maybe_unused]] unsigned int id,
+				       [[maybe_unused]] const Flags<ipa::vimc::TestFlag> flags)
 {
 }
 

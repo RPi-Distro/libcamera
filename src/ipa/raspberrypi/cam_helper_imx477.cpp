@@ -35,9 +35,12 @@ constexpr uint32_t gainHiReg = 0x0204;
 constexpr uint32_t gainLoReg = 0x0205;
 constexpr uint32_t frameLengthHiReg = 0x0340;
 constexpr uint32_t frameLengthLoReg = 0x0341;
+constexpr uint32_t lineLengthHiReg = 0x0342;
+constexpr uint32_t lineLengthLoReg = 0x0343;
 constexpr uint32_t temperatureReg = 0x013a;
 constexpr std::initializer_list<uint32_t> registerList =
-	{ expHiReg, expLoReg, gainHiReg, gainLoReg, frameLengthHiReg, frameLengthLoReg, temperatureReg  };
+	{ expHiReg, expLoReg, gainHiReg, gainLoReg, frameLengthHiReg, frameLengthLoReg,
+	  lineLengthHiReg, lineLengthLoReg, temperatureReg };
 
 class CamHelperImx477 : public CamHelper
 {
@@ -46,10 +49,10 @@ public:
 	uint32_t gainCode(double gain) const override;
 	double gain(uint32_t gainCode) const override;
 	void prepare(libcamera::Span<const uint8_t> buffer, Metadata &metadata) override;
-	uint32_t getVBlanking(Duration &exposure, Duration minFrameDuration,
-			      Duration maxFrameDuration) const override;
+	std::pair<uint32_t, uint32_t> getBlanking(Duration &exposure, Duration minFrameDuration,
+						  Duration maxFrameDuration) const override;
 	void getDelays(int &exposureDelay, int &gainDelay,
-		       int &vblankDelay) const override;
+		       int &vblankDelay, int &hblankDelay) const override;
 	bool sensorEmbeddedDataPresent() const override;
 
 private:
@@ -118,15 +121,19 @@ void CamHelperImx477::prepare(libcamera::Span<const uint8_t> buffer, Metadata &m
 	}
 }
 
-uint32_t CamHelperImx477::getVBlanking(Duration &exposure,
-				       Duration minFrameDuration,
-				       Duration maxFrameDuration) const
+std::pair<uint32_t, uint32_t> CamHelperImx477::getBlanking(Duration &exposure,
+							   Duration minFrameDuration,
+							   Duration maxFrameDuration) const
 {
 	uint32_t frameLength, exposureLines;
 	unsigned int shift = 0;
 
-	frameLength = mode_.height + CamHelper::getVBlanking(exposure, minFrameDuration,
-							     maxFrameDuration);
+	auto [vblank, hblank] = CamHelper::getBlanking(exposure, minFrameDuration,
+						       maxFrameDuration);
+
+	frameLength = mode_.height + vblank;
+	Duration lineLength = hblankToLineLength(hblank);
+
 	/*
 	 * Check if the frame length calculated needs to be setup for long
 	 * exposure mode. This will require us to use a long exposure scale
@@ -144,20 +151,21 @@ uint32_t CamHelperImx477::getVBlanking(Duration &exposure,
 	if (shift) {
 		/* Account for any rounding in the scaled frame length value. */
 		frameLength <<= shift;
-		exposureLines = CamHelperImx477::exposureLines(exposure);
+		exposureLines = CamHelperImx477::exposureLines(exposure, lineLength);
 		exposureLines = std::min(exposureLines, frameLength - frameIntegrationDiff);
-		exposure = CamHelperImx477::exposure(exposureLines);
+		exposure = CamHelperImx477::exposure(exposureLines, lineLength);
 	}
 
-	return frameLength - mode_.height;
+	return { frameLength - mode_.height, hblank };
 }
 
 void CamHelperImx477::getDelays(int &exposureDelay, int &gainDelay,
-				int &vblankDelay) const
+				int &vblankDelay, int &hblankDelay) const
 {
 	exposureDelay = 2;
 	gainDelay = 2;
 	vblankDelay = 3;
+	hblankDelay = 3;
 }
 
 bool CamHelperImx477::sensorEmbeddedDataPresent() const
@@ -170,7 +178,10 @@ void CamHelperImx477::populateMetadata(const MdParser::RegisterMap &registers,
 {
 	DeviceStatus deviceStatus;
 
-	deviceStatus.shutterSpeed = exposure(registers.at(expHiReg) * 256 + registers.at(expLoReg));
+	deviceStatus.lineLength = lineLengthPckToDuration(registers.at(lineLengthHiReg) * 256 +
+							  registers.at(lineLengthLoReg));
+	deviceStatus.shutterSpeed = exposure(registers.at(expHiReg) * 256 + registers.at(expLoReg),
+					     deviceStatus.lineLength);
 	deviceStatus.analogueGain = gain(registers.at(gainHiReg) * 256 + registers.at(gainLoReg));
 	deviceStatus.frameLength = registers.at(frameLengthHiReg) * 256 + registers.at(frameLengthLoReg);
 	deviceStatus.sensorTemperature = std::clamp<int8_t>(registers.at(temperatureReg), -20, 80);

@@ -69,7 +69,6 @@ protected:
 
 private:
 	void setControls(unsigned int frame);
-	void prepareMetadata(unsigned int frame, unsigned int aeState);
 
 	std::map<unsigned int, FrameBuffer> buffers_;
 	std::map<unsigned int, MappedFrameBuffer> mappedBuffers_;
@@ -233,9 +232,9 @@ int IPARkISP1::configure([[maybe_unused]] const IPACameraSensorInfo &info,
 	int32_t minGain = itGain->second.min().get<int32_t>();
 	int32_t maxGain = itGain->second.max().get<int32_t>();
 
-	LOG(IPARkISP1, Info)
-		<< "Exposure: " << minExposure << "-" << maxExposure
-		<< " Gain: " << minGain << "-" << maxGain;
+	LOG(IPARkISP1, Debug)
+		<< "Exposure: [" << minExposure << ", " << maxExposure
+		<< "], gain: [" << minGain << ", " << maxGain << "]";
 
 	/* Clear the IPA context before the streaming session. */
 	context_.configuration = {};
@@ -245,8 +244,10 @@ int IPARkISP1::configure([[maybe_unused]] const IPACameraSensorInfo &info,
 	/* Set the hardware revision for the algorithms. */
 	context_.configuration.hw.revision = hwRevision_;
 
+	const ControlInfo vBlank = ctrls_.find(V4L2_CID_VBLANK)->second;
+	context_.configuration.sensor.defVBlank = vBlank.def().get<int32_t>();
 	context_.configuration.sensor.size = info.outputSize;
-	context_.configuration.sensor.lineDuration = info.lineLength * 1.0s / info.pixelRate;
+	context_.configuration.sensor.lineDuration = info.minLineLength * 1.0s / info.pixelRate;
 
 	/*
 	 * When the AGC computes the new exposure values for a frame, it needs
@@ -255,10 +256,12 @@ int IPARkISP1::configure([[maybe_unused]] const IPACameraSensorInfo &info,
 	 *
 	 * \todo take VBLANK into account for maximum shutter speed
 	 */
-	context_.configuration.agc.minShutterSpeed = minExposure * context_.configuration.sensor.lineDuration;
-	context_.configuration.agc.maxShutterSpeed = maxExposure * context_.configuration.sensor.lineDuration;
-	context_.configuration.agc.minAnalogueGain = camHelper_->gain(minGain);
-	context_.configuration.agc.maxAnalogueGain = camHelper_->gain(maxGain);
+	context_.configuration.sensor.minShutterSpeed =
+		minExposure * context_.configuration.sensor.lineDuration;
+	context_.configuration.sensor.maxShutterSpeed =
+		maxExposure * context_.configuration.sensor.lineDuration;
+	context_.configuration.sensor.minAnalogueGain = camHelper_->gain(minGain);
+	context_.configuration.sensor.maxAnalogueGain = camHelper_->gain(maxGain);
 
 	for (auto const &algo : algorithms()) {
 		int ret = algo->configure(context_, info);
@@ -338,14 +341,14 @@ void IPARkISP1::processStatsBuffer(const uint32_t frame, const uint32_t bufferId
 	frameContext.sensor.gain =
 		camHelper_->gain(sensorControls.get(V4L2_CID_ANALOGUE_GAIN).get<int32_t>());
 
-	unsigned int aeState = 0;
+	ControlList metadata(controls::controls);
 
 	for (auto const &algo : algorithms())
-		algo->process(context_, frame, frameContext, stats);
+		algo->process(context_, frame, frameContext, stats, metadata);
 
 	setControls(frame);
 
-	prepareMetadata(frame, aeState);
+	metadataReady.emit(frame, metadata);
 }
 
 void IPARkISP1::setControls(unsigned int frame)
@@ -364,16 +367,6 @@ void IPARkISP1::setControls(unsigned int frame)
 	ctrls.set(V4L2_CID_ANALOGUE_GAIN, static_cast<int32_t>(gain));
 
 	setSensorControls.emit(frame, ctrls);
-}
-
-void IPARkISP1::prepareMetadata(unsigned int frame, unsigned int aeState)
-{
-	ControlList ctrls(controls::controls);
-
-	if (aeState)
-		ctrls.set(controls::AeLocked, aeState == 2);
-
-	metadataReady.emit(frame, ctrls);
 }
 
 } /* namespace ipa::rkisp1 */

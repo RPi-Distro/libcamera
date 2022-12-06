@@ -1,10 +1,9 @@
 # SPDX-License-Identifier: CC0-1.0
 
-libevent = dependency('libevent_pthreads', required : get_option('lc-compliance'))
 libgtest = dependency('gtest', required : get_option('lc-compliance'),
                       fallback : ['gtest', 'gtest_dep'])
 
-if not (libevent.found() and libgtest.found())
+if opt_lc_compliance.disabled() or not libevent.found() or not libgtest.found()
     lc_compliance_enabled = false
     subdir_done()
 endif
@@ -12,8 +11,6 @@ endif
 lc_compliance_enabled = true
 
 lc_compliance_sources = files([
-    '../cam/event_loop.cpp',
-    '../cam/options.cpp',
     'environment.cpp',
     'main.cpp',
     'simple_capture.cpp',
@@ -22,6 +19,7 @@ lc_compliance_sources = files([
 
 lc_compliance  = executable('lc-compliance', lc_compliance_sources,
                             cpp_args : [ '-fexceptions' ],
+                            link_with : apps_lib,
                             dependencies : [
                                 libatomic,
                                 libcamera_public,

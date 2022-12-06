@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: CC0-1.0
 
-libevent = dependency('libevent_pthreads', required : get_option('cam'))
-
-if not libevent.found()
+if opt_cam.disabled() or not libevent.found()
     cam_enabled = false
     subdir_done()
 endif
@@ -12,16 +10,12 @@ cam_enabled = true
 cam_sources = files([
     'camera_session.cpp',
     'capture_script.cpp',
-    'event_loop.cpp',
     'file_sink.cpp',
     'frame_sink.cpp',
-    'image.cpp',
     'main.cpp',
-    'options.cpp',
-    'stream_options.cpp',
 ])
 
-cam_cpp_args = []
+cam_cpp_args = [apps_cpp_args]
 
 libdrm = dependency('libdrm', required : false)
 libjpeg = dependency('libjpeg', required : false)
@@ -52,6 +46,7 @@ if libsdl2.found()
 endif
 
 cam  = executable('cam', cam_sources,
+                  link_with : apps_lib,
                   dependencies : [
                       libatomic,
                       libcamera_public,
@@ -59,6 +54,7 @@ cam  = executable('cam', cam_sources,
                       libevent,
                       libjpeg,
                       libsdl2,
+                      libtiff,
                       libyaml,
                   ],
                   cpp_args : cam_cpp_args,
