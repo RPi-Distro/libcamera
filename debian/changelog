@@ -1,9 +1,22 @@
 libcamera (0.0.2-1) UNRELEASED; urgency=medium
 
   * Team upload.
-  * New upstream release.
 
- -- Dylan Aïssi <daissi@debian.org>  Tue, 06 Dec 2022 21:12:30 +0100
+  [ Dylan Aïssi ]
+  * New upstream version 0.0.2
+  * Update symbols file
+  * Update lintian-overrides
+  * Standards-Version: 4.6.1 (no changes needed)
+  * Update debian/copyright
+
+  [ Sebastien Bacher ]
+  * Improve lintian-overrides
+  * Refresh debian/copyright
+
+  [ Debian Janitor ]
+  * Remove constraints unnecessary since buster (oldstable)
+
+ -- Dylan Aïssi <daissi@debian.org>  Thu, 08 Dec 2022 15:02:08 +0100
 
 libcamera (0.0.1-4) unstable; urgency=medium
 
