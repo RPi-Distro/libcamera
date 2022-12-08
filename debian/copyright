@@ -27,7 +27,7 @@ Files:
  src/android/camera3_hal.cpp
  src/libcamera/*
  src/ipa/libipa/*
- src/qcam/dng_writer.*
+ src/apps/common/dng_writer.*
  include/libcamera/*
 Copyright:
  2018—2021 Libcamera contributors
@@ -44,7 +44,7 @@ Copyright:
 License: LGPL-2.1+
 
 Files:
- src/qcam/assets/feathericons/*.svg
+ src/apps/qcam/assets/feathericons/*.svg
 Copyright:
  2019 Cole Bemis (and other Feather icons contributors)
 License: Expat
