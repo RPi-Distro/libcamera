@@ -678,6 +678,7 @@ libcamera.so.0.0.2 libcamera0 #MINVER#
  (c++)"libcamera::IPU3CameraData::frameStart(unsigned int)@Base" 0.0.1
  (c++)"libcamera::IPU3CameraData::imguOutputBufferReady(libcamera::FrameBuffer*)@Base" 0.0.1
  (c++)"libcamera::IPU3CameraData::~IPU3CameraData()@Base" 0.0.1
+ (c++|arch=x32)"libcamera::IPU3CameraData::IPU3CameraData(libcamera::PipelineHandler*)@Base" 0.0.2
  (c++)"libcamera::IPU3CameraData::loadIPA()@Base" 0.0.1
  (c++)"libcamera::IPU3CameraData::metadataReady(unsigned int, libcamera::ControlList const&)@Base" 0.0.1
  (c++)"libcamera::IPU3CameraData::paramBufferReady(libcamera::FrameBuffer*)@Base" 0.0.1
@@ -1064,7 +1065,7 @@ libcamera.so.0.0.2 libcamera0 #MINVER#
  (c++)"libcamera::RPi::Stream::getBufferId(libcamera::FrameBuffer*) const@Base" 0.0.1
  (c++)"libcamera::RPi::Stream::getBuffers() const@Base" 0.0.1
  (c++)"libcamera::RPi::Stream::IdGenerator::get()@Base" 0.0.1
- (c++)"libcamera::RPi::Stream::IdGenerator::reset()@Base" 0.0.1
+ (c++|arch=!x32)"libcamera::RPi::Stream::IdGenerator::reset()@Base" 0.0.1
  (c++)"libcamera::RPi::Stream::isExternal() const@Base" 0.0.1
  (c++)"libcamera::RPi::Stream::name[abi:cxx11]() const@Base" 0.0.1
  (c++)"libcamera::RPi::Stream::prepareBuffers(unsigned int)@Base" 0.0.1
@@ -1079,6 +1080,7 @@ libcamera.so.0.0.2 libcamera0 #MINVER#
  (c++)"libcamera::RPi::Stream::setExternal(bool)@Base" 0.0.1
  (c++)"libcamera::RPi::Stream::setExternalBuffer(libcamera::FrameBuffer*)@Base" 0.0.1
  (c++)"libcamera::RPi::Stream::~Stream()@Base" 0.0.1
+ (c++|arch=x32)"libcamera::RPi::Stream::Stream(char const*, libcamera::MediaEntity*, bool)@Base" 0.0.2
  (c++)"libcamera::SharedFD* std::__do_uninit_copy<__gnu_cxx::__normal_iterator<libcamera::SharedFD*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, libcamera::SharedFD*>(__gnu_cxx::__normal_iterator<libcamera::SharedFD*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, __gnu_cxx::__normal_iterator<libcamera::SharedFD*, std::vector<libcamera::SharedFD, std::allocator<libcamera::SharedFD> > >, libcamera::SharedFD*)@Base" 0.0.1
  (c++)"libcamera::SharedFD* std::__do_uninit_copy<libcamera::SharedFD const*, libcamera::SharedFD*>(libcamera::SharedFD const*, libcamera::SharedFD const*, libcamera::SharedFD*)@Base" 0.0.1
  (c++)"libcamera::Signal<libcamera::ControlList const&>::disconnect()@Base" 0.0.1
