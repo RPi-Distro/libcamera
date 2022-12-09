@@ -13,15 +13,16 @@ override_dh_auto_configure:
 	dh_auto_configure -- \
 		--libexecdir=lib/${DEB_HOST_MULTIARCH} \
 		-Dv4l2=true \
+		-Dtest=true \
 		$(empty)
 
 override_dh_install:
 	mv debian/tmp/usr/share/doc/libcamera-0.* debian/tmp/usr/share/doc/libcamera-doc
 	dh_install -X/.doctrees/
 
-.PHONY: override_dh_auto_test
 override_dh_auto_test:
-
+	# For now, testsuite failures are ignored
+	-dh_auto_test
 
 .PHONY: licensecheck
 licensecheck:

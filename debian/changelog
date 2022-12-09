@@ -8,10 +8,12 @@ libcamera (0.0.2-1) UNRELEASED; urgency=medium
   * Update lintian-overrides
   * Standards-Version: 4.6.1 (no changes needed)
   * Update debian/copyright
+  * Ignore failures in dh_auto_test for now
 
   [ Sebastien Bacher ]
   * Improve lintian-overrides
   * Refresh debian/copyright
+  * debian/rules: enable the upstream tests as part of the build
 
   [ Debian Janitor ]
   * Remove constraints unnecessary since buster (oldstable)
