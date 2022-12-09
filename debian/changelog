@@ -1,4 +1,4 @@
-libcamera (0.0.2-1) UNRELEASED; urgency=medium
+libcamera (0.0.2-1) unstable; urgency=medium
 
   * Team upload.
 
@@ -11,14 +11,14 @@ libcamera (0.0.2-1) UNRELEASED; urgency=medium
   * Ignore failures in dh_auto_test for now
 
   [ Sebastien Bacher ]
-  * Improve lintian-overrides
+  * Improve lintian-overrides (Closes: #1024803)
   * Refresh debian/copyright
   * debian/rules: enable the upstream tests as part of the build
 
   [ Debian Janitor ]
   * Remove constraints unnecessary since buster (oldstable)
 
- -- Dylan Aïssi <daissi@debian.org>  Thu, 08 Dec 2022 15:02:08 +0100
+ -- Dylan Aïssi <daissi@debian.org>  Fri, 09 Dec 2022 10:59:05 +0100
 
 libcamera (0.0.1-4) unstable; urgency=medium
 
