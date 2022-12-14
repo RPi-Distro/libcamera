@@ -1,3 +1,9 @@
+libcamera (0.0.2-2) unstable; urgency=medium
+
+  * Update symbols file for x32
+
+ -- Dylan Aïssi <daissi@debian.org>  Wed, 14 Dec 2022 17:54:17 +0100
+
 libcamera (0.0.2-1) unstable; urgency=medium
 
   * Team upload.
