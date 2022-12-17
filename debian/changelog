@@ -1,3 +1,9 @@
+libcamera (0.0.2-3) UNRELEASED; urgency=medium
+
+  * Move the GStreamer plugin into its own package
+
+ -- Dylan Aïssi <daissi@debian.org>  Mon, 19 Dec 2022 14:14:50 +0100
+
 libcamera (0.0.2-2) unstable; urgency=medium
 
   * Update symbols file for x32
