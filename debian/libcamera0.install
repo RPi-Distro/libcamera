@@ -2,6 +2,5 @@ usr/lib/*/*.so.*
 usr/lib/*/libcamera/*.so
 usr/lib/*/libcamera/*.so.sign
 #usr/libexec
-usr/lib/*/v4l2-compat.so
 usr/lib/*/*/*_ipa_proxy
 usr/share/libcamera

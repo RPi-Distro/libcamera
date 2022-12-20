@@ -1585,17 +1585,3 @@ libcamera.so.0.0.2 libcamera0 #MINVER#
  (c++)"vtable for libcamera::VimcCameraConfiguration@Base" 0.0.1
  (c++)"vtable for libcamera::VimcCameraData@Base" 0.0.1
  (c++|regex|optional)"^vtable for std::.*@Base" 0~git20200116+30f9624
-
-v4l2-compat.so libcamera0 #MINVER#
-* Build-Depends-Package: libcamera-dev
- (c++|regex|optional)"^std::.*@Base" 0.0.1
- (c++|regex|optional)"^typeinfo for std::.*@Base" 0.0.1
- (c++|regex|optional)"^typeinfo name for std::.*@Base" 0.0.1
- (optional)"close@Base" 0.0.1
- (optional)"dup@Base" 0.0.1
- (optional)"ioctl@Base" 0.0.1
- (optional)"munmap@Base" 0.0.1
- (regex|optional)"^__open.*@Base" 0.0.1
- (regex|optional)"^open.*@Base" 0.0.1
- (optional)"ioctl@Base" 0.0.1
- (regex|optional)"^mmap.*@Base" 0.0.1
