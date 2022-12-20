@@ -4,7 +4,8 @@ Maintainer: Debian Multimedia Maintainers <debian-multimedia@lists.debian.org>
 Uploaders:
  Emmanuel Arias <emmanuelarias30@gmail.com>,
  IOhannes m zmölnig (Debian/GNU) <umlaeute@debian.org>,
- Andrej Shadura <andrewsh@debian.org>
+ Andrej Shadura <andrewsh@debian.org>,
+ Dylan Aïssi <daissi@debian.org>
 Build-Depends: debhelper-compat (= 13),
                meson (>= 0.56),
                pkgconf | pkg-config,
