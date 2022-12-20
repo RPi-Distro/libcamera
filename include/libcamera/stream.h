@@ -9,6 +9,7 @@
 
 #include <map>
 #include <memory>
+#include <ostream>
 #include <string>
 #include <vector>
 
@@ -61,7 +62,7 @@ private:
 	StreamFormats formats_;
 };
 
-enum StreamRole {
+enum class StreamRole {
 	Raw,
 	StillCapture,
 	VideoRecording,
@@ -69,6 +70,8 @@ enum StreamRole {
 };
 
 using StreamRoles = std::vector<StreamRole>;
+
+std::ostream &operator<<(std::ostream &out, StreamRole role);
 
 class Stream
 {

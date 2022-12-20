@@ -48,12 +48,22 @@ struct IPASessionConfiguration {
 	struct {
 		rkisp1_cif_isp_version revision;
 	} hw;
+
+	bool raw;
 };
 
 struct IPAActiveState {
 	struct {
-		uint32_t exposure;
-		double gain;
+		struct {
+			uint32_t exposure;
+			double gain;
+		} manual;
+		struct {
+			uint32_t exposure;
+			double gain;
+		} automatic;
+
+		bool autoEnabled;
 	} agc;
 
 	struct {
@@ -94,6 +104,7 @@ struct IPAFrameContext : public FrameContext {
 	struct {
 		uint32_t exposure;
 		double gain;
+		bool autoEnabled;
 	} agc;
 
 	struct {

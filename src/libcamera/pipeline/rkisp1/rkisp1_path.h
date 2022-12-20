@@ -8,6 +8,7 @@
 #pragma once
 
 #include <memory>
+#include <set>
 #include <vector>
 
 #include <libcamera/base/signal.h>
@@ -22,6 +23,7 @@
 
 namespace libcamera {
 
+class CameraSensor;
 class MediaDevice;
 class V4L2Subdevice;
 struct StreamConfiguration;
@@ -38,8 +40,10 @@ public:
 	int setEnabled(bool enable) { return link_->setEnabled(enable); }
 	bool isEnabled() const { return link_->flags() & MEDIA_LNK_FL_ENABLED; }
 
-	StreamConfiguration generateConfiguration(const Size &resolution);
-	CameraConfiguration::Status validate(StreamConfiguration *cfg);
+	StreamConfiguration generateConfiguration(const CameraSensor *sensor,
+						  StreamRole role);
+	CameraConfiguration::Status validate(const CameraSensor *sensor,
+					     StreamConfiguration *cfg);
 
 	int configure(const StreamConfiguration &config,
 		      const V4L2SubdeviceFormat &inputFormat);
@@ -57,14 +61,17 @@ public:
 	Signal<FrameBuffer *> &bufferReady() { return video_->bufferReady; }
 
 private:
+	void populateFormats();
+
 	static constexpr unsigned int RKISP1_BUFFER_COUNT = 4;
 
 	const char *name_;
 	bool running_;
 
 	const Span<const PixelFormat> formats_;
-	const Size minResolution_;
-	const Size maxResolution_;
+	std::set<PixelFormat> streamFormats_;
+	Size minResolution_;
+	Size maxResolution_;
 
 	std::unique_ptr<V4L2Subdevice> resizer_;
 	std::unique_ptr<V4L2VideoDevice> video_;

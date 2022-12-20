@@ -189,7 +189,47 @@ const ISICameraConfiguration::FormatMap ISICameraConfiguration::formatsMap_ = {
 		  MEDIA_BUS_FMT_UYVY8_1X16 },
 	},
 	{
+		formats::AVUY8888,
+		{ MEDIA_BUS_FMT_YUV8_1X24,
+		  MEDIA_BUS_FMT_UYVY8_1X16 },
+	},
+	{
+		formats::NV12,
+		{ MEDIA_BUS_FMT_YUV8_1X24,
+		  MEDIA_BUS_FMT_UYVY8_1X16 },
+	},
+	{
+		formats::NV16,
+		{ MEDIA_BUS_FMT_YUV8_1X24,
+		  MEDIA_BUS_FMT_UYVY8_1X16 },
+	},
+	{
+		formats::YUV444,
+		{ MEDIA_BUS_FMT_YUV8_1X24,
+		  MEDIA_BUS_FMT_UYVY8_1X16 },
+	},
+	{
 		formats::RGB565,
+		{ MEDIA_BUS_FMT_RGB888_1X24,
+		  MEDIA_BUS_FMT_RGB565_1X16 },
+	},
+	{
+		formats::BGR888,
+		{ MEDIA_BUS_FMT_RGB888_1X24,
+		  MEDIA_BUS_FMT_RGB565_1X16 },
+	},
+	{
+		formats::RGB888,
+		{ MEDIA_BUS_FMT_RGB888_1X24,
+		  MEDIA_BUS_FMT_RGB565_1X16 },
+	},
+	{
+		formats::XRGB8888,
+		{ MEDIA_BUS_FMT_RGB888_1X24,
+		  MEDIA_BUS_FMT_RGB565_1X16 },
+	},
+	{
+		formats::ABGR8888,
 		{ MEDIA_BUS_FMT_RGB888_1X24,
 		  MEDIA_BUS_FMT_RGB565_1X16 },
 	},
@@ -546,6 +586,7 @@ PipelineHandlerISI::generateConfiguration(Camera *camera,
 		return nullptr;
 	}
 
+	bool isRaw = false;
 	for (const auto &role : roles) {
 		/*
 		 * Prefer the following formats
@@ -553,11 +594,12 @@ PipelineHandlerISI::generateConfiguration(Camera *camera,
 		 * - ViewFinder/VideoRecording: 1080p YUYV
 		 * - RAW: sensor's native format and resolution
 		 */
+		std::map<PixelFormat, std::vector<SizeRange>> streamFormats;
 		PixelFormat pixelFormat;
 		Size size;
 
 		switch (role) {
-		case StillCapture:
+		case StreamRole::StillCapture:
 			/*
 			 * \todo Make sure the sensor can produce non-RAW formats
 			 * compatible with the ones supported by the pipeline.
@@ -566,8 +608,8 @@ PipelineHandlerISI::generateConfiguration(Camera *camera,
 			pixelFormat = formats::YUYV;
 			break;
 
-		case Viewfinder:
-		case VideoRecording:
+		case StreamRole::Viewfinder:
+		case StreamRole::VideoRecording:
 			/*
 			 * \todo Make sure the sensor can produce non-RAW formats
 			 * compatible with the ones supported by the pipeline.
@@ -576,7 +618,7 @@ PipelineHandlerISI::generateConfiguration(Camera *camera,
 			pixelFormat = formats::YUYV;
 			break;
 
-		case Raw: {
+		case StreamRole::Raw: {
 			/*
 			 * Make sure the sensor can generate a RAW format and
 			 * prefer the ones with a larger bitdepth.
@@ -614,6 +656,9 @@ PipelineHandlerISI::generateConfiguration(Camera *camera,
 			size = data->sensor_->resolution();
 			pixelFormat = rawPipeFormat->first;
 
+			streamFormats[pixelFormat] = { { kMinISISize, size } };
+			isRaw = true;
+
 			break;
 		}
 
@@ -622,9 +667,20 @@ PipelineHandlerISI::generateConfiguration(Camera *camera,
 			return nullptr;
 		}
 
-		/* \todo Add all supported formats. */
-		std::map<PixelFormat, std::vector<SizeRange>> streamFormats;
-		streamFormats[pixelFormat] = { { kMinISISize, size } };
+		/*
+		 * For non-RAW configurations the ISI can perform colorspace
+		 * conversion. List all the supported output formats here.
+		 */
+		if (!isRaw) {
+			for (const auto &[pixFmt, pipeFmt] : ISICameraConfiguration::formatsMap_) {
+				const PixelFormatInfo &info = PixelFormatInfo::info(pixFmt);
+				if (info.colourEncoding == PixelFormatInfo::ColourEncodingRAW)
+					continue;
+
+				streamFormats[pixFmt] = { { kMinISISize, size } };
+			}
+		}
+
 		StreamFormats formats(streamFormats);
 
 		StreamConfiguration cfg(formats);
@@ -937,6 +993,12 @@ PipelineHandlerISI::Pipe *PipelineHandlerISI::pipeFromStream(Camera *camera,
 void PipelineHandlerISI::bufferReady(FrameBuffer *buffer)
 {
 	Request *request = buffer->request();
+
+	/* Record the sensor's timestamp in the request metadata. */
+	ControlList &metadata = request->metadata();
+	if (!metadata.contains(controls::SensorTimestamp.id()))
+		metadata.set(controls::SensorTimestamp,
+			     buffer->metadata().timestamp);
 
 	completeBuffer(request, buffer);
 	if (request->hasPendingBuffers())

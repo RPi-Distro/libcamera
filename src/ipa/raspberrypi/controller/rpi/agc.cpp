@@ -270,18 +270,13 @@ int Agc::read(const libcamera::YamlObject &params)
 	return 0;
 }
 
-bool Agc::isPaused() const
-{
-	return false;
-}
-
-void Agc::pause()
+void Agc::disableAuto()
 {
 	fixedShutter_ = status_.shutterTime;
 	fixedAnalogueGain_ = status_.analogueGain;
 }
 
-void Agc::resume()
+void Agc::enableAuto()
 {
 	fixedShutter_ = 0s;
 	fixedAnalogueGain_ = 0;
@@ -317,14 +312,14 @@ void Agc::setMaxShutter(Duration maxShutter)
 void Agc::setFixedShutter(Duration fixedShutter)
 {
 	fixedShutter_ = fixedShutter;
-	/* Set this in case someone calls Pause() straight after. */
+	/* Set this in case someone calls disableAuto() straight after. */
 	status_.shutterTime = clipShutter(fixedShutter_);
 }
 
 void Agc::setFixedAnalogueGain(double fixedAnalogueGain)
 {
 	fixedAnalogueGain_ = fixedAnalogueGain;
-	/* Set this in case someone calls Pause() straight after. */
+	/* Set this in case someone calls disableAuto() straight after. */
 	status_.analogueGain = fixedAnalogueGain;
 }
 
@@ -408,6 +403,12 @@ void Agc::switchMode(CameraMode const &cameraMode,
 
 void Agc::prepare(Metadata *imageMetadata)
 {
+	Duration totalExposureValue = status_.totalExposureValue;
+	AgcStatus delayedStatus;
+
+	if (!imageMetadata->get("agc.delayed_status", delayedStatus))
+		totalExposureValue = delayedStatus.totalExposureValue;
+
 	status_.digitalGain = 1.0;
 	fetchAwbStatus(imageMetadata); /* always fetch it so that Process knows it's been done */
 
@@ -418,8 +419,8 @@ void Agc::prepare(Metadata *imageMetadata)
 			Duration actualExposure = deviceStatus.shutterSpeed *
 						  deviceStatus.analogueGain;
 			if (actualExposure) {
-				status_.digitalGain = status_.totalExposureValue / actualExposure;
-				LOG(RPiAgc, Debug) << "Want total exposure " << status_.totalExposureValue;
+				status_.digitalGain = totalExposureValue / actualExposure;
+				LOG(RPiAgc, Debug) << "Want total exposure " << totalExposureValue;
 				/*
 				 * Never ask for a gain < 1.0, and also impose
 				 * some upper limit. Make it customisable?
