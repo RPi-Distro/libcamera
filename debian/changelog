@@ -1,8 +1,12 @@
-libcamera (0.0.2-3) UNRELEASED; urgency=medium
+libcamera (0.0.3-1) UNRELEASED; urgency=medium
 
+  * New upstream version 0.0.3
   * Move the GStreamer plugin into its own package
+  * Move the v4l2 module into its own package
+  * Install *.so.sign files with libraries
+  * Add myself in Uploaders
 
- -- Dylan Aïssi <daissi@debian.org>  Mon, 19 Dec 2022 14:14:50 +0100
+ -- Dylan Aïssi <daissi@debian.org>  Tue, 20 Dec 2022 17:22:19 +0100
 
 libcamera (0.0.2-2) unstable; urgency=medium
 
