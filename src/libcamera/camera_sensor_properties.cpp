@@ -102,6 +102,18 @@ const CameraSensorProperties *CameraSensorProperties::get(const std::string &sen
 			.unitCellSize = { 1550, 1550 },
 			.testPatternModes = {},
 		} },
+		{ "imx519", {
+			.unitCellSize = { 1220, 1220 },
+			.testPatternModes = {
+				{ controls::draft::TestPatternModeOff, 0 },
+				{ controls::draft::TestPatternModeSolidColor, 2 },
+				{ controls::draft::TestPatternModePn9, 4 },
+				/*
+				 * The driver reports ColorBars and ColorBarsFadeToGray as well but
+				 * these two patterns do not comply with MIPI CCS v1.1 (Section 10.1).
+				 */
+			},
+		} },
 		{ "ov2740", {
 			.unitCellSize = { 1400, 1400 },
 			.testPatternModes = {

@@ -33,7 +33,6 @@
 #include "libcamera/internal/bayer_format.h"
 #include "libcamera/internal/camera.h"
 #include "libcamera/internal/camera_sensor.h"
-#include "libcamera/internal/delayed_controls.h"
 #include "libcamera/internal/device_enumerator.h"
 #include "libcamera/internal/framebuffer.h"
 #include "libcamera/internal/ipa_manager.h"
@@ -41,6 +40,7 @@
 #include "libcamera/internal/pipeline_handler.h"
 #include "libcamera/internal/v4l2_videodevice.h"
 
+#include "delayed_controls.h"
 #include "dma_heaps.h"
 #include "rpi_stream.h"
 
@@ -206,7 +206,7 @@ public:
 	void runIsp(uint32_t bufferId);
 	void embeddedComplete(uint32_t bufferId);
 	void setIspControls(const ControlList &controls);
-	void setDelayedControls(const ControlList &controls);
+	void setDelayedControls(const ControlList &controls, uint32_t delayContext);
 	void setSensorControls(ControlList &controls);
 	void unicamTimeout();
 
@@ -243,7 +243,7 @@ public:
 	RPi::DmaHeap dmaHeap_;
 	SharedFD lsTable_;
 
-	std::unique_ptr<DelayedControls> delayedCtrls_;
+	std::unique_ptr<RPi::DelayedControls> delayedCtrls_;
 	bool sensorMetadata_;
 
 	/*
@@ -262,6 +262,7 @@ public:
 	struct BayerFrame {
 		FrameBuffer *buffer;
 		ControlList controls;
+		unsigned int delayContext;
 	};
 
 	std::queue<BayerFrame> bayerQueue_;
@@ -1066,7 +1067,7 @@ int PipelineHandlerRPi::start(Camera *camera, const ControlList *controls)
 	 * Reset the delayed controls with the gain and exposure values set by
 	 * the IPA.
 	 */
-	data->delayedCtrls_->reset();
+	data->delayedCtrls_->reset(0);
 
 	data->state_ = RPiCameraData::State::Idle;
 
@@ -1302,13 +1303,13 @@ int PipelineHandlerRPi::registerCamera(MediaDevice *unicam, MediaDevice *isp, Me
 	 * Setup our delayed control writer with the sensor default
 	 * gain and exposure delays. Mark VBLANK for priority write.
 	 */
-	std::unordered_map<uint32_t, DelayedControls::ControlParams> params = {
+	std::unordered_map<uint32_t, RPi::DelayedControls::ControlParams> params = {
 		{ V4L2_CID_ANALOGUE_GAIN, { result.sensorConfig.gainDelay, false } },
 		{ V4L2_CID_EXPOSURE, { result.sensorConfig.exposureDelay, false } },
 		{ V4L2_CID_HBLANK, { result.sensorConfig.hblankDelay, false } },
 		{ V4L2_CID_VBLANK, { result.sensorConfig.vblankDelay, true } }
 	};
-	data->delayedCtrls_ = std::make_unique<DelayedControls>(data->sensor_->device(), params);
+	data->delayedCtrls_ = std::make_unique<RPi::DelayedControls>(data->sensor_->device(), params);
 	data->sensorMetadata_ = result.sensorConfig.sensorMetadata;
 
 	/* Register initial controls that the Raspberry Pi IPA can handle. */
@@ -1484,10 +1485,10 @@ int PipelineHandlerRPi::prepareBuffers(Camera *camera)
 	 * Pass the stats and embedded data buffers to the IPA. No other
 	 * buffers need to be passed.
 	 */
-	mapBuffers(camera, data->isp_[Isp::Stats].getBuffers(), ipa::RPi::MaskStats);
+	mapBuffers(camera, data->isp_[Isp::Stats].getBuffers(), RPi::MaskStats);
 	if (data->sensorMetadata_)
 		mapBuffers(camera, data->unicam_[Unicam::Embedded].getBuffers(),
-			   ipa::RPi::MaskEmbeddedData);
+			   RPi::MaskEmbeddedData);
 
 	return 0;
 }
@@ -1727,7 +1728,7 @@ void RPiCameraData::statsMetadataComplete(uint32_t bufferId, const ControlList &
 	if (!isRunning())
 		return;
 
-	FrameBuffer *buffer = isp_[Isp::Stats].getBuffers().at(bufferId);
+	FrameBuffer *buffer = isp_[Isp::Stats].getBuffers().at(bufferId & RPi::MaskID);
 
 	handleStreamBuffer(buffer, &isp_[Isp::Stats]);
 
@@ -1763,9 +1764,9 @@ void RPiCameraData::runIsp(uint32_t bufferId)
 	if (!isRunning())
 		return;
 
-	FrameBuffer *buffer = unicam_[Unicam::Image].getBuffers().at(bufferId);
+	FrameBuffer *buffer = unicam_[Unicam::Image].getBuffers().at(bufferId & RPi::MaskID);
 
-	LOG(RPI, Debug) << "Input re-queue to ISP, buffer id " << bufferId
+	LOG(RPI, Debug) << "Input re-queue to ISP, buffer id " << (bufferId & RPi::MaskID)
 			<< ", timestamp: " << buffer->metadata().timestamp;
 
 	isp_[Isp::Input].queueBuffer(buffer);
@@ -1778,7 +1779,7 @@ void RPiCameraData::embeddedComplete(uint32_t bufferId)
 	if (!isRunning())
 		return;
 
-	FrameBuffer *buffer = unicam_[Unicam::Embedded].getBuffers().at(bufferId);
+	FrameBuffer *buffer = unicam_[Unicam::Embedded].getBuffers().at(bufferId & RPi::MaskID);
 	handleStreamBuffer(buffer, &unicam_[Unicam::Embedded]);
 	handleState();
 }
@@ -1800,9 +1801,9 @@ void RPiCameraData::setIspControls(const ControlList &controls)
 	handleState();
 }
 
-void RPiCameraData::setDelayedControls(const ControlList &controls)
+void RPiCameraData::setDelayedControls(const ControlList &controls, uint32_t delayContext)
 {
-	if (!delayedCtrls_->push(controls))
+	if (!delayedCtrls_->push(controls, delayContext))
 		LOG(RPI, Error) << "V4L2 DelayedControl set failed";
 	handleState();
 }
@@ -1875,13 +1876,13 @@ void RPiCameraData::unicamBufferDequeue(FrameBuffer *buffer)
 		 * Lookup the sensor controls used for this frame sequence from
 		 * DelayedControl and queue them along with the frame buffer.
 		 */
-		ControlList ctrl = delayedCtrls_->get(buffer->metadata().sequence);
+		auto [ctrl, delayContext] = delayedCtrls_->get(buffer->metadata().sequence);
 		/*
 		 * Add the frame timestamp to the ControlList for the IPA to use
 		 * as it does not receive the FrameBuffer object.
 		 */
 		ctrl.set(controls::SensorTimestamp, buffer->metadata().timestamp);
-		bayerQueue_.push({ buffer, std::move(ctrl) });
+		bayerQueue_.push({ buffer, std::move(ctrl), delayContext });
 	} else {
 		embeddedQueue_.push(buffer);
 	}
@@ -1931,7 +1932,8 @@ void RPiCameraData::ispOutputDequeue(FrameBuffer *buffer)
 	 * application until after the IPA signals so.
 	 */
 	if (stream == &isp_[Isp::Stats]) {
-		ipa_->signalStatReady(ipa::RPi::MaskStats | static_cast<unsigned int>(index));
+		ipa_->signalStatReady(RPi::MaskStats | static_cast<unsigned int>(index),
+				      requestQueue_.front()->sequence());
 	} else {
 		/* Any other ISP output can be handed back to the application now. */
 		handleStreamBuffer(buffer, stream);
@@ -2006,7 +2008,7 @@ void RPiCameraData::handleExternalBuffer(FrameBuffer *buffer, RPi::Stream *strea
 {
 	unsigned int id = stream->getBufferId(buffer);
 
-	if (!(id & ipa::RPi::MaskExternalBuffer))
+	if (!(id & RPi::MaskExternalBuffer))
 		return;
 
 	/* Stop the Stream object from tracking the buffer. */
@@ -2174,13 +2176,15 @@ void RPiCameraData::tryRunPipeline()
 			<< " Bayer buffer id: " << bayerId;
 
 	ipa::RPi::ISPConfig ispPrepare;
-	ispPrepare.bayerBufferId = ipa::RPi::MaskBayerData | bayerId;
+	ispPrepare.bayerBufferId = RPi::MaskBayerData | bayerId;
 	ispPrepare.controls = std::move(bayerFrame.controls);
+	ispPrepare.ipaContext = request->sequence();
+	ispPrepare.delayContext = bayerFrame.delayContext;
 
 	if (embeddedBuffer) {
 		unsigned int embeddedId = unicam_[Unicam::Embedded].getBufferId(embeddedBuffer);
 
-		ispPrepare.embeddedBufferId = ipa::RPi::MaskEmbeddedData | embeddedId;
+		ispPrepare.embeddedBufferId = RPi::MaskEmbeddedData | embeddedId;
 		ispPrepare.embeddedBufferPresent = true;
 
 		LOG(RPI, Debug) << "Signalling signalIspPrepare:"

@@ -57,6 +57,9 @@ namespace libcamera {
 using namespace std::literals::chrono_literals;
 using utils::Duration;
 
+/* Number of metadata objects available in the context list. */
+constexpr unsigned int numMetadataContexts = 16;
+
 /* Configure the sensor with these values initially. */
 constexpr double defaultAnalogueGain = 1.0;
 constexpr Duration defaultExposureTime = 20.0ms;
@@ -123,7 +126,7 @@ public:
 		      ControlList *controls, IPAConfigResult *result) override;
 	void mapBuffers(const std::vector<IPABuffer> &buffers) override;
 	void unmapBuffers(const std::vector<unsigned int> &ids) override;
-	void signalStatReady(const uint32_t bufferId) override;
+	void signalStatReady(const uint32_t bufferId, uint32_t ipaContext) override;
 	void signalQueueRequest(const ControlList &controls) override;
 	void signalIspPrepare(const ISPConfig &data) override;
 
@@ -134,9 +137,9 @@ private:
 	void queueRequest(const ControlList &controls);
 	void returnEmbeddedBuffer(unsigned int bufferId);
 	void prepareISP(const ISPConfig &data);
-	void reportMetadata();
-	void fillDeviceStatus(const ControlList &sensorControls);
-	void processStats(unsigned int bufferId);
+	void reportMetadata(unsigned int ipaContext);
+	void fillDeviceStatus(const ControlList &sensorControls, unsigned int ipaContext);
+	void processStats(unsigned int bufferId, unsigned int ipaContext);
 	void applyFrameDurations(Duration minFrameDuration, Duration maxFrameDuration);
 	void applyAGC(const struct AgcStatus *agcStatus, ControlList &ctrls);
 	void applyAWB(const struct AwbStatus *awbStatus, ControlList &ctrls);
@@ -163,7 +166,7 @@ private:
 	/* Raspberry Pi controller specific defines. */
 	std::unique_ptr<RPiController::CamHelper> helper_;
 	RPiController::Controller controller_;
-	RPiController::Metadata rpiMetadata_;
+	std::array<RPiController::Metadata, numMetadataContexts> rpiMetadata_;
 
 	/*
 	 * We count frames to decide if the frame must be hidden (e.g. from
@@ -506,16 +509,18 @@ void IPARPi::unmapBuffers(const std::vector<unsigned int> &ids)
 	}
 }
 
-void IPARPi::signalStatReady(uint32_t bufferId)
+void IPARPi::signalStatReady(uint32_t bufferId, uint32_t ipaContext)
 {
+	unsigned int context = ipaContext % rpiMetadata_.size();
+
 	if (++checkCount_ != frameCount_) /* assert here? */
 		LOG(IPARPI, Error) << "WARNING: Prepare/Process mismatch!!!";
 	if (processPending_ && frameCount_ > mistrustCount_)
-		processStats(bufferId);
+		processStats(bufferId, context);
 
-	reportMetadata();
+	reportMetadata(context);
 
-	statsMetadataComplete.emit(bufferId & MaskID, libcameraMetadata_);
+	statsMetadataComplete.emit(bufferId, libcameraMetadata_);
 }
 
 void IPARPi::signalQueueRequest(const ControlList &controls)
@@ -534,19 +539,20 @@ void IPARPi::signalIspPrepare(const ISPConfig &data)
 	frameCount_++;
 
 	/* Ready to push the input buffer into the ISP. */
-	runIsp.emit(data.bayerBufferId & MaskID);
+	runIsp.emit(data.bayerBufferId);
 }
 
-void IPARPi::reportMetadata()
+void IPARPi::reportMetadata(unsigned int ipaContext)
 {
-	std::unique_lock<RPiController::Metadata> lock(rpiMetadata_);
+	RPiController::Metadata &rpiMetadata = rpiMetadata_[ipaContext];
+	std::unique_lock<RPiController::Metadata> lock(rpiMetadata);
 
 	/*
 	 * Certain information about the current frame and how it will be
 	 * processed can be extracted and placed into the libcamera metadata
 	 * buffer, where an application could query it.
 	 */
-	DeviceStatus *deviceStatus = rpiMetadata_.getLocked<DeviceStatus>("device.status");
+	DeviceStatus *deviceStatus = rpiMetadata.getLocked<DeviceStatus>("device.status");
 	if (deviceStatus) {
 		libcameraMetadata_.set(controls::ExposureTime,
 				       deviceStatus->shutterSpeed.get<std::micro>());
@@ -557,24 +563,24 @@ void IPARPi::reportMetadata()
 			libcameraMetadata_.set(controls::SensorTemperature, *deviceStatus->sensorTemperature);
 	}
 
-	AgcStatus *agcStatus = rpiMetadata_.getLocked<AgcStatus>("agc.status");
+	AgcStatus *agcStatus = rpiMetadata.getLocked<AgcStatus>("agc.status");
 	if (agcStatus) {
 		libcameraMetadata_.set(controls::AeLocked, agcStatus->locked);
 		libcameraMetadata_.set(controls::DigitalGain, agcStatus->digitalGain);
 	}
 
-	LuxStatus *luxStatus = rpiMetadata_.getLocked<LuxStatus>("lux.status");
+	LuxStatus *luxStatus = rpiMetadata.getLocked<LuxStatus>("lux.status");
 	if (luxStatus)
 		libcameraMetadata_.set(controls::Lux, luxStatus->lux);
 
-	AwbStatus *awbStatus = rpiMetadata_.getLocked<AwbStatus>("awb.status");
+	AwbStatus *awbStatus = rpiMetadata.getLocked<AwbStatus>("awb.status");
 	if (awbStatus) {
 		libcameraMetadata_.set(controls::ColourGains, { static_cast<float>(awbStatus->gainR),
 								static_cast<float>(awbStatus->gainB) });
 		libcameraMetadata_.set(controls::ColourTemperature, awbStatus->temperatureK);
 	}
 
-	BlackLevelStatus *blackLevelStatus = rpiMetadata_.getLocked<BlackLevelStatus>("black_level.status");
+	BlackLevelStatus *blackLevelStatus = rpiMetadata.getLocked<BlackLevelStatus>("black_level.status");
 	if (blackLevelStatus)
 		libcameraMetadata_.set(controls::SensorBlackLevels,
 				       { static_cast<int32_t>(blackLevelStatus->blackLevelR),
@@ -582,7 +588,7 @@ void IPARPi::reportMetadata()
 					 static_cast<int32_t>(blackLevelStatus->blackLevelG),
 					 static_cast<int32_t>(blackLevelStatus->blackLevelB) });
 
-	FocusStatus *focusStatus = rpiMetadata_.getLocked<FocusStatus>("focus.status");
+	FocusStatus *focusStatus = rpiMetadata.getLocked<FocusStatus>("focus.status");
 	if (focusStatus && focusStatus->num == 12) {
 		/*
 		 * We get a 4x3 grid of regions by default. Calculate the average
@@ -593,7 +599,7 @@ void IPARPi::reportMetadata()
 		libcameraMetadata_.set(controls::FocusFoM, focusFoM);
 	}
 
-	CcmStatus *ccmStatus = rpiMetadata_.getLocked<CcmStatus>("ccm.status");
+	CcmStatus *ccmStatus = rpiMetadata.getLocked<CcmStatus>("ccm.status");
 	if (ccmStatus) {
 		float m[9];
 		for (unsigned int i = 0; i < 9; i++)
@@ -706,7 +712,8 @@ void IPARPi::queueRequest(const ControlList &controls)
 
 		switch (ctrl.first) {
 		case controls::AE_ENABLE: {
-			RPiController::Algorithm *agc = controller_.getAlgorithm("agc");
+			RPiController::AgcAlgorithm *agc = dynamic_cast<RPiController::AgcAlgorithm *>(
+				controller_.getAlgorithm("agc"));
 			if (!agc) {
 				LOG(IPARPI, Warning)
 					<< "Could not set AE_ENABLE - no AGC algorithm";
@@ -714,9 +721,9 @@ void IPARPi::queueRequest(const ControlList &controls)
 			}
 
 			if (ctrl.second.get<bool>() == false)
-				agc->pause();
+				agc->disableAuto();
 			else
-				agc->resume();
+				agc->enableAuto();
 
 			libcameraMetadata_.set(controls::AeEnable, ctrl.second.get<bool>());
 			break;
@@ -835,7 +842,8 @@ void IPARPi::queueRequest(const ControlList &controls)
 		}
 
 		case controls::AWB_ENABLE: {
-			RPiController::Algorithm *awb = controller_.getAlgorithm("awb");
+			RPiController::AwbAlgorithm *awb = dynamic_cast<RPiController::AwbAlgorithm *>(
+				controller_.getAlgorithm("awb"));
 			if (!awb) {
 				LOG(IPARPI, Warning)
 					<< "Could not set AWB_ENABLE - no AWB algorithm";
@@ -843,9 +851,9 @@ void IPARPi::queueRequest(const ControlList &controls)
 			}
 
 			if (ctrl.second.get<bool>() == false)
-				awb->pause();
+				awb->disableAuto();
 			else
-				awb->resume();
+				awb->enableAuto();
 
 			libcameraMetadata_.set(controls::AwbEnable,
 					       ctrl.second.get<bool>());
@@ -999,17 +1007,18 @@ void IPARPi::queueRequest(const ControlList &controls)
 
 void IPARPi::returnEmbeddedBuffer(unsigned int bufferId)
 {
-	embeddedComplete.emit(bufferId & MaskID);
+	embeddedComplete.emit(bufferId);
 }
 
 void IPARPi::prepareISP(const ISPConfig &data)
 {
 	int64_t frameTimestamp = data.controls.get(controls::SensorTimestamp).value_or(0);
-	RPiController::Metadata lastMetadata;
+	unsigned int ipaContext = data.ipaContext % rpiMetadata_.size();
+	RPiController::Metadata &rpiMetadata = rpiMetadata_[ipaContext];
 	Span<uint8_t> embeddedBuffer;
 
-	lastMetadata = std::move(rpiMetadata_);
-	fillDeviceStatus(data.controls);
+	rpiMetadata.clear();
+	fillDeviceStatus(data.controls, ipaContext);
 
 	if (data.embeddedBufferPresent) {
 		/*
@@ -1022,10 +1031,21 @@ void IPARPi::prepareISP(const ISPConfig &data)
 	}
 
 	/*
+	 * AGC wants to know the algorithm status from the time it actioned the
+	 * sensor exposure/gain changes. So fetch it from the metadata list
+	 * indexed by the IPA cookie returned, and put it in the current frame
+	 * metadata.
+	 */
+	AgcStatus agcStatus;
+	RPiController::Metadata &delayedMetadata = rpiMetadata_[data.delayContext];
+	if (!delayedMetadata.get<AgcStatus>("agc.status", agcStatus))
+		rpiMetadata.set("agc.delayed_status", agcStatus);
+
+	/*
 	 * This may overwrite the DeviceStatus using values from the sensor
 	 * metadata, and may also do additional custom processing.
 	 */
-	helper_->prepare(embeddedBuffer, rpiMetadata_);
+	helper_->prepare(embeddedBuffer, rpiMetadata);
 
 	/* Done with embedded data now, return to pipeline handler asap. */
 	if (data.embeddedBufferPresent)
@@ -1041,7 +1061,9 @@ void IPARPi::prepareISP(const ISPConfig &data)
 		 * current frame, or any other bits of metadata that were added
 		 * in helper_->Prepare().
 		 */
-		rpiMetadata_.merge(lastMetadata);
+		RPiController::Metadata &lastMetadata =
+			rpiMetadata_[(ipaContext ? ipaContext : rpiMetadata_.size()) - 1];
+		rpiMetadata.mergeCopy(lastMetadata);
 		processPending_ = false;
 		return;
 	}
@@ -1051,48 +1073,48 @@ void IPARPi::prepareISP(const ISPConfig &data)
 
 	ControlList ctrls(ispCtrls_);
 
-	controller_.prepare(&rpiMetadata_);
+	controller_.prepare(&rpiMetadata);
 
 	/* Lock the metadata buffer to avoid constant locks/unlocks. */
-	std::unique_lock<RPiController::Metadata> lock(rpiMetadata_);
+	std::unique_lock<RPiController::Metadata> lock(rpiMetadata);
 
-	AwbStatus *awbStatus = rpiMetadata_.getLocked<AwbStatus>("awb.status");
+	AwbStatus *awbStatus = rpiMetadata.getLocked<AwbStatus>("awb.status");
 	if (awbStatus)
 		applyAWB(awbStatus, ctrls);
 
-	CcmStatus *ccmStatus = rpiMetadata_.getLocked<CcmStatus>("ccm.status");
+	CcmStatus *ccmStatus = rpiMetadata.getLocked<CcmStatus>("ccm.status");
 	if (ccmStatus)
 		applyCCM(ccmStatus, ctrls);
 
-	AgcStatus *dgStatus = rpiMetadata_.getLocked<AgcStatus>("agc.status");
+	AgcStatus *dgStatus = rpiMetadata.getLocked<AgcStatus>("agc.status");
 	if (dgStatus)
 		applyDG(dgStatus, ctrls);
 
-	AlscStatus *lsStatus = rpiMetadata_.getLocked<AlscStatus>("alsc.status");
+	AlscStatus *lsStatus = rpiMetadata.getLocked<AlscStatus>("alsc.status");
 	if (lsStatus)
 		applyLS(lsStatus, ctrls);
 
-	ContrastStatus *contrastStatus = rpiMetadata_.getLocked<ContrastStatus>("contrast.status");
+	ContrastStatus *contrastStatus = rpiMetadata.getLocked<ContrastStatus>("contrast.status");
 	if (contrastStatus)
 		applyGamma(contrastStatus, ctrls);
 
-	BlackLevelStatus *blackLevelStatus = rpiMetadata_.getLocked<BlackLevelStatus>("black_level.status");
+	BlackLevelStatus *blackLevelStatus = rpiMetadata.getLocked<BlackLevelStatus>("black_level.status");
 	if (blackLevelStatus)
 		applyBlackLevel(blackLevelStatus, ctrls);
 
-	GeqStatus *geqStatus = rpiMetadata_.getLocked<GeqStatus>("geq.status");
+	GeqStatus *geqStatus = rpiMetadata.getLocked<GeqStatus>("geq.status");
 	if (geqStatus)
 		applyGEQ(geqStatus, ctrls);
 
-	DenoiseStatus *denoiseStatus = rpiMetadata_.getLocked<DenoiseStatus>("denoise.status");
+	DenoiseStatus *denoiseStatus = rpiMetadata.getLocked<DenoiseStatus>("denoise.status");
 	if (denoiseStatus)
 		applyDenoise(denoiseStatus, ctrls);
 
-	SharpenStatus *sharpenStatus = rpiMetadata_.getLocked<SharpenStatus>("sharpen.status");
+	SharpenStatus *sharpenStatus = rpiMetadata.getLocked<SharpenStatus>("sharpen.status");
 	if (sharpenStatus)
 		applySharpen(sharpenStatus, ctrls);
 
-	DpcStatus *dpcStatus = rpiMetadata_.getLocked<DpcStatus>("dpc.status");
+	DpcStatus *dpcStatus = rpiMetadata.getLocked<DpcStatus>("dpc.status");
 	if (dpcStatus)
 		applyDPC(dpcStatus, ctrls);
 
@@ -1100,7 +1122,7 @@ void IPARPi::prepareISP(const ISPConfig &data)
 		setIspControls.emit(ctrls);
 }
 
-void IPARPi::fillDeviceStatus(const ControlList &sensorControls)
+void IPARPi::fillDeviceStatus(const ControlList &sensorControls, unsigned int ipaContext)
 {
 	DeviceStatus deviceStatus = {};
 
@@ -1116,11 +1138,13 @@ void IPARPi::fillDeviceStatus(const ControlList &sensorControls)
 
 	LOG(IPARPI, Debug) << "Metadata - " << deviceStatus;
 
-	rpiMetadata_.set("device.status", deviceStatus);
+	rpiMetadata_[ipaContext].set("device.status", deviceStatus);
 }
 
-void IPARPi::processStats(unsigned int bufferId)
+void IPARPi::processStats(unsigned int bufferId, unsigned int ipaContext)
 {
+	RPiController::Metadata &rpiMetadata = rpiMetadata_[ipaContext];
+
 	auto it = buffers_.find(bufferId);
 	if (it == buffers_.end()) {
 		LOG(IPARPI, Error) << "Could not find stats buffer!";
@@ -1130,15 +1154,15 @@ void IPARPi::processStats(unsigned int bufferId)
 	Span<uint8_t> mem = it->second.planes()[0];
 	bcm2835_isp_stats *stats = reinterpret_cast<bcm2835_isp_stats *>(mem.data());
 	RPiController::StatisticsPtr statistics = std::make_shared<bcm2835_isp_stats>(*stats);
-	helper_->process(statistics, rpiMetadata_);
-	controller_.process(statistics, &rpiMetadata_);
+	helper_->process(statistics, rpiMetadata);
+	controller_.process(statistics, &rpiMetadata);
 
 	struct AgcStatus agcStatus;
-	if (rpiMetadata_.get("agc.status", agcStatus) == 0) {
+	if (rpiMetadata.get("agc.status", agcStatus) == 0) {
 		ControlList ctrls(sensorCtrls_);
 		applyAGC(&agcStatus, ctrls);
 
-		setDelayedControls.emit(ctrls);
+		setDelayedControls.emit(ctrls, ipaContext);
 	}
 }
 

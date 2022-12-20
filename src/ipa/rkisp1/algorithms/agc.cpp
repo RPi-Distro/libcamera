@@ -62,6 +62,7 @@ static constexpr double kRelativeLuminanceTarget = 0.4;
 Agc::Agc()
 	: frameCount_(0), numCells_(0), numHistBins_(0), filteredExposure_(0s)
 {
+	supportsRaw_ = true;
 }
 
 /**
@@ -74,9 +75,14 @@ Agc::Agc()
 int Agc::configure(IPAContext &context, const IPACameraSensorInfo &configInfo)
 {
 	/* Configure the default exposure and gain. */
-	context.activeState.agc.gain = std::max(context.configuration.sensor.minAnalogueGain,
-						kMinAnalogueGain);
-	context.activeState.agc.exposure = 10ms / context.configuration.sensor.lineDuration;
+	context.activeState.agc.automatic.gain =
+		std::max(context.configuration.sensor.minAnalogueGain,
+			 kMinAnalogueGain);
+	context.activeState.agc.automatic.exposure =
+		10ms / context.configuration.sensor.lineDuration;
+	context.activeState.agc.manual.gain = context.activeState.agc.automatic.gain;
+	context.activeState.agc.manual.exposure = context.activeState.agc.automatic.exposure;
+	context.activeState.agc.autoEnabled = !context.configuration.raw;
 
 	/*
 	 * According to the RkISP1 documentation:
@@ -109,13 +115,60 @@ int Agc::configure(IPAContext &context, const IPACameraSensorInfo &configInfo)
 }
 
 /**
+ * \copydoc libcamera::ipa::Algorithm::queueRequest
+ */
+void Agc::queueRequest(IPAContext &context,
+		       [[maybe_unused]] const uint32_t frame,
+		       IPAFrameContext &frameContext,
+		       const ControlList &controls)
+{
+	auto &agc = context.activeState.agc;
+
+	if (!context.configuration.raw) {
+		const auto &agcEnable = controls.get(controls::AeEnable);
+		if (agcEnable && *agcEnable != agc.autoEnabled) {
+			agc.autoEnabled = *agcEnable;
+
+			LOG(RkISP1Agc, Debug)
+				<< (agc.autoEnabled ? "Enabling" : "Disabling")
+				<< " AGC";
+		}
+	}
+
+	const auto &exposure = controls.get(controls::ExposureTime);
+	if (exposure && !agc.autoEnabled) {
+		agc.manual.exposure = *exposure * 1.0us
+				    / context.configuration.sensor.lineDuration;
+
+		LOG(RkISP1Agc, Debug)
+			<< "Set exposure to " << agc.manual.exposure;
+	}
+
+	const auto &gain = controls.get(controls::AnalogueGain);
+	if (gain && !agc.autoEnabled) {
+		agc.manual.gain = *gain;
+
+		LOG(RkISP1Agc, Debug) << "Set gain to " << agc.manual.gain;
+	}
+
+	frameContext.agc.autoEnabled = agc.autoEnabled;
+
+	if (!frameContext.agc.autoEnabled) {
+		frameContext.agc.exposure = agc.manual.exposure;
+		frameContext.agc.gain = agc.manual.gain;
+	}
+}
+
+/**
  * \copydoc libcamera::ipa::Algorithm::prepare
  */
 void Agc::prepare(IPAContext &context, const uint32_t frame,
 		  IPAFrameContext &frameContext, rkisp1_params_cfg *params)
 {
-	frameContext.agc.exposure = context.activeState.agc.exposure;
-	frameContext.agc.gain = context.activeState.agc.gain;
+	if (frameContext.agc.autoEnabled) {
+		frameContext.agc.exposure = context.activeState.agc.automatic.exposure;
+		frameContext.agc.gain = context.activeState.agc.automatic.gain;
+	}
 
 	if (frame > 0)
 		return;
@@ -263,8 +316,8 @@ void Agc::computeExposure(IPAContext &context, IPAFrameContext &frameContext,
 			      << stepGain;
 
 	/* Update the estimated exposure and gain. */
-	activeState.agc.exposure = shutterTime / configuration.sensor.lineDuration;
-	activeState.agc.gain = stepGain;
+	activeState.agc.automatic.exposure = shutterTime / configuration.sensor.lineDuration;
+	activeState.agc.automatic.gain = stepGain;
 }
 
 /**
@@ -319,6 +372,22 @@ double Agc::measureBrightness(const rkisp1_cif_isp_hist_stat *hist) const
 	return histogram.interQuantileMean(0.98, 1.0);
 }
 
+void Agc::fillMetadata(IPAContext &context, IPAFrameContext &frameContext,
+		       ControlList &metadata)
+{
+	utils::Duration exposureTime = context.configuration.sensor.lineDuration
+				     * frameContext.sensor.exposure;
+	metadata.set(controls::AnalogueGain, frameContext.sensor.gain);
+	metadata.set(controls::ExposureTime, exposureTime.get<std::micro>());
+
+	/* \todo Use VBlank value calculated from each frame exposure. */
+	uint32_t vTotal = context.configuration.sensor.size.height
+			+ context.configuration.sensor.defVBlank;
+	utils::Duration frameDuration = context.configuration.sensor.lineDuration
+				      * vTotal;
+	metadata.set(controls::FrameDuration, frameDuration.get<std::micro>());
+}
+
 /**
  * \brief Process RkISP1 statistics, and run AGC operations
  * \param[in] context The shared IPA context
@@ -334,6 +403,11 @@ void Agc::process(IPAContext &context, [[maybe_unused]] const uint32_t frame,
 		  IPAFrameContext &frameContext, const rkisp1_stat_buffer *stats,
 		  ControlList &metadata)
 {
+	if (!stats) {
+		fillMetadata(context, frameContext, metadata);
+		return;
+	}
+
 	/*
 	 * \todo Verify that the exposure and gain applied by the sensor for
 	 * this frame match what has been requested. This isn't a hard
@@ -376,17 +450,7 @@ void Agc::process(IPAContext &context, [[maybe_unused]] const uint32_t frame,
 	computeExposure(context, frameContext, yGain, iqMeanGain);
 	frameCount_++;
 
-	utils::Duration exposureTime = context.configuration.sensor.lineDuration
-				     * frameContext.sensor.exposure;
-	metadata.set(controls::AnalogueGain, frameContext.sensor.gain);
-	metadata.set(controls::ExposureTime, exposureTime.get<std::micro>());
-
-	/* \todo Use VBlank value calculated from each frame exposure. */
-	uint32_t vTotal = context.configuration.sensor.size.height
-			+ context.configuration.sensor.defVBlank;
-	utils::Duration frameDuration = context.configuration.sensor.lineDuration
-				      * vTotal;
-	metadata.set(controls::FrameDuration, frameDuration.get<std::micro>());
+	fillMetadata(context, frameContext, metadata);
 }
 
 REGISTER_IPA_ALGORITHM(Agc, "Agc")
