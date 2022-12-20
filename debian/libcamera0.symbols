@@ -1,4 +1,4 @@
-libcamera-base.so.0.0.2 libcamera0 #MINVER#
+libcamera-base.so.0.0.3 libcamera0 #MINVER#
 * Build-Depends-Package: libcamera-dev
  (c++)"libcamera::Backtrace::Backtrace()@Base" 0.0.1
  (c++)"libcamera::Backtrace::backtraceTrace()@Base" 0.0.1
@@ -254,7 +254,7 @@ libcamera-base.so.0.0.2 libcamera0 #MINVER#
  (c++)"vtable for libcamera::Timer@Base" 0.0.1
  (c++|regex|optional)"^vtable for std::.*@Base" 0.0.1
 
-libcamera.so.0.0.2 libcamera0 #MINVER#
+libcamera.so.0.0.3 libcamera0 #MINVER#
 * Build-Depends-Package: libcamera-dev
  (optional)"__start_lttng_ust_tracepoints_ptrs@Base" 0.0.1
  (optional)"__stop_lttng_ust_tracepoints_ptrs@Base" 0.0.1
