@@ -1,2 +1,4 @@
+# v4l2-compat.so should be used with LD_PRELOAD
+lacks-ldconfig-trigger usr/lib/*/v4l2-compat.so
 package-name-doesnt-match-sonames v4l2-compat
-shared-library-lacks-version usr/lib/x86_64-linux-gnu/v4l2-compat.so v4l2-compat.so
+shared-library-lacks-version usr/lib/*/v4l2-compat.so v4l2-compat.so
