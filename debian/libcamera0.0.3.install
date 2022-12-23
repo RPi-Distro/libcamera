@@ -1,6 +1,1 @@
-usr/lib/*/*.so.*
-usr/lib/*/libcamera/*.so
-usr/lib/*/libcamera/*.so.sign
-#usr/libexec
-usr/lib/*/*/*_ipa_proxy
-usr/share/libcamera
+usr/lib/*/libcamera*.so.*

@@ -4,6 +4,7 @@ libcamera (0.0.3-1) UNRELEASED; urgency=medium
   * Bump SONAME to libcamera0.0.3
   * Move the GStreamer plugin into its own package
   * Move the v4l2 module into its own package
+  * Move the IPA modules into their own package
   * Install *.so.sign files with libraries
   * Add myself in Uploaders
 

@@ -84,6 +84,20 @@ Description: complex camera support library
  control of the camera devices, providing a unified higher-level
  programming interface to the applications.
 
+Package: libcamera-ipa
+Architecture: any
+Depends: ${shlibs:Depends},
+         ${misc:Depends}
+Breaks: libcamera0 (<< 0.0.3-1~)
+Replaces: libcamera0 (<< 0.0.3-1~)
+Multi-Arch: same
+Description: complex camera support library (IPA modules)
+ libcamera is a complex camera support library which handles low-level
+ control of the camera devices, providing a unified higher-level
+ programming interface to the applications.
+ .
+ This package contains the libcamera IPA (Image Processing Algorithms) modules.
+
 Package: libcamera-tools
 Section: video
 Architecture: any
@@ -94,6 +108,7 @@ Multi-Arch: foreign
 Description: complex camera support library (tools)
  libcamera is a complex camera support library which handles low-level
  control of the camera devices, providing a unified higher-level
+ programming interface to the applications.
  .
  This package provides cam and qcam, libcamera "Swiss army knife" tools.
 
