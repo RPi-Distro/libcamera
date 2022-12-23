@@ -44,7 +44,7 @@ Section: libdevel
 Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         libcamera0 (= ${binary:Version})
+         libcamera0.0.3 (= ${binary:Version})
 Multi-Arch: same
 Description: complex camera support library (development files)
  libcamera is a complex camera support library which handles low-level
@@ -71,7 +71,7 @@ Description: complex camera support library (documentation)
  .
  This package contains the documentation developing with libcamera.
 
-Package: libcamera0
+Package: libcamera0.0.3
 Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends}
