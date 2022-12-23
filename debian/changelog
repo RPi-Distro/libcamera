@@ -7,6 +7,7 @@ libcamera (0.0.3-1) UNRELEASED; urgency=medium
   * Move the IPA modules into their own package
   * Install *.so.sign files with libraries
   * Add myself in Uploaders
+  * Update copyright file
 
  -- Dylan Aïssi <daissi@debian.org>  Tue, 20 Dec 2022 17:22:19 +0100
 

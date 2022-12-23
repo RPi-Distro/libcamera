@@ -8,19 +8,19 @@ Copyright:
  2018—2022 Libcamera contributors
  2019      Giulio Benetti
  2018—2019 Jacopo Mondi
- 2018—2019 Kieran Bingham
- 2018—2019 Laurent Pinchart
+ 2018—2022 Kieran Bingham
+ 2018—2022 Laurent Pinchart
  2019      Mickael Guene
  2018—2019 Niklas Söderlund
  2019      Paul Elder
- 2018—2021 Google Inc.
- 2021      Ideas on Board Oy
+ 2018—2022 Google Inc.
+ 2021—2022 Ideas on Board Oy
 License: GPL-2+
 
 Files:
  */*/meson.build
 Copyright:
- 2018—2020 Libcamera contributors
+ 2018—2022 Libcamera contributors
 License: CC0-1.0
 
 Files:
@@ -30,7 +30,7 @@ Files:
  src/apps/common/dng_writer.*
  include/libcamera/*
 Copyright:
- 2018—2021 Libcamera contributors
+ 2018—2022 Libcamera contributors
  2019      Giulio Benetti
  2018—2019 Jacopo Mondi
  2018—2019 Kieran Bingham
@@ -39,8 +39,8 @@ Copyright:
  2018—2019 Niklas Söderlund
  2019      Paul Elder
  2018—2021 Google Inc.
- 2019—2021 Raspberry Pi Ltd.
- 2021      Ideas on Board Oy
+ 2019—2022 Raspberry Pi Ltd.
+ 2021—2022 Ideas on Board Oy
 License: LGPL-2.1+
 
 Files:
@@ -60,7 +60,7 @@ Comment: Source: https://chromium.googlesource.com/chromium/src.git/
 
 Files: src/gstreamer/*
 Copyright:
- 2019—2020 Collabora Ltd.
+ 2019—2021 Collabora Ltd.
 License: LGPL-2.1+
 
 Files:
@@ -89,7 +89,7 @@ Copyright:
 License: Expat
 
 Files: include/linux/bcm2835-isp.h
-Copyright: 2019—2020 Raspberry Pi Ltd
+Copyright: 2019—2022 Raspberry Pi Ltd
 License: GPL-2+ with Linux-syscall-note exception or BSD-3-Clause
 
 Files:
@@ -103,7 +103,7 @@ Files:
  src/libcamera/pipeline/raspberrypi/*
  utils/raspberrypi/ctt/*
 Copyright:
- 2019—2020 Raspberry Pi Ltd
+ 2019—2022 Raspberry Pi Ltd
 License: BSD-2-Clause
 
 Files: include/linux/rkisp1-config.h
@@ -111,7 +111,7 @@ Copyright: 2017, Rockchip Electronics Co., Ltd.
 License: GPL-2+
 
 Files: Documentation/*
-Copyright: 2020—2021 Libcamera contributors
+Copyright: 2020—2022 Libcamera contributors
 License: CC-BY-SA-4.0
 
 Files: Documentation/theme/static/search.png
