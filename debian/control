@@ -76,6 +76,8 @@ Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends}
 Pre-Depends: ${misc:Pre-Depends}
+Breaks: libcamera0 (<< 0.0.3-1~)
+Replaces: libcamera0 (<< 0.0.3-1~)
 Multi-Arch: same
 Description: complex camera support library
  libcamera is a complex camera support library which handles low-level
@@ -99,8 +101,8 @@ Package: libcamera-v4l2
 Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends}
-Breaks: libcamera0 (<< 0.0.2-3~)
-Replaces: libcamera0 (<< 0.0.2-3~)
+Breaks: libcamera0 (<< 0.0.3-1~)
+Replaces: libcamera0 (<< 0.0.3-1~)
 Multi-Arch: same
 Description: complex camera support library (V4L2 module)
  libcamera is a complex camera support library which handles low-level
@@ -113,8 +115,8 @@ Package: gstreamer1.0-libcamera
 Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends}
-Breaks: libcamera0 (<< 0.0.2-3~)
-Replaces: libcamera0 (<< 0.0.2-3~)
+Breaks: libcamera0 (<< 0.0.3-1~)
+Replaces: libcamera0 (<< 0.0.3-1~)
 Multi-Arch: same
 Description: complex camera support library (GStreamer plugin)
  libcamera is a complex camera support library which handles low-level
