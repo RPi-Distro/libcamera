@@ -1,4 +1,4 @@
-libcamera (0.0.3-2) UNRELEASED; urgency=medium
+libcamera (0.0.3-2) experimental; urgency=medium
 
   * Drop symbols file, not very useful because symbols are changing too
     quickly. And because of the very active development, upstream bumps
@@ -6,7 +6,7 @@ libcamera (0.0.3-2) UNRELEASED; urgency=medium
     the libcamera API before reintroducing this symbols file.
   * Standards-Version: 4.6.2 (no changes needed)
 
- -- Dylan Aïssi <daissi@debian.org>  Mon, 26 Dec 2022 21:58:37 +0100
+ -- Dylan Aïssi <daissi@debian.org>  Mon, 26 Dec 2022 22:18:01 +0100
 
 libcamera (0.0.3-1) experimental; urgency=medium
 
