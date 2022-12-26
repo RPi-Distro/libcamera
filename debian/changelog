@@ -4,6 +4,7 @@ libcamera (0.0.3-2) UNRELEASED; urgency=medium
     quickly. And because of the very active development, upstream bumps
     SONAME for each release. Let's wait until upstream has stabilized
     the libcamera API before reintroducing this symbols file.
+  * Standards-Version: 4.6.2 (no changes needed)
 
  -- Dylan Aïssi <daissi@debian.org>  Mon, 26 Dec 2022 21:58:37 +0100
 
