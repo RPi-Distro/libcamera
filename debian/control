@@ -32,6 +32,7 @@ Build-Depends: debhelper-compat (= 13),
                openssl,
                qtbase5-dev <!pkg.libcamera.noqt>,
                libgstreamer-plugins-base1.0-dev,
+               libgstreamer1.0-dev,
 Standards-Version: 4.6.2
 Rules-Requires-Root: no
 Section: libs
