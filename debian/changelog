@@ -1,3 +1,12 @@
+libcamera (0.0.3-4) unstable; urgency=medium
+
+  * Add doxygen-latex in Build-Deps
+  * Add libgstreamer1.0-dev in Build-Deps
+  * Drop libboost-dev from Build-Deps, not needed anymore
+  * libcamera0.0.3: add libcamera-ipa in Suggests
+
+ -- Dylan Aïssi <daissi@debian.org>  Tue, 24 Jan 2023 21:36:29 +0100
+
 libcamera (0.0.3-3) unstable; urgency=medium
 
   * Upload to unstable.
