@@ -1,3 +1,3 @@
 Tests: run-tools
 Depends: @
-Restrictions: superficial
+Restrictions: superficial, allow-stderr
