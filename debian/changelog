@@ -1,6 +1,7 @@
 libcamera (0.0.4-1) UNRELEASED; urgency=medium
 
   * New upstream version 0.0.4
+  * Bump SONAME to libcamera0.0.4
   * Add superficial tests
 
  -- Dylan Aïssi <daissi@debian.org>  Wed, 01 Feb 2023 21:12:51 +0100
