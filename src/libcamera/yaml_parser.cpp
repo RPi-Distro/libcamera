@@ -283,7 +283,7 @@ std::optional<double> YamlObject::get() const
 	char *end;
 
 	errno = 0;
-	double value = std::strtod(value_.c_str(), &end);
+	double value = utils::strtod(value_.c_str(), &end);
 
 	if ('\0' != *end || errno == ERANGE)
 		return std::nullopt;
