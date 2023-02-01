@@ -1,6 +1,5 @@
-Description: Workaround for broken symbol resolving on mips/mipsel
- The correct fix will be done in etch and it will require toolchain
- fixes.
+Description: These tests have never succeeded, so not a regression.
+ But would require a proper fix.
 Author: Dylan Aïssi <daissi@debian.org>
 Forwarded: not-needed
 
