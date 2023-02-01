@@ -1,11 +1,12 @@
-libcamera (0.0.4-1) UNRELEASED; urgency=medium
+libcamera (0.0.4-1) experimental; urgency=medium
 
   * New upstream version 0.0.4
   * Bump SONAME to libcamera0.0.4
   * Add superficial tests
   * Don't ignore tests failures at build time (Closes: #1024782)
+  * Upload to experimental because of the current Bookworm freeze
 
- -- Dylan Aïssi <daissi@debian.org>  Wed, 01 Feb 2023 21:12:51 +0100
+ -- Dylan Aïssi <daissi@debian.org>  Wed, 01 Feb 2023 22:02:03 +0100
 
 libcamera (0.0.3-4) unstable; urgency=medium
 
