@@ -1,3 +1,10 @@
+libcamera (0.0.4-1) UNRELEASED; urgency=medium
+
+  * New upstream version 0.0.4
+  * Add superficial tests
+
+ -- Dylan Aïssi <daissi@debian.org>  Wed, 01 Feb 2023 21:12:51 +0100
+
 libcamera (0.0.3-4) unstable; urgency=medium
 
   * Add doxygen-latex in Build-Deps
