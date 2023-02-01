@@ -2,7 +2,7 @@
 
 project('libcamera', 'c', 'cpp',
     meson_version : '>= 0.56',
-    version : '0.0.3',
+    version : '0.0.4',
     default_options : [
         'werror=true',
         'warning_level=2',
@@ -70,6 +70,10 @@ config_h = configuration_data()
 
 if cc.has_header_symbol('unistd.h', 'issetugid')
     config_h.set('HAVE_ISSETUGID', 1)
+endif
+
+if cc.has_header_symbol('locale.h', 'locale_t', prefix : '#define _GNU_SOURCE')
+    config_h.set('HAVE_LOCALE_T', 1)
 endif
 
 if cc.has_header_symbol('stdlib.h', 'secure_getenv', prefix : '#define _GNU_SOURCE')
@@ -160,13 +164,41 @@ liblttng = dependency('lttng-ust', required : get_option('tracing'))
 
 # Pipeline handlers
 #
-# Tests require the vimc pipeline handler, include it automatically when tests
-# are enabled.
 pipelines = get_option('pipelines')
 
-if get_option('test') and 'vimc' not in pipelines
-    message('Enabling vimc pipeline handler to support tests')
-    pipelines += ['vimc']
+arch_arm = ['arm', 'aarch64']
+arch_x86 = ['x86', 'x86_64']
+pipelines_support = {
+    'imx8-isi':     arch_arm,
+    'ipu3':         arch_x86,
+    'raspberrypi':  arch_arm,
+    'rkisp1':       arch_arm,
+    'simple':       arch_arm,
+    'uvcvideo':     ['any'],
+    'vimc':         ['test'],
+}
+
+if pipelines.contains('all')
+    pipelines = pipelines_support.keys()
+elif pipelines.contains('auto')
+    host_cpu = host_machine.cpu_family()
+    pipelines = []
+    foreach pipeline, archs : pipelines_support
+        if host_cpu in archs or 'any' in archs
+            pipelines += pipeline
+        endif
+    endforeach
+endif
+
+# Tests require the vimc pipeline handler, include it automatically when tests
+# are enabled.
+if get_option('test')
+    foreach pipeline, archs : pipelines_support
+        if 'test' in archs and pipeline not in pipelines
+            message('Enabling ' + pipeline + ' pipeline handler for tests')
+            pipelines += pipeline
+        endif
+    endforeach
 endif
 
 # Utilities are parsed first to provide support for other components.

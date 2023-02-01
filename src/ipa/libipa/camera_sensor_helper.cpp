@@ -366,6 +366,35 @@ static constexpr double expGainDb(double step)
 	return log2_10 * step / 20;
 }
 
+class CameraSensorHelperAr0521 : public CameraSensorHelper
+{
+public:
+	uint32_t gainCode(double gain) const override;
+	double gain(uint32_t gainCode) const override;
+
+private:
+	static constexpr double kStep_ = 16;
+};
+
+uint32_t CameraSensorHelperAr0521::gainCode(double gain) const
+{
+	gain = std::clamp(gain, 1.0, 15.5);
+	unsigned int coarse = std::log2(gain);
+	unsigned int fine = (gain / (1 << coarse) - 1) * kStep_;
+
+	return (coarse << 4) | (fine & 0xf);
+}
+
+double CameraSensorHelperAr0521::gain(uint32_t gainCode) const
+{
+	unsigned int coarse = gainCode >> 4;
+	unsigned int fine = gainCode & 0xf;
+
+	return (1 << coarse) * (1 + fine / kStep_);
+}
+
+REGISTER_CAMERA_SENSOR_HELPER("ar0521", CameraSensorHelperAr0521)
+
 class CameraSensorHelperImx219 : public CameraSensorHelper
 {
 public:
@@ -432,6 +461,17 @@ public:
 };
 REGISTER_CAMERA_SENSOR_HELPER("ov2740", CameraSensorHelperOv2740)
 
+class CameraSensorHelperOv4689 : public CameraSensorHelper
+{
+public:
+	CameraSensorHelperOv4689()
+	{
+		gainType_ = AnalogueGainLinear;
+		gainConstants_.linear = { 1, 0, 0, 128 };
+	}
+};
+REGISTER_CAMERA_SENSOR_HELPER("ov4689", CameraSensorHelperOv4689)
+
 class CameraSensorHelperOv5640 : public CameraSensorHelper
 {
 public:
@@ -475,6 +515,24 @@ public:
 	}
 };
 REGISTER_CAMERA_SENSOR_HELPER("ov5693", CameraSensorHelperOv5693)
+
+class CameraSensorHelperOv8858 : public CameraSensorHelper
+{
+public:
+	CameraSensorHelperOv8858()
+	{
+		gainType_ = AnalogueGainLinear;
+
+		/*
+		 * \todo Validate the selected 1/128 step value as it differs
+		 * from what the sensor manual describes.
+		 *
+		 * See: https://patchwork.linuxtv.org/project/linux-media/patch/20221106171129.166892-2-nicholas@rothemail.net/#142267
+		 */
+		gainConstants_.linear = { 1, 0, 0, 128 };
+	}
+};
+REGISTER_CAMERA_SENSOR_HELPER("ov8858", CameraSensorHelperOv8858)
 
 class CameraSensorHelperOv8865 : public CameraSensorHelper
 {
