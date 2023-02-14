@@ -1,3 +1,9 @@
+libcamera (0.0.4-2) experimental; urgency=medium
+
+  * Skip more tests
+
+ -- Dylan Aïssi <daissi@debian.org>  Tue, 14 Feb 2023 12:56:16 +0100
+
 libcamera (0.0.4-1) experimental; urgency=medium
 
   * New upstream version 0.0.4
