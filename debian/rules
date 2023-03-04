@@ -25,6 +25,12 @@ override_dh_auto_test:
 	# For now, testsuite failures are ignored
 	-dh_auto_test
 
+override_dh_strip:
+	dh_strip -a
+	MESON_INSTALL_DESTDIR_PREFIX=. ./src/ipa/ipa-sign-install.sh \
+		./obj-${DEB_HOST_MULTIARCH}/src/ipa-priv-key.pem \
+		debian/libcamera-ipa/usr/lib/${DEB_HOST_MULTIARCH}/libcamera/ipa_*.so
+
 .PHONY: licensecheck
 licensecheck:
 	licensecheck --deb-machine -r * \
