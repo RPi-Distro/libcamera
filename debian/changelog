@@ -1,3 +1,9 @@
+libcamera (0.0.3-6) unstable; urgency=medium
+
+  * Use the DEB_HOST_GNU_TYPE for the build directory.
+
+ -- Andrej Shadura <andrewsh@debian.org>  Mon, 06 Mar 2023 10:40:47 +0100
+
 libcamera (0.0.3-5) unstable; urgency=medium
 
   [ Dylan Aïssi ]
