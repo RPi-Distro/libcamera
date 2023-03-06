@@ -1,3 +1,14 @@
+libcamera (0.0.3-5) unstable; urgency=medium
+
+  [ Dylan Aïssi ]
+  * Add superficial tests.
+  * Add allow-stderr for tests.
+
+  [ George Kiagiadakis ]
+  * Add rule to re-sign the IPA modules after dh_strip.
+
+ -- Andrej Shadura <andrewsh@debian.org>  Mon, 06 Mar 2023 09:45:00 +0100
+
 libcamera (0.0.3-4) unstable; urgency=medium
 
   * Add doxygen-latex in Build-Deps
