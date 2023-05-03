@@ -17,17 +17,10 @@
 
 /* This is our implementation of AGC. */
 
-/*
- * This is the number actually set up by the firmware, not the maximum possible
- * number (which is 16).
- */
-
-constexpr unsigned int AgcStatsSize = 15;
-
 namespace RPiController {
 
 struct AgcMeteringMode {
-	double weights[AgcStatsSize];
+	std::vector<double> weights;
 	int read(const libcamera::YamlObject &params);
 };
 
@@ -96,17 +89,19 @@ private:
 	void housekeepConfig();
 	void fetchCurrentExposure(Metadata *imageMetadata);
 	void fetchAwbStatus(Metadata *imageMetadata);
-	void computeGain(bcm2835_isp_stats *statistics, Metadata *imageMetadata,
+	void computeGain(StatisticsPtr &statistics, Metadata *imageMetadata,
 			 double &gain, double &targetY);
 	void computeTargetExposure(double gain);
 	bool applyDigitalGain(double gain, double targetY);
 	void filterExposure(bool desaturate);
 	void divideUpExposure();
 	void writeAndFinish(Metadata *imageMetadata, bool desaturate);
-	libcamera::utils::Duration clipShutter(libcamera::utils::Duration shutter);
+	libcamera::utils::Duration limitShutter(libcamera::utils::Duration shutter);
+	double limitGain(double gain) const;
 	AgcMeteringMode *meteringMode_;
 	AgcExposureMode *exposureMode_;
 	AgcConstraintMode *constraintMode_;
+	CameraMode mode_;
 	uint64_t frameCount_;
 	AwbStatus awb_;
 	struct ExposureValues {
@@ -124,7 +119,6 @@ private:
 	int lockCount_;
 	DeviceStatus lastDeviceStatus_;
 	libcamera::utils::Duration lastTargetExposure_;
-	double lastSensitivity_; /* sensitivity of the previous camera mode */
 	/* Below here the "settings" that applications can change. */
 	std::string meteringModeName_;
 	std::string exposureModeName_;

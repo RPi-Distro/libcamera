@@ -15,19 +15,17 @@
 #include <vector>
 #include <string>
 
-#include <linux/bcm2835-isp.h>
-
 #include "libcamera/internal/yaml_parser.h"
 
 #include "camera_mode.h"
 #include "device_status.h"
 #include "metadata.h"
+#include "statistics.h"
 
 namespace RPiController {
 
 class Algorithm;
 typedef std::unique_ptr<Algorithm> AlgorithmPtr;
-typedef std::shared_ptr<bcm2835_isp_stats> StatisticsPtr;
 
 /*
  * The Controller holds a pointer to some global_metadata, which is how
@@ -39,6 +37,16 @@ typedef std::shared_ptr<bcm2835_isp_stats> StatisticsPtr;
 class Controller
 {
 public:
+	struct HardwareConfig {
+		libcamera::Size agcRegions;
+		libcamera::Size agcZoneWeights;
+		libcamera::Size awbRegions;
+		libcamera::Size focusRegions;
+		unsigned int numHistogramBins;
+		unsigned int numGammaPoints;
+		unsigned int pipelineWidth;
+	};
+
 	Controller();
 	~Controller();
 	int read(char const *filename);
@@ -48,6 +56,8 @@ public:
 	void process(StatisticsPtr stats, Metadata *imageMetadata);
 	Metadata &getGlobalMetadata();
 	Algorithm *getAlgorithm(std::string const &name) const;
+	const std::string &getTarget() const;
+	const HardwareConfig &getHardwareConfig() const;
 
 protected:
 	int createAlgorithm(const std::string &name, const libcamera::YamlObject &params);
@@ -55,6 +65,9 @@ protected:
 	Metadata globalMetadata_;
 	std::vector<AlgorithmPtr> algorithms_;
 	bool switchModeCalled_;
+
+private:
+	std::string target_;
 };
 
 } /* namespace RPiController */

@@ -28,7 +28,6 @@
  * "nuisance" scans. During each interval where PDAF is not working, only
  * ONE scan will be performed; CAF cannot track objects using CDAF alone.
  *
- * This algorithm is unrelated to "rpi.focus" which merely reports CDAF FoM.
  */
 
 namespace RPiController {
@@ -115,9 +114,20 @@ private:
 		double conf;
 	};
 
-	void computeWeights();
-	bool getPhase(PdafData const &data, double &phase, double &conf) const;
-	double getContrast(struct bcm2835_isp_stats_focus const focus_stats[FOCUS_REGIONS]) const;
+	struct RegionWeights {
+		unsigned rows;
+		unsigned cols;
+		uint32_t sum;
+		std::vector<uint16_t> w;
+
+		RegionWeights()
+			: rows(0), cols(0), sum(0), w() {}
+	};
+
+	void computeWeights(RegionWeights *wgts, unsigned rows, unsigned cols);
+	void invalidateWeights();
+	bool getPhase(PdafRegions const &regions, double &phase, double &conf);
+	double getContrast(const FocusRegions &focusStats);
 	void doPDAF(double phase, double conf);
 	bool earlyTerminationByPhase(double phase);
 	double findPeak(unsigned index) const;
@@ -137,9 +147,8 @@ private:
 	libcamera::Rectangle statsRegion_;
 	std::vector<libcamera::Rectangle> windows_;
 	bool useWindows_;
-	uint8_t phaseWeights_[PDAF_DATA_ROWS][PDAF_DATA_COLS];
-	uint16_t contrastWeights_[FOCUS_REGIONS];
-	uint32_t sumWeights_;
+	RegionWeights phaseWeights_;
+	RegionWeights contrastWeights_;
 
 	/* Working state. */
 	ScanState scanState_;

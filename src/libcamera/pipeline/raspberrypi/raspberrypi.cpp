@@ -187,8 +187,8 @@ class RPiCameraData : public Camera::Private
 public:
 	RPiCameraData(PipelineHandler *pipe)
 		: Camera::Private(pipe), state_(State::Stopped),
-		  supportsFlips_(false), flipsAlterBayerOrder_(false),
-		  dropFrameCount_(0), buffersAllocated_(false), ispOutputCount_(0)
+		  flipsAlterBayerOrder_(false), dropFrameCount_(0),
+		  buffersAllocated_(false), ispOutputCount_(0)
 	{
 	}
 
@@ -212,6 +212,7 @@ public:
 	void setIspControls(const ControlList &controls);
 	void setDelayedControls(const ControlList &controls, uint32_t delayContext);
 	void setLensControls(const ControlList &controls);
+	void setCameraTimeout(uint32_t maxExposureTimeMs);
 	void setSensorControls(ControlList &controls);
 	void unicamTimeout();
 
@@ -275,11 +276,9 @@ public:
 	std::deque<Request *> requestQueue_;
 
 	/*
-	 * Manage horizontal and vertical flips supported (or not) by the
-	 * sensor. Also store the "native" Bayer order (that is, with no
-	 * transforms applied).
+	 * Store the "native" Bayer order (that is, with no transforms
+	 * applied).
 	 */
-	bool supportsFlips_;
 	bool flipsAlterBayerOrder_;
 	BayerFormat::Order nativeBayerOrder_;
 
@@ -320,6 +319,11 @@ public:
 		 * frames.
 		 */
 		bool disableStartupFrameDrops;
+		/*
+		 * Override the Unicam timeout value calculated by the IPA based
+		 * on frame durations.
+		 */
+		unsigned int unicamTimeoutValue;
 	};
 
 	Config config_;
@@ -451,10 +455,9 @@ CameraConfiguration::Status RPiCameraConfiguration::validateColorSpaces([[maybe_
 		/* First fix up raw streams to have the "raw" colour space. */
 		if (isRaw(cfg.pixelFormat)) {
 			/* If there was no value here, that doesn't count as "adjusted". */
-			if (cfg.colorSpace && cfg.colorSpace != ColorSpace::Raw) {
+			if (cfg.colorSpace && cfg.colorSpace != ColorSpace::Raw)
 				status = Adjusted;
-				cfg.colorSpace = ColorSpace::Raw;
-			}
+			cfg.colorSpace = ColorSpace::Raw;
 			continue;
 		}
 
@@ -834,13 +837,14 @@ int PipelineHandlerRPi::configure(Camera *camera, CameraConfiguration *config)
 		}
 	}
 
-	/* First calculate the best sensor mode we can use based on the user request. */
+	/*
+	 * Calculate the best sensor mode we can use based on the user's
+	 * request, and apply it to the sensor with the cached transform, if
+	 * any.
+	 */
 	V4L2SubdeviceFormat sensorFormat = findBestFormat(data->sensorFormats_, rawStream ? sensorSize : maxSize, bitDepth);
-	/* Apply any cached transform. */
 	const RPiCameraConfiguration *rpiConfig = static_cast<const RPiCameraConfiguration *>(config);
-	sensorFormat.transform = rpiConfig->combinedTransform_;
-	/* Finally apply the format on the sensor. */
-	ret = data->sensor_->setFormat(&sensorFormat);
+	ret = data->sensor_->setFormat(&sensorFormat, rpiConfig->combinedTransform_);
 	if (ret)
 		return ret;
 
@@ -1168,14 +1172,6 @@ int PipelineHandlerRPi::start(Camera *camera, const ControlList *controls)
 		}
 	}
 
-	/*
-	 * Set the dequeue timeout to the larger of 2x the maximum possible
-	 * frame duration or 1 second.
-	 */
-	utils::Duration timeout =
-		std::max<utils::Duration>(1s, 2 * startConfig.maxSensorFrameLengthMs * 1ms);
-	data->unicam_[Unicam::Image].dev()->setDequeueTimeout(timeout);
-
 	return 0;
 }
 
@@ -1248,41 +1244,54 @@ int PipelineHandlerRPi::queueRequestDevice(Camera *camera, Request *request)
 
 bool PipelineHandlerRPi::match(DeviceEnumerator *enumerator)
 {
-	DeviceMatch unicam("unicam");
-	MediaDevice *unicamDevice = acquireMediaDevice(enumerator, unicam);
-
-	if (!unicamDevice) {
-		LOG(RPI, Debug) << "Unable to acquire a Unicam instance";
-		return false;
-	}
-
-	DeviceMatch isp("bcm2835-isp");
-	MediaDevice *ispDevice = acquireMediaDevice(enumerator, isp);
-
-	if (!ispDevice) {
-		LOG(RPI, Debug) << "Unable to acquire ISP instance";
-		return false;
-	}
+	constexpr unsigned int numUnicamDevices = 2;
 
 	/*
-	 * The loop below is used to register multiple cameras behind one or more
-	 * video mux devices that are attached to a particular Unicam instance.
-	 * Obviously these cameras cannot be used simultaneously.
+	 * Loop over all Unicam instances, but return out once a match is found.
+	 * This is to ensure we correctly enumrate the camera when an instance
+	 * of Unicam has registered with media controller, but has not registered
+	 * device nodes due to a sensor subdevice failure.
 	 */
-	unsigned int numCameras = 0;
-	for (MediaEntity *entity : unicamDevice->entities()) {
-		if (entity->function() != MEDIA_ENT_F_CAM_SENSOR)
-			continue;
+	for (unsigned int i = 0; i < numUnicamDevices; i++) {
+		DeviceMatch unicam("unicam");
+		MediaDevice *unicamDevice = acquireMediaDevice(enumerator, unicam);
 
-		int ret = registerCamera(unicamDevice, ispDevice, entity);
-		if (ret)
-			LOG(RPI, Error) << "Failed to register camera "
-					<< entity->name() << ": " << ret;
-		else
-			numCameras++;
+		if (!unicamDevice) {
+			LOG(RPI, Debug) << "Unable to acquire a Unicam instance";
+			continue;
+		}
+
+		DeviceMatch isp("bcm2835-isp");
+		MediaDevice *ispDevice = acquireMediaDevice(enumerator, isp);
+
+		if (!ispDevice) {
+			LOG(RPI, Debug) << "Unable to acquire ISP instance";
+			continue;
+		}
+
+		/*
+		 * The loop below is used to register multiple cameras behind one or more
+		 * video mux devices that are attached to a particular Unicam instance.
+		 * Obviously these cameras cannot be used simultaneously.
+		 */
+		unsigned int numCameras = 0;
+		for (MediaEntity *entity : unicamDevice->entities()) {
+			if (entity->function() != MEDIA_ENT_F_CAM_SENSOR)
+				continue;
+
+			int ret = registerCamera(unicamDevice, ispDevice, entity);
+			if (ret)
+				LOG(RPI, Error) << "Failed to register camera "
+						<< entity->name() << ": " << ret;
+			else
+				numCameras++;
+		}
+
+		if (numCameras)
+			return true;
 	}
 
-	return !!numCameras;
+	return false;
 }
 
 void PipelineHandlerRPi::releaseDevice(Camera *camera)
@@ -1424,12 +1433,10 @@ int PipelineHandlerRPi::registerCamera(MediaDevice *unicam, MediaDevice *isp, Me
 	data->properties_.set(properties::ScalerCropMaximum, Rectangle{});
 
 	/*
-	 * We cache three things about the sensor in relation to transforms
-	 * (meaning horizontal and vertical flips).
-	 *
-	 * If flips are supported verify if they affect the Bayer ordering
-	 * and what the "native" Bayer order is, when no transforms are
-	 * applied.
+	 * We cache two things about the sensor in relation to transforms
+	 * (meaning horizontal and vertical flips): if they affect the Bayer
+	 * ordering, and what the "native" Bayer order is, when no transforms
+	 * are applied.
 	 *
 	 * We note that the sensor's cached list of supported formats is
 	 * already in the "native" order, with any flips having been undone.
@@ -1438,7 +1445,6 @@ int PipelineHandlerRPi::registerCamera(MediaDevice *unicam, MediaDevice *isp, Me
 	const struct v4l2_query_ext_ctrl *hflipCtrl = sensor->controlInfo(V4L2_CID_HFLIP);
 	if (hflipCtrl) {
 		/* We assume it will support vflips too... */
-		data->supportsFlips_ = true;
 		data->flipsAlterBayerOrder_ = hflipCtrl->flags & V4L2_CTRL_FLAG_MODIFY_LAYOUT;
 	}
 
@@ -1650,6 +1656,7 @@ int RPiCameraData::loadIPA(ipa::RPi::IPAInitResult *result)
 	ipa_->setIspControls.connect(this, &RPiCameraData::setIspControls);
 	ipa_->setDelayedControls.connect(this, &RPiCameraData::setDelayedControls);
 	ipa_->setLensControls.connect(this, &RPiCameraData::setLensControls);
+	ipa_->setCameraTimeout.connect(this, &RPiCameraData::setCameraTimeout);
 
 	/*
 	 * The configuration (tuning file) is made from the sensor name unless
@@ -1726,6 +1733,7 @@ int RPiCameraData::loadPipelineConfiguration()
 		.minUnicamBuffers = 2,
 		.minTotalUnicamBuffers = 4,
 		.disableStartupFrameDrops = false,
+		.unicamTimeoutValue = 0,
 	};
 
 	char const *configFromEnv = utils::secure_getenv("LIBCAMERA_RPI_CONFIG_FILE");
@@ -1761,6 +1769,14 @@ int RPiCameraData::loadPipelineConfiguration()
 		phConfig["min_total_unicam_buffers"].get<unsigned int>(config_.minTotalUnicamBuffers);
 	config_.disableStartupFrameDrops =
 		phConfig["disable_startup_frame_drops"].get<bool>(config_.disableStartupFrameDrops);
+	config_.unicamTimeoutValue =
+		phConfig["unicam_timeout_value_ms"].get<unsigned int>(config_.unicamTimeoutValue);
+
+	if (config_.unicamTimeoutValue) {
+		/* Disable the IPA signal to control timeout and set the user requested value. */
+		ipa_->setCameraTimeout.disconnect();
+		unicam_[Unicam::Image].dev()->setDequeueTimeout(config_.unicamTimeoutValue * 1ms);
+	}
 
 	if (config_.minTotalUnicamBuffers < config_.minUnicamBuffers) {
 		LOG(RPI, Error) << "Invalid configuration: min_total_unicam_buffers must be >= min_unicam_buffers";
@@ -1960,6 +1976,20 @@ void RPiCameraData::setLensControls(const ControlList &controls)
 		ControlValue const &focusValue = controls.get(V4L2_CID_FOCUS_ABSOLUTE);
 		lens->setFocusPosition(focusValue.get<int32_t>());
 	}
+}
+
+void RPiCameraData::setCameraTimeout(uint32_t maxFrameLengthMs)
+{
+	/*
+	 * Set the dequeue timeout to the larger of 5x the maximum reported
+	 * frame length advertised by the IPA over a number of frames. Allow
+	 * a minimum timeout value of 1s.
+	 */
+	utils::Duration timeout =
+		std::max<utils::Duration>(1s, 5 * maxFrameLengthMs * 1ms);
+
+	LOG(RPI, Debug) << "Setting Unicam timeout to " << timeout;
+	unicam_[Unicam::Image].dev()->setDequeueTimeout(timeout);
 }
 
 void RPiCameraData::setSensorControls(ControlList &controls)
