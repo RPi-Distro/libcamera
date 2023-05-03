@@ -2,7 +2,7 @@
 
 project('libcamera', 'c', 'cpp',
     meson_version : '>= 0.56',
-    version : '0.0.4',
+    version : '0.0.5',
     default_options : [
         'werror=true',
         'warning_level=2',
@@ -11,40 +11,48 @@ project('libcamera', 'c', 'cpp',
     license : 'LGPL 2.1+')
 
 # Generate version information. The libcamera_git_version variable contains the
-# full version with git patch count and SHA1 (e.g. 1.2.3+211-c94a24f4), while
-# the libcamera_version variable contains the major.minor.patch (e.g. 1.2.3)
-# only. If the source tree isn't under git control, or if it matches the last
-# git version tag, the build metadata (e.g. +211-c94a24f4) is omitted from
-# libcamera_git_version.
+# full version with build metadata (patch count and SHA1, e.g.
+# 1.2.3+211-c94a24f4), while the libcamera_version variable contains the
+# major.minor.patch (e.g. 1.2.3) only.
+#
+# If the source tree matches the last git version tag, the build metadata
+# (e.g. +211-c94a24f4) is omitted from libcamera_git_version.
 libcamera_git_version = run_command('utils/gen-version.sh',
                                     meson.project_build_root(),
                                     meson.project_source_root(),
                                     check: false).stdout().strip()
+
+# If the source tree isn't under git control, set libcamera_git_version to the
+# meson project version.
 if libcamera_git_version == ''
     libcamera_git_version = meson.project_version()
 endif
 
 libcamera_version = libcamera_git_version.split('+')[0]
+project_version = meson.project_version().split('+')[0]
 
 # A shallow clone, or a clone without a reachable tag equivalent to the
 # meson.project_version() could leave the project in a mis-described state.
 # Produce a warning in this event, and fix to a best effort.
-if libcamera_version != meson.project_version()
-    warning('The sources disagree about the version: '
-            + libcamera_version + ' != ' + meson.project_version())
+if libcamera_version != project_version
+    warning('The sources and meson.build disagree about the version: '
+            + libcamera_version + ' != ' + project_version)
 
     summary({'libcamera git version' : libcamera_git_version,
              'Source version match' : false,
             },
             bool_yn : true, section : 'Versions')
 
-    # Replace the version components reported by git with the release version,
-    # but keep all trailing information supplied by git.
-    libcamera_git_version = (meson.project_version() +
-                             libcamera_git_version.strip(libcamera_version))
-    libcamera_version = meson.project_version()
+    # Re-run gen-version.sh to replace the git version (major.minor.patch) with
+    # the meson project version. The build metadata provided by git are kept.
+    libcamera_git_version = run_command('utils/gen-version.sh',
+                                        meson.project_build_root(),
+                                        meson.project_source_root(),
+                                        project_version,
+                                        check: false).stdout().strip()
+    libcamera_version = project_version
 
-    # Append a marker to show we have modified this version string
+    # Append a marker to show we have modified this version string.
     libcamera_git_version += '-nvm'
 endif
 
@@ -125,6 +133,21 @@ if cc.get_id() == 'gcc'
     if cc.version().version_compare('<9')
         cpp_arguments += [
             '-lstdc++fs',
+        ]
+    endif
+
+    # gcc 13 implements the C++23 version of automatic move from local
+    # variables in return statements (see
+    # https://en.cppreference.com/w/cpp/language/return). As a result, some
+    # previously required explicit std::move() in return statements generate
+    # warnings. Those moves can't be removed as older compiler versions could
+    # use copy constructors instead of move constructors. The easiest fix is to
+    # disable the warning. With -Wpessimizing-move enabled, the compiler will
+    # still warn of pessimizing moves, only the redundant but not pessimizing
+    # moves will be ignored.
+    if cc.version().version_compare('>=13')
+        cpp_arguments += [
+            '-Wno-redundant-move',
         ]
     endif
 
