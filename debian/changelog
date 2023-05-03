@@ -1,6 +1,7 @@
 libcamera (0.0.5-1) UNRELEASED; urgency=medium
 
   * New upstream version 0.0.5
+  * Bump SONAME to libcamera0.0.5
 
  -- Dylan Aïssi <daissi@debian.org>  Wed, 03 May 2023 18:13:30 +0200
 
