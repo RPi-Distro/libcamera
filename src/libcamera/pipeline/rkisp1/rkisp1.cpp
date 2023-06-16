@@ -23,11 +23,13 @@
 #include <libcamera/control_ids.h>
 #include <libcamera/formats.h>
 #include <libcamera/framebuffer.h>
+#include <libcamera/request.h>
+#include <libcamera/stream.h>
+#include <libcamera/transform.h>
+
 #include <libcamera/ipa/core_ipa_interface.h>
 #include <libcamera/ipa/rkisp1_ipa_interface.h>
 #include <libcamera/ipa/rkisp1_ipa_proxy.h>
-#include <libcamera/request.h>
-#include <libcamera/stream.h>
 
 #include "libcamera/internal/camera.h"
 #include "libcamera/internal/camera_sensor.h"
@@ -123,6 +125,7 @@ public:
 	Status validate() override;
 
 	const V4L2SubdeviceFormat &sensorFormat() { return sensorFormat_; }
+	const Transform &combinedTransform() { return combinedTransform_; }
 
 private:
 	bool fitsAllPaths(const StreamConfiguration &cfg);
@@ -136,6 +139,7 @@ private:
 	const RkISP1CameraData *data_;
 
 	V4L2SubdeviceFormat sensorFormat_;
+	Transform combinedTransform_;
 };
 
 class PipelineHandlerRkISP1 : public PipelineHandler
@@ -220,7 +224,7 @@ RkISP1FrameInfo *RkISP1Frames::create(const RkISP1CameraData *data, Request *req
 		}
 
 		if (pipe_->availableStatBuffers_.empty()) {
-			LOG(RkISP1, Error) << "Statisitc buffer underrun";
+			LOG(RkISP1, Error) << "Statistic buffer underrun";
 			return nullptr;
 		}
 
@@ -340,7 +344,7 @@ int RkISP1CameraData::loadIPA(unsigned int hwRevision)
 
 	/*
 	 * The API tuning file is made from the sensor name unless the
-	 * environment variable overrides it. If
+	 * environment variable overrides it.
 	 */
 	std::string ipaTuningFile;
 	char const *configFromEnv = utils::secure_getenv("LIBCAMERA_RKISP1_TUNING_FILE");
@@ -469,16 +473,16 @@ CameraConfiguration::Status RkISP1CameraConfiguration::validate()
 
 	status = validateColorSpaces(ColorSpaceFlag::StreamsShareColorSpace);
 
-	if (transform != Transform::Identity) {
-		transform = Transform::Identity;
-		status = Adjusted;
-	}
-
 	/* Cap the number of entries to the available streams. */
 	if (config_.size() > pathCount) {
 		config_.resize(pathCount);
 		status = Adjusted;
 	}
+
+	Transform requestedTransform = transform;
+	Transform combined = sensor->validateTransform(&transform);
+	if (transform != requestedTransform)
+		status = Adjusted;
 
 	/*
 	 * Simultaneous capture of raw and processed streams isn't possible. If
@@ -588,6 +592,8 @@ CameraConfiguration::Status RkISP1CameraConfiguration::validate()
 
 	if (sensorFormat_.size.isNull())
 		sensorFormat_.size = sensor->resolution();
+
+	combinedTransform_ = combined;
 
 	return status;
 }
@@ -716,7 +722,7 @@ int PipelineHandlerRkISP1::configure(Camera *camera, CameraConfiguration *c)
 	V4L2SubdeviceFormat format = config->sensorFormat();
 	LOG(RkISP1, Debug) << "Configuring sensor with " << format;
 
-	ret = sensor->setFormat(&format);
+	ret = sensor->setFormat(&format, config->combinedTransform());
 	if (ret < 0)
 		return ret;
 

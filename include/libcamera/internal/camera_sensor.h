@@ -17,6 +17,7 @@
 #include <libcamera/control_ids.h>
 #include <libcamera/controls.h>
 #include <libcamera/geometry.h>
+#include <libcamera/transform.h>
 
 #include <libcamera/ipa/core_ipa_interface.h>
 
@@ -53,7 +54,9 @@ public:
 
 	V4L2SubdeviceFormat getFormat(const std::vector<unsigned int> &mbusCodes,
 				      const Size &size) const;
-	int setFormat(V4L2SubdeviceFormat *format);
+	int setFormat(V4L2SubdeviceFormat *format,
+		      Transform transform = Transform::Identity);
+	int tryFormat(V4L2SubdeviceFormat *format) const;
 
 	const ControlInfoMap &controls() const;
 	ControlList getControls(const std::vector<uint32_t> &ids);
@@ -67,6 +70,8 @@ public:
 	void updateControlInfo();
 
 	CameraLens *focusLens() { return focusLens_.get(); }
+
+	Transform validateTransform(Transform *transform) const;
 
 protected:
 	std::string logPrefix() const override;
@@ -101,6 +106,7 @@ private:
 	Size pixelArraySize_;
 	Rectangle activeArea_;
 	const BayerFormat *bayerFormat_;
+	bool supportFlips_;
 
 	ControlList properties_;
 

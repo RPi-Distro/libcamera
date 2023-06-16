@@ -52,6 +52,15 @@ LOG_DEFINE_CATEGORY(CameraSensorProperties)
 const CameraSensorProperties *CameraSensorProperties::get(const std::string &sensor)
 {
 	static const std::map<std::string, const CameraSensorProperties> sensorProps = {
+		{ "ar0521", {
+			.unitCellSize = { 2200, 2200 },
+			.testPatternModes = {
+				{ controls::draft::TestPatternModeOff, 0 },
+				{ controls::draft::TestPatternModeSolidColor, 1 },
+				{ controls::draft::TestPatternModeColorBars, 2 },
+				{ controls::draft::TestPatternModeColorBarsFadeToGray, 3 },
+			},
+		} },
 		{ "hi846", {
 			.unitCellSize = { 1120, 1120 },
 			.testPatternModes = {
@@ -114,11 +123,48 @@ const CameraSensorProperties *CameraSensorProperties::get(const std::string &sen
 				 */
 			},
 		} },
+		{ "imx708", {
+			.unitCellSize = { 1400, 1400 },
+			.testPatternModes = {
+				{ controls::draft::TestPatternModeOff, 0 },
+				{ controls::draft::TestPatternModeColorBars, 1 },
+				{ controls::draft::TestPatternModeSolidColor, 2 },
+				{ controls::draft::TestPatternModeColorBarsFadeToGray, 3 },
+				{ controls::draft::TestPatternModePn9, 4 },
+			},
+		} },
+		{ "ov2685", {
+			.unitCellSize = { 1750, 1750 },
+			.testPatternModes = {
+				{ controls::draft::TestPatternModeOff, 0 },
+				{ controls::draft::TestPatternModeColorBars, 1},
+				{ controls::draft::TestPatternModeColorBarsFadeToGray, 2 },
+				/*
+				 * No corresponding test pattern mode for:
+				 * 3: "Random Data"
+				 * 4: "Black White Square"
+				 * 5: "Color Square"
+				 */
+			},
+		} },
 		{ "ov2740", {
 			.unitCellSize = { 1400, 1400 },
 			.testPatternModes = {
 				{ controls::draft::TestPatternModeOff, 0 },
 				{ controls::draft::TestPatternModeColorBars, 1},
+			},
+		} },
+		{ "ov4689", {
+			.unitCellSize = { 2000, 2000 },
+			.testPatternModes = {
+				{ controls::draft::TestPatternModeOff, 0 },
+				{ controls::draft::TestPatternModeColorBars, 1},
+				{ controls::draft::TestPatternModeColorBarsFadeToGray, 2},
+				/*
+				 * No corresponding test patterns in
+				 * MIPI CCS specification for sensor's
+				 * colorBarType2 and colorBarType3.
+				 */
 			},
 		} },
 		{ "ov5640", {
@@ -155,6 +201,19 @@ const CameraSensorProperties *CameraSensorProperties::get(const std::string &sen
 				 * No corresponding test pattern mode for
 				 * 1: "Random data" and 3: "Colour Bars with
 				 * Rolling Bar".
+				 */
+			},
+		} },
+		{ "ov8858", {
+			.unitCellSize = { 1120, 1120 },
+			.testPatternModes = {
+				{ controls::draft::TestPatternModeOff, 0 },
+				{ controls::draft::TestPatternModeColorBars, 1 },
+				{ controls::draft::TestPatternModeColorBarsFadeToGray, 2 },
+				/*
+				 * No corresponding test patter mode
+				 * 3: "Vertical Color Bar Type 3",
+				 * 4: "Vertical Color Bar Type 4"
 				 */
 			},
 		} },

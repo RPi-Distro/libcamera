@@ -9,8 +9,6 @@
 #include <map>
 #include <tuple>
 
-#include <linux/bcm2835-isp.h>
-
 #include <libcamera/base/log.h>
 
 #include "../awb_status.h"
@@ -30,22 +28,15 @@ LOG_DEFINE_CATEGORY(RPiAgc)
 
 #define NAME "rpi.agc"
 
-static constexpr unsigned int PipelineBits = 13; /* seems to be a 13-bit pipeline */
-
 int AgcMeteringMode::read(const libcamera::YamlObject &params)
 {
 	const YamlObject &yamlWeights = params["weights"];
-	if (yamlWeights.size() != AgcStatsSize) {
-		LOG(RPiAgc, Error) << "AgcMeteringMode: Incorrect number of weights";
-		return -EINVAL;
-	}
 
-	unsigned int num = 0;
 	for (const auto &p : yamlWeights.asList()) {
 		auto value = p.get<double>();
 		if (!value)
 			return -EINVAL;
-		weights[num++] = *value;
+		weights.push_back(*value);
 	}
 
 	return 0;
@@ -227,8 +218,7 @@ Agc::Agc(Controller *controller)
 	: AgcAlgorithm(controller), meteringMode_(nullptr),
 	  exposureMode_(nullptr), constraintMode_(nullptr),
 	  frameCount_(0), lockCount_(0),
-	  lastTargetExposure_(0s), lastSensitivity_(0.0),
-	  ev_(1.0), flickerPeriod_(0s),
+	  lastTargetExposure_(0s), ev_(1.0), flickerPeriod_(0s),
 	  maxShutter_(0s), fixedShutter_(0s), fixedAnalogueGain_(0.0)
 {
 	memset(&awb_, 0, sizeof(awb_));
@@ -252,6 +242,14 @@ int Agc::read(const libcamera::YamlObject &params)
 	int ret = config_.read(params);
 	if (ret)
 		return ret;
+
+	const Size &size = getHardwareConfig().agcZoneWeights;
+	for (auto const &modes : config_.meteringModes) {
+		if (modes.second.weights.size() != size.width * size.height) {
+			LOG(RPiAgc, Error) << "AgcMeteringMode: Incorrect number of weights";
+			return -EINVAL;
+		}
+	}
 
 	/*
 	 * Set the config's defaults (which are the first ones it read) as our
@@ -313,14 +311,14 @@ void Agc::setFixedShutter(Duration fixedShutter)
 {
 	fixedShutter_ = fixedShutter;
 	/* Set this in case someone calls disableAuto() straight after. */
-	status_.shutterTime = clipShutter(fixedShutter_);
+	status_.shutterTime = limitShutter(fixedShutter_);
 }
 
 void Agc::setFixedAnalogueGain(double fixedAnalogueGain)
 {
 	fixedAnalogueGain_ = fixedAnalogueGain;
 	/* Set this in case someone calls disableAuto() straight after. */
-	status_.analogueGain = fixedAnalogueGain;
+	status_.analogueGain = limitGain(fixedAnalogueGain);
 }
 
 void Agc::setMeteringMode(std::string const &meteringModeName)
@@ -346,7 +344,14 @@ void Agc::switchMode(CameraMode const &cameraMode,
 
 	housekeepConfig();
 
-	Duration fixedShutter = clipShutter(fixedShutter_);
+	/*
+	 * Store the mode in the local state. We must cache the sensitivity of
+	 * of the previous mode for the calculations below.
+	 */
+	double lastSensitivity = mode_.sensitivity;
+	mode_ = cameraMode;
+
+	Duration fixedShutter = limitShutter(fixedShutter_);
 	if (fixedShutter && fixedAnalogueGain_) {
 		/* We're going to reset the algorithm here with these fixed values. */
 
@@ -375,7 +380,7 @@ void Agc::switchMode(CameraMode const &cameraMode,
 		 * current exposure profile, which takes care of everything else.
 		 */
 
-		double ratio = lastSensitivity_ / cameraMode.sensitivity;
+		double ratio = lastSensitivity / cameraMode.sensitivity;
 		target_.totalExposureNoDG *= ratio;
 		target_.totalExposure *= ratio;
 		filtered_.totalExposureNoDG *= ratio;
@@ -396,9 +401,6 @@ void Agc::switchMode(CameraMode const &cameraMode,
 	}
 
 	writeAndFinish(metadata, false);
-
-	/* We must remember the sensitivity of this mode for the next SwitchMode. */
-	lastSensitivity_ = cameraMode.sensitivity;
 }
 
 void Agc::prepare(Metadata *imageMetadata)
@@ -451,7 +453,7 @@ void Agc::process(StatisticsPtr &stats, Metadata *imageMetadata)
 	fetchCurrentExposure(imageMetadata);
 	/* Compute the total gain we require relative to the current exposure. */
 	double gain, targetY;
-	computeGain(stats.get(), imageMetadata, gain, targetY);
+	computeGain(stats, imageMetadata, gain, targetY);
 	/* Now compute the target (final) exposure which we think we want. */
 	computeTargetExposure(gain);
 	/*
@@ -520,7 +522,7 @@ void Agc::housekeepConfig()
 {
 	/* First fetch all the up-to-date settings, so no one else has to do it. */
 	status_.ev = ev_;
-	status_.fixedShutter = clipShutter(fixedShutter_);
+	status_.fixedShutter = limitShutter(fixedShutter_);
 	status_.fixedAnalogueGain = fixedAnalogueGain_;
 	status_.flickerPeriod = flickerPeriod_;
 	LOG(RPiAgc, Debug) << "ev " << status_.ev << " fixedShutter "
@@ -585,24 +587,27 @@ void Agc::fetchAwbStatus(Metadata *imageMetadata)
 		LOG(RPiAgc, Debug) << "No AWB status found";
 }
 
-static double computeInitialY(bcm2835_isp_stats *stats, AwbStatus const &awb,
-			      double weights[], double gain)
+static double computeInitialY(StatisticsPtr &stats, AwbStatus const &awb,
+			      std::vector<double> &weights, double gain)
 {
-	bcm2835_isp_stats_region *regions = stats->agc_stats;
+	constexpr uint64_t maxVal = 1 << Statistics::NormalisationFactorPow2;
+
+	ASSERT(weights.size() == stats->agcRegions.numRegions());
+
 	/*
 	 * Note how the calculation below means that equal weights give you
 	 * "average" metering (i.e. all pixels equally important).
 	 */
 	double rSum = 0, gSum = 0, bSum = 0, pixelSum = 0;
-	for (unsigned int i = 0; i < AgcStatsSize; i++) {
-		double counted = regions[i].counted;
-		double rAcc = std::min(regions[i].r_sum * gain, ((1 << PipelineBits) - 1) * counted);
-		double gAcc = std::min(regions[i].g_sum * gain, ((1 << PipelineBits) - 1) * counted);
-		double bAcc = std::min(regions[i].b_sum * gain, ((1 << PipelineBits) - 1) * counted);
+	for (unsigned int i = 0; i < stats->agcRegions.numRegions(); i++) {
+		auto &region = stats->agcRegions.get(i);
+		double rAcc = std::min<double>(region.val.rSum * gain, (maxVal - 1) * region.counted);
+		double gAcc = std::min<double>(region.val.gSum * gain, (maxVal - 1) * region.counted);
+		double bAcc = std::min<double>(region.val.bSum * gain, (maxVal - 1) * region.counted);
 		rSum += rAcc * weights[i];
 		gSum += gAcc * weights[i];
 		bSum += bAcc * weights[i];
-		pixelSum += counted * weights[i];
+		pixelSum += region.counted * weights[i];
 	}
 	if (pixelSum == 0.0) {
 		LOG(RPiAgc, Warning) << "computeInitialY: pixelSum is zero";
@@ -611,7 +616,7 @@ static double computeInitialY(bcm2835_isp_stats *stats, AwbStatus const &awb,
 	double ySum = rSum * awb.gainR * .299 +
 		      gSum * awb.gainG * .587 +
 		      bSum * awb.gainB * .114;
-	return ySum / pixelSum / (1 << PipelineBits);
+	return ySum / pixelSum / maxVal;
 }
 
 /*
@@ -624,23 +629,23 @@ static double computeInitialY(bcm2835_isp_stats *stats, AwbStatus const &awb,
 
 static constexpr double EvGainYTargetLimit = 0.9;
 
-static double constraintComputeGain(AgcConstraint &c, Histogram &h, double lux,
+static double constraintComputeGain(AgcConstraint &c, const Histogram &h, double lux,
 				    double evGain, double &targetY)
 {
 	targetY = c.yTarget.eval(c.yTarget.domain().clip(lux));
 	targetY = std::min(EvGainYTargetLimit, targetY * evGain);
 	double iqm = h.interQuantileMean(c.qLo, c.qHi);
-	return (targetY * NUM_HISTOGRAM_BINS) / iqm;
+	return (targetY * h.bins()) / iqm;
 }
 
-void Agc::computeGain(bcm2835_isp_stats *statistics, Metadata *imageMetadata,
+void Agc::computeGain(StatisticsPtr &statistics, Metadata *imageMetadata,
 		      double &gain, double &targetY)
 {
 	struct LuxStatus lux = {};
 	lux.lux = 400; /* default lux level to 400 in case no metadata found */
 	if (imageMetadata->get("lux.status", lux) != 0)
 		LOG(RPiAgc, Warning) << "No lux level found";
-	Histogram h(statistics->hist[0].g_hist, NUM_HISTOGRAM_BINS);
+	const Histogram &h = statistics->yHist;
 	double evGain = status_.ev * config_.baseEv;
 	/*
 	 * The initial gain and target_Y come from some of the regions. After
@@ -707,7 +712,7 @@ void Agc::computeTargetExposure(double gain)
 		Duration maxShutter = status_.fixedShutter
 					      ? status_.fixedShutter
 					      : exposureMode_->shutter.back();
-		maxShutter = clipShutter(maxShutter);
+		maxShutter = limitShutter(maxShutter);
 		Duration maxTotalExposure =
 			maxShutter *
 			(status_.fixedAnalogueGain != 0.0
@@ -807,15 +812,16 @@ void Agc::divideUpExposure()
 	double analogueGain;
 	shutterTime = status_.fixedShutter ? status_.fixedShutter
 					   : exposureMode_->shutter[0];
-	shutterTime = clipShutter(shutterTime);
+	shutterTime = limitShutter(shutterTime);
 	analogueGain = status_.fixedAnalogueGain != 0.0 ? status_.fixedAnalogueGain
 							: exposureMode_->gain[0];
+	analogueGain = limitGain(analogueGain);
 	if (shutterTime * analogueGain < exposureValue) {
 		for (unsigned int stage = 1;
 		     stage < exposureMode_->gain.size(); stage++) {
 			if (!status_.fixedShutter) {
 				Duration stageShutter =
-					clipShutter(exposureMode_->shutter[stage]);
+					limitShutter(exposureMode_->shutter[stage]);
 				if (stageShutter * analogueGain >= exposureValue) {
 					shutterTime = exposureValue / analogueGain;
 					break;
@@ -828,6 +834,7 @@ void Agc::divideUpExposure()
 					break;
 				}
 				analogueGain = exposureMode_->gain[stage];
+				analogueGain = limitGain(analogueGain);
 			}
 		}
 	}
@@ -850,6 +857,7 @@ void Agc::divideUpExposure()
 			 * gain as a side-effect.
 			 */
 			analogueGain = std::min(analogueGain, exposureMode_->gain.back());
+			analogueGain = limitGain(analogueGain);
 			shutterTime = newShutterTime;
 		}
 		LOG(RPiAgc, Debug) << "After flicker avoidance, shutter "
@@ -876,11 +884,34 @@ void Agc::writeAndFinish(Metadata *imageMetadata, bool desaturate)
 			   << " analogue gain " << filtered_.analogueGain;
 }
 
-Duration Agc::clipShutter(Duration shutter)
+Duration Agc::limitShutter(Duration shutter)
 {
-	if (maxShutter_)
-		shutter = std::min(shutter, maxShutter_);
+	/*
+	 * shutter == 0 is a special case for fixed shutter values, and must pass
+	 * through unchanged
+	 */
+	if (!shutter)
+		return shutter;
+
+	shutter = std::clamp(shutter, mode_.minShutter, maxShutter_);
 	return shutter;
+}
+
+double Agc::limitGain(double gain) const
+{
+	/*
+	 * Only limit the lower bounds of the gain value to what the sensor limits.
+	 * The upper bound on analogue gain will be made up with additional digital
+	 * gain applied by the ISP.
+	 *
+	 * gain == 0.0 is a special case for fixed shutter values, and must pass
+	 * through unchanged
+	 */
+	if (!gain)
+		return gain;
+
+	gain = std::max(gain, mode_.minAnalogueGain);
+	return gain;
 }
 
 /* Register algorithm with the system. */

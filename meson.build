@@ -2,7 +2,7 @@
 
 project('libcamera', 'c', 'cpp',
     meson_version : '>= 0.56',
-    version : '0.0.3',
+    version : '0.0.5',
     default_options : [
         'werror=true',
         'warning_level=2',
@@ -11,40 +11,48 @@ project('libcamera', 'c', 'cpp',
     license : 'LGPL 2.1+')
 
 # Generate version information. The libcamera_git_version variable contains the
-# full version with git patch count and SHA1 (e.g. 1.2.3+211-c94a24f4), while
-# the libcamera_version variable contains the major.minor.patch (e.g. 1.2.3)
-# only. If the source tree isn't under git control, or if it matches the last
-# git version tag, the build metadata (e.g. +211-c94a24f4) is omitted from
-# libcamera_git_version.
+# full version with build metadata (patch count and SHA1, e.g.
+# 1.2.3+211-c94a24f4), while the libcamera_version variable contains the
+# major.minor.patch (e.g. 1.2.3) only.
+#
+# If the source tree matches the last git version tag, the build metadata
+# (e.g. +211-c94a24f4) is omitted from libcamera_git_version.
 libcamera_git_version = run_command('utils/gen-version.sh',
                                     meson.project_build_root(),
                                     meson.project_source_root(),
                                     check: false).stdout().strip()
+
+# If the source tree isn't under git control, set libcamera_git_version to the
+# meson project version.
 if libcamera_git_version == ''
     libcamera_git_version = meson.project_version()
 endif
 
 libcamera_version = libcamera_git_version.split('+')[0]
+project_version = meson.project_version().split('+')[0]
 
 # A shallow clone, or a clone without a reachable tag equivalent to the
 # meson.project_version() could leave the project in a mis-described state.
 # Produce a warning in this event, and fix to a best effort.
-if libcamera_version != meson.project_version()
-    warning('The sources disagree about the version: '
-            + libcamera_version + ' != ' + meson.project_version())
+if libcamera_version != project_version
+    warning('The sources and meson.build disagree about the version: '
+            + libcamera_version + ' != ' + project_version)
 
     summary({'libcamera git version' : libcamera_git_version,
              'Source version match' : false,
             },
             bool_yn : true, section : 'Versions')
 
-    # Replace the version components reported by git with the release version,
-    # but keep all trailing information supplied by git.
-    libcamera_git_version = (meson.project_version() +
-                             libcamera_git_version.strip(libcamera_version))
-    libcamera_version = meson.project_version()
+    # Re-run gen-version.sh to replace the git version (major.minor.patch) with
+    # the meson project version. The build metadata provided by git are kept.
+    libcamera_git_version = run_command('utils/gen-version.sh',
+                                        meson.project_build_root(),
+                                        meson.project_source_root(),
+                                        project_version,
+                                        check: false).stdout().strip()
+    libcamera_version = project_version
 
-    # Append a marker to show we have modified this version string
+    # Append a marker to show we have modified this version string.
     libcamera_git_version += '-nvm'
 endif
 
@@ -70,6 +78,10 @@ config_h = configuration_data()
 
 if cc.has_header_symbol('unistd.h', 'issetugid')
     config_h.set('HAVE_ISSETUGID', 1)
+endif
+
+if cc.has_header_symbol('locale.h', 'locale_t', prefix : '#define _GNU_SOURCE')
+    config_h.set('HAVE_LOCALE_T', 1)
 endif
 
 if cc.has_header_symbol('stdlib.h', 'secure_getenv', prefix : '#define _GNU_SOURCE')
@@ -124,6 +136,21 @@ if cc.get_id() == 'gcc'
         ]
     endif
 
+    # gcc 13 implements the C++23 version of automatic move from local
+    # variables in return statements (see
+    # https://en.cppreference.com/w/cpp/language/return). As a result, some
+    # previously required explicit std::move() in return statements generate
+    # warnings. Those moves can't be removed as older compiler versions could
+    # use copy constructors instead of move constructors. The easiest fix is to
+    # disable the warning. With -Wpessimizing-move enabled, the compiler will
+    # still warn of pessimizing moves, only the redundant but not pessimizing
+    # moves will be ignored.
+    if cc.version().version_compare('>=13')
+        cpp_arguments += [
+            '-Wno-redundant-move',
+        ]
+    endif
+
     # gcc 7.1 introduced processor-specific ABI breakages related to parameter
     # passing on ARM platforms. This generates a large number of messages
     # during compilation. Silence them.
@@ -160,13 +187,41 @@ liblttng = dependency('lttng-ust', required : get_option('tracing'))
 
 # Pipeline handlers
 #
-# Tests require the vimc pipeline handler, include it automatically when tests
-# are enabled.
 pipelines = get_option('pipelines')
 
-if get_option('test') and 'vimc' not in pipelines
-    message('Enabling vimc pipeline handler to support tests')
-    pipelines += ['vimc']
+arch_arm = ['arm', 'aarch64']
+arch_x86 = ['x86', 'x86_64']
+pipelines_support = {
+    'imx8-isi':     arch_arm,
+    'ipu3':         arch_x86,
+    'raspberrypi':  arch_arm,
+    'rkisp1':       arch_arm,
+    'simple':       arch_arm,
+    'uvcvideo':     ['any'],
+    'vimc':         ['test'],
+}
+
+if pipelines.contains('all')
+    pipelines = pipelines_support.keys()
+elif pipelines.contains('auto')
+    host_cpu = host_machine.cpu_family()
+    pipelines = []
+    foreach pipeline, archs : pipelines_support
+        if host_cpu in archs or 'any' in archs
+            pipelines += pipeline
+        endif
+    endforeach
+endif
+
+# Tests require the vimc pipeline handler, include it automatically when tests
+# are enabled.
+if get_option('test')
+    foreach pipeline, archs : pipelines_support
+        if 'test' in archs and pipeline not in pipelines
+            message('Enabling ' + pipeline + ' pipeline handler for tests')
+            pipelines += pipeline
+        endif
+    endforeach
 endif
 
 # Utilities are parsed first to provide support for other components.

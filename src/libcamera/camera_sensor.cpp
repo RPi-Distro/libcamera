@@ -55,7 +55,8 @@ LOG_DEFINE_CATEGORY(CameraSensor)
  */
 CameraSensor::CameraSensor(const MediaEntity *entity)
 	: entity_(entity), pad_(UINT_MAX), staticProps_(nullptr),
-	  bayerFormat_(nullptr), properties_(properties::properties)
+	  bayerFormat_(nullptr), supportFlips_(false),
+	  properties_(properties::properties)
 {
 }
 
@@ -248,6 +249,21 @@ int CameraSensor::validateSensorDriver()
 	}
 
 	/*
+	 * Verify if sensor supports horizontal/vertical flips
+	 *
+	 * \todo Handle horizontal and vertical flips independently.
+	 */
+	const struct v4l2_query_ext_ctrl *hflipInfo = subdev_->controlInfo(V4L2_CID_HFLIP);
+	const struct v4l2_query_ext_ctrl *vflipInfo = subdev_->controlInfo(V4L2_CID_VFLIP);
+	if (hflipInfo && !(hflipInfo->flags & V4L2_CTRL_FLAG_READ_ONLY) &&
+	    vflipInfo && !(vflipInfo->flags & V4L2_CTRL_FLAG_READ_ONLY))
+		supportFlips_ = true;
+
+	if (!supportFlips_)
+		LOG(CameraSensor, Debug)
+			<< "Camera sensor does not support horizontal/vertical flip";
+
+	/*
 	 * Make sure the required selection targets are supported.
 	 *
 	 * Failures in reading any of the targets are not deemed to be fatal,
@@ -427,7 +443,7 @@ int CameraSensor::initProperties()
 			LOG(CameraSensor, Warning)
 				<< "Unsupported camera location "
 				<< v4l2Orientation << ", setting to External";
-			/* Fall-through */
+			[[fallthrough]];
 		case V4L2_CAMERA_ORIENTATION_EXTERNAL:
 			propertyValue = properties::CameraLocationExternal;
 			break;
@@ -742,19 +758,58 @@ V4L2SubdeviceFormat CameraSensor::getFormat(const std::vector<unsigned int> &mbu
 /**
  * \brief Set the sensor output format
  * \param[in] format The desired sensor output format
+ * \param[in] transform The transform to be applied on the sensor.
+ * Defaults to Identity.
+ *
+ * If flips are writable they are configured according to the desired Transform.
+ * Transform::Identity always corresponds to H/V flip being disabled if the
+ * controls are writable. Flips are set before the new format is applied as
+ * they can effectively change the Bayer pattern ordering.
  *
  * The ranges of any controls associated with the sensor are also updated.
  *
  * \return 0 on success or a negative error code otherwise
  */
-int CameraSensor::setFormat(V4L2SubdeviceFormat *format)
+int CameraSensor::setFormat(V4L2SubdeviceFormat *format, Transform transform)
 {
+	/* Configure flips if the sensor supports that. */
+	if (supportFlips_) {
+		ControlList flipCtrls(subdev_->controls());
+
+		flipCtrls.set(V4L2_CID_HFLIP,
+			      static_cast<int32_t>(!!(transform & Transform::HFlip)));
+		flipCtrls.set(V4L2_CID_VFLIP,
+			      static_cast<int32_t>(!!(transform & Transform::VFlip)));
+
+		int ret = subdev_->setControls(&flipCtrls);
+		if (ret)
+			return ret;
+	}
+
+	/* Apply format on the subdev. */
 	int ret = subdev_->setFormat(pad_, format);
 	if (ret)
 		return ret;
 
 	updateControlInfo();
 	return 0;
+}
+
+/**
+ * \brief Try the sensor output format
+ * \param[in] format The desired sensor output format
+ *
+ * The ranges of any controls associated with the sensor are not updated.
+ *
+ * \todo Add support for Transform by changing the format's Bayer ordering
+ * before calling subdev_->setFormat().
+ *
+ * \return 0 on success or a negative error code otherwise
+ */
+int CameraSensor::tryFormat(V4L2SubdeviceFormat *format) const
+{
+	return subdev_->setFormat(pad_, format,
+				  V4L2Subdevice::Whence::TryFormat);
 }
 
 /**
@@ -945,6 +1000,77 @@ void CameraSensor::updateControlInfo()
  * \return The focus lens controller. nullptr if no focus lens controller is
  * connected to the sensor
  */
+
+/**
+ * \brief Validate a transform request against the sensor capabilities
+ * \param[inout] transform The requested transformation, updated to match
+ * the sensor capabilities
+ *
+ * The input \a transform is the transform that the caller wants, and it is
+ * adjusted according to the capabilities of the sensor to represent the
+ * "nearest" transform that can actually be delivered.
+ *
+ * The returned Transform is the transform applied to the sensor in order to
+ * produce the input \a transform, It is also validated against the sensor's
+ * ability to perform horizontal and vertical flips.
+ *
+ * For example, if the requested \a transform is Transform::Identity and the
+ * sensor rotation is 180 degrees, the output transform will be
+ * Transform::Rot180 to correct the images so that they appear to have
+ * Transform::Identity, but only if the sensor can apply horizontal and vertical
+ * flips.
+ *
+ * \return A Transform instance that represents which transformation has been
+ * applied to the camera sensor
+ */
+Transform CameraSensor::validateTransform(Transform *transform) const
+{
+	/* Adjust the requested transform to compensate the sensor rotation. */
+	int32_t rotation = properties().get(properties::Rotation).value_or(0);
+	bool success;
+
+	Transform rotationTransform = transformFromRotation(rotation, &success);
+	if (!success)
+		LOG(CameraSensor, Warning) << "Invalid rotation of " << rotation
+					   << " degrees - ignoring";
+
+	Transform combined = *transform * rotationTransform;
+
+	/*
+	 * We combine the platform and user transform, but must "adjust away"
+	 * any combined result that includes a transposition, as we can't do
+	 * those. In this case, flipping only the transpose bit is helpful to
+	 * applications - they either get the transform they requested, or have
+	 * to do a simple transpose themselves (they don't have to worry about
+	 * the other possible cases).
+	 */
+	if (!!(combined & Transform::Transpose)) {
+		/*
+		 * Flipping the transpose bit in "transform" flips it in the
+		 * combined result too (as it's the last thing that happens),
+		 * which is of course clearing it.
+		 */
+		*transform ^= Transform::Transpose;
+		combined &= ~Transform::Transpose;
+	}
+
+	/*
+	 * We also check if the sensor doesn't do h/vflips at all, in which
+	 * case we clear them, and the application will have to do everything.
+	 */
+	if (!supportFlips_ && !!combined) {
+		/*
+		 * If the sensor can do no transforms, then combined must be
+		 * changed to the identity. The only user transform that gives
+		 * rise to this is the inverse of the rotation. (Recall that
+		 * combined = transform * rotationTransform.)
+		 */
+		*transform = -rotationTransform;
+		combined = Transform::Identity;
+	}
+
+	return combined;
+}
 
 std::string CameraSensor::logPrefix() const
 {

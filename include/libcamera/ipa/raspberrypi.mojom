@@ -36,6 +36,9 @@ struct ISPConfig {
 struct IPAConfig {
 	uint32 transform;
 	libcamera.SharedFD lsTableHandle;
+	libcamera.ControlInfoMap sensorControls;
+	libcamera.ControlInfoMap ispControls;
+	libcamera.ControlInfoMap lensControls;
 };
 
 struct IPAConfigResult {
@@ -46,11 +49,10 @@ struct IPAConfigResult {
 struct StartConfig {
 	libcamera.ControlList controls;
 	int32 dropFrameCount;
-	uint32 maxSensorFrameLengthMs;
 };
 
 interface IPARPiInterface {
-	init(libcamera.IPASettings settings)
+	init(libcamera.IPASettings settings, bool lensPresent)
 		=> (int32 ret, IPAInitResult result);
 	start(libcamera.ControlList controls) => (StartConfig startConfig);
 	stop();
@@ -59,8 +61,6 @@ interface IPARPiInterface {
 	 * \fn configure()
 	 * \brief Configure the IPA stream and sensor settings
 	 * \param[in] sensorInfo Camera sensor information
-	 * \param[in] streamConfig Configuration of all active streams
-	 * \param[in] entityControls Controls provided by the pipeline entities
 	 * \param[in] ipaConfig Pipeline-handler-specific configuration data
 	 * \param[out] controls Controls to apply by the pipeline entity
 	 * \param[out] result Other results that the pipeline handler may require
@@ -75,8 +75,6 @@ interface IPARPiInterface {
 	 * pipeline handler to the IPA and back.
 	 */
 	configure(libcamera.IPACameraSensorInfo sensorInfo,
-		  map<uint32, libcamera.IPAStream> streamConfig,
-		  map<uint32, libcamera.ControlInfoMap> entityControls,
 		  IPAConfig ipaConfig)
 		=> (int32 ret, libcamera.ControlList controls, IPAConfigResult result);
 
@@ -132,4 +130,6 @@ interface IPARPiEventInterface {
 	embeddedComplete(uint32 bufferId);
 	setIspControls(libcamera.ControlList controls);
 	setDelayedControls(libcamera.ControlList controls, uint32 delayContext);
+	setLensControls(libcamera.ControlList controls);
+	setCameraTimeout(uint32 maxFrameLengthMs);
 };

@@ -140,6 +140,22 @@ const std::map<BayerFormat, Formats, BayerFormatComparator> bayerToFormat{
 		{ formats::SGRBG12_CSI2P, V4L2PixelFormat(V4L2_PIX_FMT_SGRBG12P) } },
 	{ { BayerFormat::RGGB, 12, BayerFormat::Packing::CSI2 },
 		{ formats::SRGGB12_CSI2P, V4L2PixelFormat(V4L2_PIX_FMT_SRGGB12P) } },
+	{ { BayerFormat::BGGR, 14, BayerFormat::Packing::None },
+		{ formats::SBGGR14, V4L2PixelFormat(V4L2_PIX_FMT_SBGGR14) } },
+	{ { BayerFormat::GBRG, 14, BayerFormat::Packing::None },
+		{ formats::SGBRG14, V4L2PixelFormat(V4L2_PIX_FMT_SGBRG14) } },
+	{ { BayerFormat::GRBG, 14, BayerFormat::Packing::None },
+		{ formats::SGRBG14, V4L2PixelFormat(V4L2_PIX_FMT_SGRBG14) } },
+	{ { BayerFormat::RGGB, 14, BayerFormat::Packing::None },
+		{ formats::SRGGB14, V4L2PixelFormat(V4L2_PIX_FMT_SRGGB14) } },
+	{ { BayerFormat::BGGR, 14, BayerFormat::Packing::CSI2 },
+		{ formats::SBGGR14_CSI2P, V4L2PixelFormat(V4L2_PIX_FMT_SBGGR14P) } },
+	{ { BayerFormat::GBRG, 14, BayerFormat::Packing::CSI2 },
+		{ formats::SGBRG14_CSI2P, V4L2PixelFormat(V4L2_PIX_FMT_SGBRG14P) } },
+	{ { BayerFormat::GRBG, 14, BayerFormat::Packing::CSI2 },
+		{ formats::SGRBG14_CSI2P, V4L2PixelFormat(V4L2_PIX_FMT_SGRBG14P) } },
+	{ { BayerFormat::RGGB, 14, BayerFormat::Packing::CSI2 },
+		{ formats::SRGGB14_CSI2P, V4L2PixelFormat(V4L2_PIX_FMT_SRGGB14P) } },
 	{ { BayerFormat::BGGR, 16, BayerFormat::Packing::None },
 		{ formats::SBGGR16, V4L2PixelFormat(V4L2_PIX_FMT_SBGGR16) } },
 	{ { BayerFormat::GBRG, 16, BayerFormat::Packing::None },
@@ -356,11 +372,14 @@ BayerFormat BayerFormat::fromPixelFormat(PixelFormat format)
  * \brief Apply a transform to this BayerFormat
  * \param[in] t The transform to apply
  *
- * Appplying a transform to an image stored in a Bayer format affects the Bayer
- * order. For example, performing a horizontal flip on the Bayer pattern
- * RGGB causes the RG rows of pixels to become GR, and the GB rows to become BG.
- * The transformed image would have a GRBG order. The bit depth and modifiers
- * are not affected.
+ * Applying a transform to an image stored in a Bayer format affects the Bayer
+ * order. For example, performing a horizontal flip on the Bayer pattern RGGB
+ * causes the RG rows of pixels to become GR, and the GB rows to become BG. The
+ * transformed image would have a GRBG order. Performing a vertical flip on the
+ * Bayer pattern RGGB causes the GB rows to come before the RG ones and the
+ * transformed image would have GBRG order. Applying both vertical and
+ * horizontal flips on the Bayer patter RGGB results in transformed images with
+ * BGGR order. The bit depth and modifiers are not affected.
  *
  * Horizontal and vertical flips are applied before transpose.
  *
@@ -375,8 +394,11 @@ BayerFormat BayerFormat::transform(Transform t) const
 
 	/*
 	 * Observe that flipping bit 0 of the Order enum performs a horizontal
-	 * mirror on the Bayer pattern (e.g. RGGB goes to GRBG). Similarly,
-	 * flipping bit 1 performs a vertical mirror operation on it. Hence:
+	 * mirror on the Bayer pattern (e.g. RG/GB goes to GR/BG). Similarly,
+	 * flipping bit 1 performs a vertical mirror operation on it (e.g RG/GB
+	 * goes to GB/RG). Applying both vertical and horizontal flips
+	 * combines vertical and horizontal mirroring on the Bayer pattern
+	 * (e.g. RG/GB goes to BG/GR). Hence:
 	 */
 	if (!!(t & Transform::HFlip))
 		result.order = static_cast<Order>(result.order ^ 1);
