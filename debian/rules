@@ -26,6 +26,11 @@ override_dh_strip:
 	MESON_INSTALL_DESTDIR_PREFIX=. ./src/ipa/ipa-sign-install.sh \
 		./obj-${DEB_HOST_GNU_TYPE}/src/ipa-priv-key.pem \
 		debian/libcamera-ipa/usr/lib/${DEB_HOST_MULTIARCH}/libcamera/ipa_*.so
+#	for IPA_MOD in debian/libcamera-ipa/usr/lib/*/libcamera/ipa_*.so;
+#	do
+#	  echo "Verifying signature of $IPA_MOD"
+#	  FIXME/ipa_verify "$IPA_MOD"
+#	done
 
 .PHONY: licensecheck
 licensecheck:
