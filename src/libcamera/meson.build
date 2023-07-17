@@ -58,6 +58,8 @@ includes = [
     libcamera_includes,
 ]
 
+libcamera_deps = []
+
 libatomic = cc.find_library('atomic', required : false)
 libthreads = dependency('threads')
 
@@ -74,7 +76,7 @@ libdl = null_dep
 if not cc.has_function('dlopen')
     libdl = cc.find_library('dl')
 endif
-libudev = dependency('libudev', required : false)
+libudev = dependency('libudev', required : get_option('udev'))
 libyaml = dependency('yaml-0.1', required : false)
 
 # Use one of gnutls or libcrypto (provided by OpenSSL), trying gnutls first.
@@ -91,9 +93,9 @@ endif
 if not libcrypto.found()
     warning('Neither gnutls nor libcrypto found, all IPA modules will be isolated')
     summary({'IPA modules signed with': 'None (modules will run isolated)'},
-            section: 'Configuration')
+            section : 'Configuration')
 else
-    summary({'IPA modules signed with': libcrypto.name()}, section: 'Configuration')
+    summary({'IPA modules signed with' : libcrypto.name()}, section : 'Configuration')
 endif
 
 if liblttng.found()
@@ -154,7 +156,7 @@ if ipa_sign_module
     libcamera_sources += ipa_pub_key_cpp
 endif
 
-libcamera_deps = [
+libcamera_deps += [
     libatomic,
     libcamera_base,
     libcamera_base_private,

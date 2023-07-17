@@ -148,7 +148,7 @@ public:
 	PipelineHandlerRkISP1(CameraManager *manager);
 
 	std::unique_ptr<CameraConfiguration> generateConfiguration(Camera *camera,
-		const StreamRoles &roles) override;
+								   Span<const StreamRole> roles) override;
 	int configure(Camera *camera, CameraConfiguration *config) override;
 
 	int exportFrameBuffers(Camera *camera, Stream *stream,
@@ -162,6 +162,8 @@ public:
 	bool match(DeviceEnumerator *enumerator) override;
 
 private:
+	static constexpr Size kRkISP1PreviewSize = { 1920, 1080 };
+
 	RkISP1CameraData *cameraData(Camera *camera)
 	{
 		return static_cast<RkISP1CameraData *>(camera->_d());
@@ -609,7 +611,7 @@ PipelineHandlerRkISP1::PipelineHandlerRkISP1(CameraManager *manager)
 
 std::unique_ptr<CameraConfiguration>
 PipelineHandlerRkISP1::generateConfiguration(Camera *camera,
-	const StreamRoles &roles)
+					     Span<const StreamRole> roles)
 {
 	RkISP1CameraData *data = cameraData(camera);
 
@@ -630,36 +632,37 @@ PipelineHandlerRkISP1::generateConfiguration(Camera *camera,
 	 * first stream and use it for all streams.
 	 */
 	std::optional<ColorSpace> colorSpace;
-
 	bool mainPathAvailable = true;
-	bool selfPathAvailable = data->selfPath_;
 
 	for (const StreamRole role : roles) {
-		bool useMainPath;
+		Size size;
 
 		switch (role) {
 		case StreamRole::StillCapture:
-			useMainPath = mainPathAvailable;
 			/* JPEG encoders typically expect sYCC. */
 			if (!colorSpace)
 				colorSpace = ColorSpace::Sycc;
+
+			size = data->sensor_->resolution();
 			break;
 
 		case StreamRole::Viewfinder:
-			useMainPath = !selfPathAvailable;
 			/*
 			 * sYCC is the YCbCr encoding of sRGB, which is commonly
 			 * used by displays.
 			 */
 			if (!colorSpace)
 				colorSpace = ColorSpace::Sycc;
+
+			size = kRkISP1PreviewSize;
 			break;
 
 		case StreamRole::VideoRecording:
-			useMainPath = !selfPathAvailable;
 			/* Rec. 709 is a good default for HD video recording. */
 			if (!colorSpace)
 				colorSpace = ColorSpace::Rec709;
+
+			size = kRkISP1PreviewSize;
 			break;
 
 		case StreamRole::Raw:
@@ -669,8 +672,8 @@ PipelineHandlerRkISP1::generateConfiguration(Camera *camera,
 				return nullptr;
 			}
 
-			useMainPath = true;
 			colorSpace = ColorSpace::Raw;
+			size = data->sensor_->resolution();
 			break;
 
 		default:
@@ -679,18 +682,25 @@ PipelineHandlerRkISP1::generateConfiguration(Camera *camera,
 			return nullptr;
 		}
 
+		/*
+		 * Prefer the main path if available, as it supports higher
+		 * resolutions.
+		 *
+		 * \todo Using the main path unconditionally hides support for
+		 * RGB (only available on the self path) in the streams formats
+		 * exposed to applications. This likely calls for a better API
+		 * to expose streams capabilities.
+		 */
 		RkISP1Path *path;
-
-		if (useMainPath) {
+		if (mainPathAvailable) {
 			path = data->mainPath_;
 			mainPathAvailable = false;
 		} else {
 			path = data->selfPath_;
-			selfPathAvailable = false;
 		}
 
 		StreamConfiguration cfg =
-			path->generateConfiguration(data->sensor_.get(), role);
+			path->generateConfiguration(data->sensor_.get(), size, role);
 		if (!cfg.pixelFormat.isValid())
 			return nullptr;
 

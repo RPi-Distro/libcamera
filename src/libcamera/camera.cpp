@@ -397,8 +397,7 @@ CameraConfiguration::Status CameraConfiguration::validateColorSpaces(ColorSpaceF
  *
  * The transform is a user-specified 2D plane transform that will be applied
  * to the camera images by the processing pipeline before being handed to
- * the application. This is subsequent to any transform that is already
- * required to fix up any platform-defined rotation.
+ * the application.
  *
  * The usual 2D plane transforms are allowed here (horizontal/vertical
  * flips, multiple of 90-degree rotations etc.), but the validate() function
@@ -938,7 +937,7 @@ const std::set<Stream *> &Camera::streams() const
  * \return A CameraConfiguration if the requested roles can be satisfied, or a
  * null pointer otherwise.
  */
-std::unique_ptr<CameraConfiguration> Camera::generateConfiguration(const StreamRoles &roles)
+std::unique_ptr<CameraConfiguration> Camera::generateConfiguration(Span<const StreamRole> roles)
 {
 	Private *const d = _d();
 
@@ -970,6 +969,12 @@ std::unique_ptr<CameraConfiguration> Camera::generateConfiguration(const StreamR
 
 	return config;
 }
+
+/**
+ * \fn std::unique_ptr<CameraConfiguration> \
+ *     Camera::generateConfiguration(std::initializer_list<StreamRole> roles)
+ * \overload
+ */
 
 /**
  * \brief Configure the camera prior to capture
