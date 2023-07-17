@@ -13,6 +13,7 @@ override_dh_auto_configure:
 	dh_auto_configure -- \
 		--libexecdir=lib/${DEB_HOST_MULTIARCH} \
 		-Dgstreamer=enabled \
+		-Dpycamera=enabled \
 		-Dv4l2=true \
 		-Dtest=true \
 		$(empty)
