@@ -1,13 +1,23 @@
 libcamera (0.1.0-1) UNRELEASED; urgency=medium
 
   * New upstream version 0.1.0
+  * Bump SONAME to libcamera0.1
+  * Build python bindings:
+      - New binary package: python3-libcamera
+      - New Build-Deps: libpython3-dev and python3-pybind11
+  * Move v4l2-compat.so from usr/lib/*/ to usr/lib/*/libcamera/
+  * Install ipa_verify and use it to check IPA signatures
+  * Verify modules signatures after resigning
+  * Add new test verifying the signature of IPA modules
   * Disable doxygen-latex in Build-Deps for sh4
   * Disable scan of git HEAD in the watch file to avoid confusing
       tracker.debian.org
-  * Add new test verifying the signature of IPA modules
-  * Verify modules signatures after resigning
+  * Refresh debian/patches/ppc64el-fix-ftbfs-gcc.patch
+  * Drop debian/libcamera-v4l2.lintian-overrides, no longer required
+  * Disable reprotest on salsa-ci
+  * Refresh debian/copyright
 
- -- Dylan Aïssi <daissi@debian.org>  Mon, 17 Jul 2023 09:51:58 +0200
+ -- Dylan Aïssi <daissi@debian.org>  Mon, 17 Jul 2023 12:19:42 +0200
 
 libcamera (0.0.5-2) unstable; urgency=medium
 
