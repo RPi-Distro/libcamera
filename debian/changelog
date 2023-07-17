@@ -1,4 +1,4 @@
-libcamera (0.1.0-1) UNRELEASED; urgency=medium
+libcamera (0.1.0-1) experimental; urgency=medium
 
   * New upstream version 0.1.0
   * Bump SONAME to libcamera0.1
@@ -17,7 +17,7 @@ libcamera (0.1.0-1) UNRELEASED; urgency=medium
   * Disable reprotest on salsa-ci
   * Refresh debian/copyright
 
- -- Dylan Aïssi <daissi@debian.org>  Mon, 17 Jul 2023 12:19:42 +0200
+ -- Dylan Aïssi <daissi@debian.org>  Mon, 17 Jul 2023 14:49:07 +0200
 
 libcamera (0.0.5-2) unstable; urgency=medium
 
