@@ -439,6 +439,11 @@ public:
 };
 REGISTER_CAMERA_SENSOR_HELPER("imx296", CameraSensorHelperImx296)
 
+class CameraSensorHelperImx327 : public CameraSensorHelperImx290
+{
+};
+REGISTER_CAMERA_SENSOR_HELPER("imx327", CameraSensorHelperImx327)
+
 class CameraSensorHelperImx477 : public CameraSensorHelper
 {
 public:

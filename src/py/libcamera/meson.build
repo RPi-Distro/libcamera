@@ -7,17 +7,23 @@ if not py3_dep.found()
     subdir_done()
 endif
 
-pycamera_enabled = true
+pybind11_dep = dependency('pybind11', required : get_option('pycamera'))
 
-pybind11_proj = subproject('pybind11')
-pybind11_dep = pybind11_proj.get_variable('pybind11_dep')
+if not pybind11_dep.found()
+    pycamera_enabled = false
+    subdir_done()
+endif
+
+pycamera_enabled = true
 
 pycamera_sources = files([
     'py_camera_manager.cpp',
+    'py_color_space.cpp',
     'py_enums.cpp',
     'py_geometry.cpp',
     'py_helpers.cpp',
     'py_main.cpp',
+    'py_transform.cpp',
 ])
 
 # Generate controls
@@ -87,11 +93,11 @@ pycamera = shared_module('_libcamera',
 
 run_command('ln', '-fsrT', files('__init__.py'),
             meson.current_build_dir() / '__init__.py',
-            check: true)
+            check : true)
 
 run_command('ln', '-fsrT', meson.current_source_dir() / 'utils',
             meson.current_build_dir() / 'utils',
-            check: true)
+            check : true)
 
 install_data(['__init__.py'], install_dir : destdir)
 

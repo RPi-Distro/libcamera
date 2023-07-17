@@ -183,7 +183,7 @@ to the libcamera build options in the top level ``meson_options.txt``.
 
    option('pipelines',
            type : 'array',
-           choices : ['ipu3', 'raspberrypi', 'rkisp1', 'simple', 'uvcvideo', 'vimc', 'vivid'],
+           choices : ['ipu3', 'rkisp1', 'rpi/vc4', 'simple', 'uvcvideo', 'vimc', 'vivid'],
            description : 'Select which pipeline handlers to include')
 
 
@@ -203,7 +203,7 @@ implementations for the overridden class members.
           PipelineHandlerVivid(CameraManager *manager);
 
           CameraConfiguration *generateConfiguration(Camera *camera,
-          const StreamRoles &roles) override;
+          Span<const StreamRole> roles) override;
           int configure(Camera *camera, CameraConfiguration *config) override;
 
           int exportFrameBuffers(Camera *camera, Stream *stream,
@@ -223,7 +223,7 @@ implementations for the overridden class members.
    }
 
    CameraConfiguration *PipelineHandlerVivid::generateConfiguration(Camera *camera,
-                                                                    const StreamRoles &roles)
+                                                                    Span<const StreamRole> roles)
    {
           return nullptr;
    }

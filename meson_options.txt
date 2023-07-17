@@ -27,7 +27,7 @@ option('gstreamer',
 
 option('ipas',
         type : 'array',
-        choices : ['ipu3', 'raspberrypi', 'rkisp1', 'vimc'],
+        choices : ['ipu3', 'rkisp1', 'rpi/vc4', 'vimc'],
         description : 'Select which IPA modules to build')
 
 option('lc-compliance',
@@ -43,8 +43,8 @@ option('pipelines',
             'auto',
             'imx8-isi',
             'ipu3',
-            'raspberrypi',
             'rkisp1',
+            'rpi/vc4',
             'simple',
             'uvcvideo',
             'vimc'
@@ -59,12 +59,17 @@ option('qcam',
 option('test',
         type : 'boolean',
         value : false,
-        description: 'Compile and include the tests')
+        description : 'Compile and include the tests')
 
 option('tracing',
         type : 'feature',
         value : 'auto',
-        description: 'Enable tracing (based on lttng)')
+        description : 'Enable tracing (based on lttng)')
+
+option('udev',
+       type : 'feature',
+       value : 'auto',
+       description : 'Enable udev support for hotplug')
 
 option('v4l2',
         type : 'boolean',
