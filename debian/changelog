@@ -1,3 +1,14 @@
+libcamera (0.1.0-1) UNRELEASED; urgency=medium
+
+  * New upstream version 0.1.0
+  * Disable doxygen-latex in Build-Deps for sh4
+  * Disable scan of git HEAD in the watch file to avoid confusing
+      tracker.debian.org
+  * Add new test verifying the signature of IPA modules
+  * Verify modules signatures after resigning
+
+ -- Dylan Aïssi <daissi@debian.org>  Mon, 17 Jul 2023 09:51:58 +0200
+
 libcamera (0.0.5-2) unstable; urgency=medium
 
   * Upload to unstable
