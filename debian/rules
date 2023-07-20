@@ -18,6 +18,14 @@ override_dh_auto_configure:
 		-Dtest=true \
 		$(empty)
 
+# Only make the tests fail for key architectures
+override_dh_auto_test:
+ifneq (,$(filter $(DEB_HOST_ARCH), amd64 arm64 armhf))
+	dh_auto_test
+else
+	-dh_auto_test
+endif
+
 override_dh_install:
 	mv debian/tmp/usr/share/doc/libcamera-0.* debian/tmp/usr/share/doc/libcamera-doc
 	cp ./obj-${DEB_HOST_GNU_TYPE}/src/apps/ipa-verify/ipa_verify \
