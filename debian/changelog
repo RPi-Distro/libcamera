@@ -1,3 +1,11 @@
+libcamera (0.1.0-2) unstable; urgency=medium
+
+  * Only make the tests fail for key architectures: amd64 arm64 armhf
+  * Add texlive-latex-extra as alternative to doxygen-latex in Build-deps
+  * Upload to unstable
+
+ -- Dylan Aïssi <daissi@debian.org>  Sat, 22 Jul 2023 11:11:04 +0200
+
 libcamera (0.1.0-1) experimental; urgency=medium
 
   * New upstream version 0.1.0
