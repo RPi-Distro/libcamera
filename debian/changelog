@@ -1,3 +1,9 @@
+libcamera (0.1.0-3) UNRELEASED; urgency=medium
+
+  * Cherry-pick upstream patch fixing build with sphinx 7 (Closes: #1042634)
+
+ -- Dylan Aïssi <daissi@debian.org>  Tue, 01 Aug 2023 11:49:37 +0200
+
 libcamera (0.1.0-2) unstable; urgency=medium
 
   * Only make the tests fail for key architectures: amd64 arm64 armhf
