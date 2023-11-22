@@ -22,6 +22,7 @@
 #include "controller/agc_status.h"
 #include "controller/camera_mode.h"
 #include "controller/controller.h"
+#include "controller/hdr_status.h"
 #include "controller/metadata.h"
 
 namespace libcamera {
@@ -67,6 +68,7 @@ private:
 	static constexpr unsigned int numMetadataContexts = 16;
 
 	virtual int32_t platformInit(const InitParams &params, InitResult *result) = 0;
+	virtual int32_t platformStart(const ControlList &controls, StartResult *result) = 0;
 	virtual int32_t platformConfigure(const ConfigParams &params, ConfigResult *result) = 0;
 
 	virtual void platformPrepareIsp(const PrepareParams &params,
@@ -116,6 +118,19 @@ private:
 	/* Frame duration (1/fps) limits. */
 	utils::Duration minFrameDuration_;
 	utils::Duration maxFrameDuration_;
+
+	/* The current state of flicker avoidance. */
+	struct FlickerState {
+		int32_t mode;
+		utils::Duration manualPeriod;
+	} flickerState_;
+
+protected:
+	/* Remember the HDR status after a mode switch. */
+	HdrStatus hdrStatus_;
+
+	/* Whether the stitch block (if available) needs to swap buffers. */
+	bool stitchSwapBuffers_;
 };
 
 } /* namespace ipa::RPi */

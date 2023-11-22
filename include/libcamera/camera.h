@@ -9,6 +9,7 @@
 
 #include <initializer_list>
 #include <memory>
+#include <optional>
 #include <set>
 #include <stdint.h>
 #include <string>
@@ -19,9 +20,10 @@
 #include <libcamera/base/signal.h>
 
 #include <libcamera/controls.h>
+#include <libcamera/geometry.h>
+#include <libcamera/orientation.h>
 #include <libcamera/request.h>
 #include <libcamera/stream.h>
-#include <libcamera/transform.h>
 
 namespace libcamera {
 
@@ -29,6 +31,30 @@ class FrameBuffer;
 class FrameBufferAllocator;
 class PipelineHandler;
 class Request;
+
+class SensorConfiguration
+{
+public:
+	unsigned int bitDepth = 0;
+
+	Rectangle analogCrop;
+
+	struct {
+		unsigned int binX = 1;
+		unsigned int binY = 1;
+	} binning;
+
+	struct {
+		unsigned int xOddInc = 1;
+		unsigned int xEvenInc = 1;
+		unsigned int yOddInc = 1;
+		unsigned int yEvenInc = 1;
+	} skipping;
+
+	Size outputSize;
+
+	bool isValid() const;
+};
 
 class CameraConfiguration
 {
@@ -66,7 +92,8 @@ public:
 	bool empty() const;
 	std::size_t size() const;
 
-	Transform transform;
+	std::optional<SensorConfiguration> sensorConfig;
+	Orientation orientation;
 
 protected:
 	CameraConfiguration();

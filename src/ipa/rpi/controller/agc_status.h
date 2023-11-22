@@ -10,9 +10,13 @@
 
 #include <libcamera/base/utils.h>
 
+#include "hdr_status.h"
+
 /*
- * The AGC algorithm should post the following structure into the image's
- * "agc.status" metadata.
+ * The AGC algorithm process method should post an AgcStatus into the image
+ * metadata under the tag "agc.status".
+ * The AGC algorithm prepare method should post an AgcPrepareStatus instead
+ * under "agc.prepare_status".
  */
 
 /*
@@ -34,6 +38,11 @@ struct AgcStatus {
 	int floatingRegionEnable;
 	libcamera::utils::Duration fixedShutter;
 	double fixedAnalogueGain;
+	unsigned int channel;
+	HdrStatus hdr;
+};
+
+struct AgcPrepareStatus {
 	double digitalGain;
 	int locked;
 };

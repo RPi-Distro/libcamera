@@ -11,6 +11,7 @@
 #include <linux/bcm2835-isp.h>
 
 #include <libcamera/base/log.h>
+#include <libcamera/control_ids.h>
 #include <libcamera/ipa/ipa_module_info.h>
 
 #include "common/ipa_base.h"
@@ -51,6 +52,7 @@ public:
 
 private:
 	int32_t platformInit(const InitParams &params, InitResult *result) override;
+	int32_t platformStart(const ControlList &controls, StartResult *result) override;
 	int32_t platformConfigure(const ConfigParams &params, ConfigResult *result) override;
 
 	void platformPrepareIsp(const PrepareParams &params, RPiController::Metadata &rpiMetadata) override;
@@ -60,7 +62,7 @@ private:
 	bool validateIspControls();
 
 	void applyAWB(const struct AwbStatus *awbStatus, ControlList &ctrls);
-	void applyDG(const struct AgcStatus *dgStatus, ControlList &ctrls);
+	void applyDG(const struct AgcPrepareStatus *dgStatus, ControlList &ctrls);
 	void applyCCM(const struct CcmStatus *ccmStatus, ControlList &ctrls);
 	void applyBlackLevel(const struct BlackLevelStatus *blackLevelStatus, ControlList &ctrls);
 	void applyGamma(const struct ContrastStatus *contrastStatus, ControlList &ctrls);
@@ -91,6 +93,12 @@ int32_t IpaVc4::platformInit([[maybe_unused]] const InitParams &params, [[maybe_
 		return -EINVAL;
 	}
 
+	return 0;
+}
+
+int32_t IpaVc4::platformStart([[maybe_unused]] const ControlList &controls,
+			      [[maybe_unused]] StartResult *result)
+{
 	return 0;
 }
 
@@ -142,7 +150,7 @@ void IpaVc4::platformPrepareIsp([[maybe_unused]] const PrepareParams &params,
 	if (ccmStatus)
 		applyCCM(ccmStatus, ctrls);
 
-	AgcStatus *dgStatus = rpiMetadata.getLocked<AgcStatus>("agc.status");
+	AgcPrepareStatus *dgStatus = rpiMetadata.getLocked<AgcPrepareStatus>("agc.prepare_status");
 	if (dgStatus)
 		applyDG(dgStatus, ctrls);
 
@@ -191,7 +199,7 @@ RPiController::StatisticsPtr IpaVc4::platformProcessStats(Span<uint8_t> mem)
 	using namespace RPiController;
 
 	const bcm2835_isp_stats *stats = reinterpret_cast<bcm2835_isp_stats *>(mem.data());
-	StatisticsPtr statistics = std::make_unique<Statistics>(Statistics::AgcStatsPos::PreWb,
+	StatisticsPtr statistics = std::make_shared<Statistics>(Statistics::AgcStatsPos::PreWb,
 								Statistics::ColourStatsPos::PostLsc);
 	const Controller::HardwareConfig &hw = controller_.getHardwareConfig();
 	unsigned int i;
@@ -240,9 +248,39 @@ RPiController::StatisticsPtr IpaVc4::platformProcessStats(Span<uint8_t> mem)
 	return statistics;
 }
 
-void IpaVc4::handleControls([[maybe_unused]] const ControlList &controls)
+void IpaVc4::handleControls(const ControlList &controls)
 {
-	/* No controls require any special updates to the hardware configuration. */
+	static const std::map<int32_t, RPiController::DenoiseMode> DenoiseModeTable = {
+		{ controls::draft::NoiseReductionModeOff, RPiController::DenoiseMode::Off },
+		{ controls::draft::NoiseReductionModeFast, RPiController::DenoiseMode::ColourFast },
+		{ controls::draft::NoiseReductionModeHighQuality, RPiController::DenoiseMode::ColourHighQuality },
+		{ controls::draft::NoiseReductionModeMinimal, RPiController::DenoiseMode::ColourOff },
+		{ controls::draft::NoiseReductionModeZSL, RPiController::DenoiseMode::ColourHighQuality },
+	};
+
+	for (auto const &ctrl : controls) {
+		switch (ctrl.first) {
+		case controls::NOISE_REDUCTION_MODE: {
+			RPiController::DenoiseAlgorithm *sdn = dynamic_cast<RPiController::DenoiseAlgorithm *>(
+				controller_.getAlgorithm("SDN"));
+			/* Some platforms may have a combined "denoise" algorithm instead. */
+			if (!sdn)
+				sdn = dynamic_cast<RPiController::DenoiseAlgorithm *>(
+					controller_.getAlgorithm("denoise"));
+			if (!sdn) {
+				LOG(IPARPI, Warning)
+					<< "Could not set NOISE_REDUCTION_MODE - no SDN algorithm";
+				return;
+			}
+
+			int32_t idx = ctrl.second.get<int32_t>();
+			auto mode = DenoiseModeTable.find(idx);
+			if (mode != DenoiseModeTable.end())
+				sdn->setMode(mode->second);
+			break;
+		}
+		}
+	}
 }
 
 bool IpaVc4::validateIspControls()
@@ -284,7 +322,7 @@ void IpaVc4::applyAWB(const struct AwbStatus *awbStatus, ControlList &ctrls)
 		  static_cast<int32_t>(awbStatus->gainB * 1000));
 }
 
-void IpaVc4::applyDG(const struct AgcStatus *dgStatus, ControlList &ctrls)
+void IpaVc4::applyDG(const struct AgcPrepareStatus *dgStatus, ControlList &ctrls)
 {
 	ctrls.set(V4L2_CID_DIGITAL_GAIN,
 		  static_cast<int32_t>(dgStatus->digitalGain * 1000));

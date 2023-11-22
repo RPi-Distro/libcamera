@@ -8,17 +8,23 @@ rpi_ipa_controller_sources = files([
     'pwl.cpp',
     'rpi/af.cpp',
     'rpi/agc.cpp',
+    'rpi/agc_channel.cpp',
     'rpi/alsc.cpp',
     'rpi/awb.cpp',
     'rpi/black_level.cpp',
+    'rpi/cac.cpp',
     'rpi/ccm.cpp',
     'rpi/contrast.cpp',
+    'rpi/denoise.cpp',
     'rpi/dpc.cpp',
     'rpi/geq.cpp',
+    'rpi/hdr.cpp',
     'rpi/lux.cpp',
     'rpi/noise.cpp',
+    'rpi/saturation.cpp',
     'rpi/sdn.cpp',
     'rpi/sharpen.cpp',
+    'rpi/tonemap.cpp',
 ])
 
 rpi_ipa_controller_deps = [

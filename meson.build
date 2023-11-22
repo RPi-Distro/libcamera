@@ -99,17 +99,23 @@ if cc.get_id() == 'clang'
         error('clang version is too old, libcamera requires 9.0 or newer')
     endif
 
-    # Turn _FORTIFY_SOURCE by default on optimised builds (as it requires -O1
-    # or higher). This is needed on clang only as gcc enables it by default.
+    # Turn _FORTIFY_SOURCE by default on. This is needed on clang only as gcc
+    # enables it by default. FORTIFY will not work properly with `-O0`, and may
+    # result in macro redefinition errors if the user already has a setting for
+    # `-D_FORTIFY_SOURCE`. Do not enable FORTIFY in either of those cases.
     if get_option('optimization') != '0'
-        common_arguments += [
-            '-D_FORTIFY_SOURCE=2',
-        ]
+        fortify = cc.get_define('_FORTIFY_SOURCE')
+        if fortify == ''
+            message('Adding _FORTIFY_SOURCE')
+            common_arguments += [
+                '-D_FORTIFY_SOURCE=2',
+            ]
+        endif
     endif
 
     # Use libc++ by default if available instead of libstdc++ when compiling
     # with clang.
-    if cc.find_library('libc++', required : false).found()
+    if cc.find_library('c++', required : false).found()
         cpp_arguments += [
             '-stdlib=libc++',
         ]
@@ -193,6 +199,7 @@ pipelines_support = {
     'imx8-isi':     arch_arm,
     'ipu3':         arch_x86,
     'rkisp1':       arch_arm,
+    'rpi/pisp':     arch_arm,
     'rpi/vc4':      arch_arm,
     'simple':       arch_arm,
     'uvcvideo':     ['any'],

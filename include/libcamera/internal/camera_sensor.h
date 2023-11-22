@@ -17,6 +17,7 @@
 #include <libcamera/control_ids.h>
 #include <libcamera/controls.h>
 #include <libcamera/geometry.h>
+#include <libcamera/orientation.h>
 #include <libcamera/transform.h>
 
 #include <libcamera/ipa/core_ipa_interface.h>
@@ -29,8 +30,11 @@ namespace libcamera {
 class BayerFormat;
 class CameraLens;
 class MediaEntity;
+class SensorConfiguration;
 
 struct CameraSensorProperties;
+
+enum class Orientation;
 
 class CameraSensor : protected Loggable
 {
@@ -58,6 +62,10 @@ public:
 		      Transform transform = Transform::Identity);
 	int tryFormat(V4L2SubdeviceFormat *format) const;
 
+	int applyConfiguration(const SensorConfiguration &config,
+			       Transform transform = Transform::Identity,
+			       V4L2SubdeviceFormat *sensorFormat = nullptr);
+
 	const ControlInfoMap &controls() const;
 	ControlList getControls(const std::vector<uint32_t> &ids);
 	int setControls(ControlList *ctrls);
@@ -71,7 +79,7 @@ public:
 
 	CameraLens *focusLens() { return focusLens_.get(); }
 
-	Transform validateTransform(Transform *transform) const;
+	Transform computeTransform(Orientation *orientation) const;
 
 protected:
 	std::string logPrefix() const override;
@@ -107,6 +115,7 @@ private:
 	Rectangle activeArea_;
 	const BayerFormat *bayerFormat_;
 	bool supportFlips_;
+	Orientation mountingOrientation_;
 
 	ControlList properties_;
 

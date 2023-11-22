@@ -338,19 +338,21 @@ double getCt(Metadata *metadata, double defaultCt)
 }
 
 static void copyStats(RgbyRegions &regions, StatisticsPtr &stats,
-		      AlscStatus const &status)
+		      std::array<Array2D<double>, 3> &prevSyncResults)
 {
 	if (!regions.numRegions())
 		regions.init(stats->awbRegions.size());
 
-	const std::vector<double> &rTable = status.r;
-	const std::vector<double> &gTable = status.g;
-	const std::vector<double> &bTable = status.b;
+	const std::vector<double> &rTable = prevSyncResults[0].data(); //status.r;
+	const std::vector<double> &gTable = prevSyncResults[1].data(); //status.g;
+	const std::vector<double> &bTable = prevSyncResults[2].data(); //status.b;
 	for (unsigned int i = 0; i < stats->awbRegions.numRegions(); i++) {
 		auto r = stats->awbRegions.get(i);
-		r.val.rSum = static_cast<uint64_t>(r.val.rSum / rTable[i]);
-		r.val.gSum = static_cast<uint64_t>(r.val.gSum / gTable[i]);
-		r.val.bSum = static_cast<uint64_t>(r.val.bSum / bTable[i]);
+		if (stats->colourStatsPos == Statistics::ColourStatsPos::PostLsc) {
+			r.val.rSum = static_cast<uint64_t>(r.val.rSum / rTable[i]);
+			r.val.gSum = static_cast<uint64_t>(r.val.gSum / gTable[i]);
+			r.val.bSum = static_cast<uint64_t>(r.val.bSum / bTable[i]);
+		}
 		regions.set(i, r);
 	}
 }
@@ -365,17 +367,10 @@ void Alsc::restartAsync(StatisticsPtr &stats, Metadata *imageMetadata)
 	ct_ = getCt(imageMetadata, ct_);
 	/*
 	 * We have to copy the statistics here, dividing out our best guess of
-	 * the LSC table that the pipeline applied to them.
+	 * the LSC table that the pipeline applied to them which we get from
+	 * prevSyncResults_.
 	 */
-	AlscStatus alscStatus;
-	if (imageMetadata->get("alsc.status", alscStatus) != 0) {
-		LOG(RPiAlsc, Warning)
-			<< "No ALSC status found for applied gains!";
-		alscStatus.r.resize(config_.tableSize.width * config_.tableSize.height, 1.0);
-		alscStatus.g.resize(config_.tableSize.width * config_.tableSize.height, 1.0);
-		alscStatus.b.resize(config_.tableSize.width * config_.tableSize.height, 1.0);
-	}
-	copyStats(statistics_, stats, alscStatus);
+	copyStats(statistics_, stats, prevSyncResults_);
 	framePhase_ = 0;
 	asyncStarted_ = true;
 	{
@@ -414,6 +409,11 @@ void Alsc::prepare(Metadata *imageMetadata)
 	status.g = prevSyncResults_[1].data();
 	status.b = prevSyncResults_[2].data();
 	imageMetadata->set("alsc.status", status);
+	/*
+	 * Put the results in the global metadata as well. This will be used by
+	 * AWB to factor in the colour shading correction.
+	 */
+	getGlobalMetadata().set("alsc.status", status);
 }
 
 void Alsc::process(StatisticsPtr &stats, Metadata *imageMetadata)

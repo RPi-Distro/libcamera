@@ -42,6 +42,7 @@ namespace RPi {
 /* Map of mbus codes to supported sizes reported by the sensor. */
 using SensorFormats = std::map<unsigned int, std::vector<Size>>;
 
+class RPiCameraConfiguration;
 class CameraData : public Camera::Private
 {
 public:
@@ -56,30 +57,13 @@ public:
 	{
 	}
 
-	struct StreamParams {
-		StreamParams()
-			: index(0), cfg(nullptr), dev(nullptr)
-		{
-		}
-
-		StreamParams(unsigned int index_, StreamConfiguration *cfg_)
-			: index(index_), cfg(cfg_), dev(nullptr)
-		{
-		}
-
-		unsigned int index;
-		StreamConfiguration *cfg;
-		V4L2VideoDevice *dev;
-	};
-
-	virtual CameraConfiguration::Status platformValidate(std::vector<StreamParams> &rawStreams,
-							     std::vector<StreamParams> &outStreams) const = 0;
-	virtual int platformConfigure(const V4L2SubdeviceFormat &sensorFormat,
-				      std::optional<BayerFormat::Packing> packing,
-				      std::vector<StreamParams> &rawStreams,
-				      std::vector<StreamParams> &outStreams) = 0;
+	virtual CameraConfiguration::Status platformValidate(RPiCameraConfiguration *rpiConfig) const = 0;
+	virtual int platformConfigure(const RPiCameraConfiguration *rpiConfig) = 0;
 	virtual void platformStart() = 0;
 	virtual void platformStop() = 0;
+
+	double scoreFormat(double desired, double actual) const;
+	V4L2SubdeviceFormat findBestFormat(const Size &req, unsigned int bitDepth) const;
 
 	void freeBuffers();
 	virtual void platformFreeBuffers() = 0;
@@ -193,7 +177,6 @@ protected:
 	unsigned int ispOutputTotal_;
 
 private:
-	void handleExternalBuffer(FrameBuffer *buffer, Stream *stream);
 	void checkRequestCompleted();
 };
 
@@ -209,6 +192,14 @@ public:
 	{
 	}
 
+	static bool isRgb(const PixelFormat &pixFmt);
+	static bool isYuv(const PixelFormat &pixFmt);
+	static bool isRaw(const PixelFormat &pixFmt);
+
+	static bool updateStreamConfig(StreamConfiguration *stream,
+				       const V4L2DeviceFormat &format);
+	static V4L2DeviceFormat toV4L2DeviceFormat(const V4L2VideoDevice *dev,
+						   const StreamConfiguration *stream);
 	static V4L2DeviceFormat toV4L2DeviceFormat(const V4L2VideoDevice *dev,
 						   const V4L2SubdeviceFormat &format,
 						   BayerFormat::Packing packingReq);
@@ -259,17 +250,39 @@ public:
 
 	/* Cache the combinedTransform_ that will be applied to the sensor */
 	Transform combinedTransform_;
+	/* The sensor format computed in validate() */
+	V4L2SubdeviceFormat sensorFormat_;
 
-private:
-	const CameraData *data_;
+	struct StreamParams {
+		StreamParams()
+			: index(0), cfg(nullptr), dev(nullptr)
+		{
+		}
+
+		StreamParams(unsigned int index_, StreamConfiguration *cfg_)
+			: index(index_), cfg(cfg_), dev(nullptr)
+		{
+		}
+
+		unsigned int index;
+		StreamConfiguration *cfg;
+		V4L2VideoDevice *dev;
+		V4L2DeviceFormat format;
+	};
+
+	std::vector<StreamParams> rawStreams_;
+	std::vector<StreamParams> outStreams_;
 
 	/*
 	 * Store the colour spaces that all our streams will have. RGB format streams
 	 * will have the same colorspace as YUV streams, with YCbCr field cleared and
 	 * range set to full.
-         */
+	 */
 	std::optional<ColorSpace> yuvColorSpace_;
 	std::optional<ColorSpace> rgbColorSpace_;
+
+private:
+	const CameraData *data_;
 };
 
 } /* namespace RPi */

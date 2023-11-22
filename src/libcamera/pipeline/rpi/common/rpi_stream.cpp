@@ -6,7 +6,14 @@
  */
 #include "rpi_stream.h"
 
+#include <algorithm>
+#include <tuple>
+#include <utility>
+
 #include <libcamera/base/log.h>
+
+/* Maximum number of buffer slots to allocate in the V4L2 device driver. */
+static constexpr unsigned int maxV4L2BufferCount = 32;
 
 namespace libcamera {
 
@@ -14,8 +21,13 @@ LOG_DEFINE_CATEGORY(RPISTREAM)
 
 namespace RPi {
 
+const BufferObject Stream::errorBufferObject{ nullptr, false };
+
 void Stream::setFlags(StreamFlags flags)
 {
+	/* We don't want dynamic mmapping. */
+	ASSERT(!(flags & StreamFlag::RequiresMmap));
+
 	flags_ |= flags;
 
 	/* Import streams cannot be external. */
@@ -24,6 +36,9 @@ void Stream::setFlags(StreamFlags flags)
 
 void Stream::clearFlags(StreamFlags flags)
 {
+	/* We don't want dynamic mmapping. */
+	ASSERT(!(flags & StreamFlag::RequiresMmap));
+
 	flags_ &= ~flags;
 }
 
@@ -42,6 +57,16 @@ const std::string &Stream::name() const
 	return name_;
 }
 
+unsigned int Stream::swDownscale() const
+{
+	return swDownscale_;
+}
+
+void Stream::setSwDownscale(unsigned int swDownscale)
+{
+	swDownscale_ = swDownscale;
+}
+
 void Stream::resetBuffers()
 {
 	/* Add all internal buffers to the queue of usable buffers. */
@@ -53,7 +78,7 @@ void Stream::resetBuffers()
 void Stream::setExportedBuffers(std::vector<std::unique_ptr<FrameBuffer>> *buffers)
 {
 	for (auto const &buffer : *buffers)
-		bufferMap_.emplace(id_.get(), buffer.get());
+		bufferEmplace(++id_, buffer.get());
 }
 
 const BufferMap &Stream::getBuffers() const
@@ -68,7 +93,7 @@ unsigned int Stream::getBufferId(FrameBuffer *buffer) const
 
 	/* Find the buffer in the map, and return the buffer id. */
 	auto it = std::find_if(bufferMap_.begin(), bufferMap_.end(),
-			       [&buffer](auto const &p) { return p.second == buffer; });
+			       [&buffer](auto const &p) { return p.second.buffer == buffer; });
 
 	if (it == bufferMap_.end())
 		return 0;
@@ -76,18 +101,9 @@ unsigned int Stream::getBufferId(FrameBuffer *buffer) const
 	return it->first;
 }
 
-void Stream::setExternalBuffer(FrameBuffer *buffer)
+void Stream::setExportedBuffer(FrameBuffer *buffer)
 {
-	bufferMap_.emplace(BufferMask::MaskExternalBuffer | id_.get(), buffer);
-}
-
-void Stream::removeExternalBuffer(FrameBuffer *buffer)
-{
-	unsigned int id = getBufferId(buffer);
-
-	/* Ensure we have this buffer in the stream, and it is marked external. */
-	ASSERT(id & BufferMask::MaskExternalBuffer);
-	bufferMap_.erase(id);
+	bufferEmplace(++id_, buffer);
 }
 
 int Stream::prepareBuffers(unsigned int count)
@@ -95,34 +111,17 @@ int Stream::prepareBuffers(unsigned int count)
 	int ret;
 
 	if (!(flags_ & StreamFlag::ImportOnly)) {
-		if (count) {
-			/* Export some frame buffers for internal use. */
-			ret = dev_->exportBuffers(count, &internalBuffers_);
-			if (ret < 0)
-				return ret;
+		/* Export some frame buffers for internal use. */
+		ret = dev_->exportBuffers(count, &internalBuffers_);
+		if (ret < 0)
+			return ret;
 
-			/* Add these exported buffers to the internal/external buffer list. */
-			setExportedBuffers(&internalBuffers_);
-			resetBuffers();
-		}
-
-		/* We must import all internal/external exported buffers. */
-		count = bufferMap_.size();
+		/* Add these exported buffers to the internal/external buffer list. */
+		setExportedBuffers(&internalBuffers_);
+		resetBuffers();
 	}
 
-	/*
-	 * If this is an external stream, we must allocate slots for buffers that
-	 * might be externally allocated. We have no indication of how many buffers
-	 * may be used, so this might overallocate slots in the buffer cache.
-	 * Similarly, if this stream is only importing buffers, we do the same.
-	 *
-	 * \todo Find a better heuristic, or, even better, an exact solution to
-	 * this issue.
-	 */
-	if ((flags_ & StreamFlag::External) || (flags_ & StreamFlag::ImportOnly))
-		count = count * 2;
-
-	return dev_->importBuffers(count);
+	return dev_->importBuffers(maxV4L2BufferCount);
 }
 
 int Stream::queueBuffer(FrameBuffer *buffer)
@@ -166,7 +165,7 @@ int Stream::queueBuffer(FrameBuffer *buffer)
 
 void Stream::returnBuffer(FrameBuffer *buffer)
 {
-	if (!(flags_ & StreamFlag::External)) {
+	if (!(flags_ & StreamFlag::External) && !(flags_ & StreamFlag::Recurrent)) {
 		/* For internal buffers, simply requeue back to the device. */
 		queueToDevice(buffer);
 		return;
@@ -174,9 +173,6 @@ void Stream::returnBuffer(FrameBuffer *buffer)
 
 	/* Push this buffer back into the queue to be used again. */
 	availableBuffers_.push(buffer);
-
-	/* Allow the buffer id to be reused. */
-	id_.release(getBufferId(buffer));
 
 	/*
 	 * Do we have any Request buffers that are waiting to be queued?
@@ -206,11 +202,32 @@ void Stream::returnBuffer(FrameBuffer *buffer)
 	}
 }
 
+const BufferObject &Stream::getBuffer(unsigned int id)
+{
+	auto const &it = bufferMap_.find(id);
+	if (it == bufferMap_.end())
+		return errorBufferObject;
+
+	return it->second;
+}
+
+const BufferObject &Stream::acquireBuffer()
+{
+	/* No id provided, so pick up the next available buffer if possible. */
+	if (availableBuffers_.empty())
+		return errorBufferObject;
+
+	unsigned int id = getBufferId(availableBuffers_.front());
+	availableBuffers_.pop();
+
+	return getBuffer(id);
+}
+
 int Stream::queueAllBuffers()
 {
 	int ret;
 
-	if (flags_ & StreamFlag::External)
+	if ((flags_ & StreamFlag::External) || (flags_ & StreamFlag::Recurrent))
 		return 0;
 
 	while (!availableBuffers_.empty()) {
@@ -230,13 +247,23 @@ void Stream::releaseBuffers()
 	clearBuffers();
 }
 
+void Stream::bufferEmplace(unsigned int id, FrameBuffer *buffer)
+{
+	if (flags_ & StreamFlag::RequiresMmap)
+		bufferMap_.emplace(std::piecewise_construct, std::forward_as_tuple(id),
+				   std::forward_as_tuple(buffer, true));
+	else
+		bufferMap_.emplace(std::piecewise_construct, std::forward_as_tuple(id),
+				   std::forward_as_tuple(buffer, false));
+}
+
 void Stream::clearBuffers()
 {
 	availableBuffers_ = std::queue<FrameBuffer *>{};
 	requestBuffers_ = std::queue<FrameBuffer *>{};
 	internalBuffers_.clear();
 	bufferMap_.clear();
-	id_.reset();
+	id_ = 0;
 }
 
 int Stream::queueToDevice(FrameBuffer *buffer)

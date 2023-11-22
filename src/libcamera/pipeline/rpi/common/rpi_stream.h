@@ -7,29 +7,44 @@
 
 #pragma once
 
+#include <optional>
 #include <queue>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 #include <libcamera/base/flags.h>
+
 #include <libcamera/stream.h>
 
+#include "libcamera/internal/mapped_framebuffer.h"
 #include "libcamera/internal/v4l2_videodevice.h"
 
 namespace libcamera {
 
 namespace RPi {
 
-using BufferMap = std::unordered_map<unsigned int, FrameBuffer *>;
-
 enum BufferMask {
 	MaskID			= 0x00ffff,
 	MaskStats		= 0x010000,
 	MaskEmbeddedData	= 0x020000,
 	MaskBayerData		= 0x040000,
-	MaskExternalBuffer	= 0x100000,
 };
+
+struct BufferObject {
+	BufferObject(FrameBuffer *b, bool requiresMmap)
+		: buffer(b), mapped(std::nullopt)
+	{
+		if (requiresMmap)
+			mapped = std::make_optional<MappedFrameBuffer>
+					(b, MappedFrameBuffer::MapFlag::ReadWrite);
+	}
+
+	FrameBuffer *buffer;
+	std::optional<MappedFrameBuffer> mapped;
+};
+
+using BufferMap = std::unordered_map<unsigned int, BufferObject>;
 
 /*
  * Device stream abstraction for either an internal or external stream.
@@ -50,18 +65,35 @@ public:
 		 * buffers might be provided by (and returned to) the application.
 		 */
 		External	= (1 << 1),
+		/*
+		 * Indicates that the stream buffers need to be mmaped and returned
+		 * to the pipeline handler when requested.
+		 */
+		RequiresMmap	= (1 << 2),
+		/*
+		 * Indicates a stream that needs buffers recycled every frame internally
+		 * in the pipeline handler, e.g. stitch, TDN, config. All buffer
+		 * management will be handled by the pipeline handler.
+		 */
+		Recurrent	= (1 << 3),
+		/*
+		 * Indicates that the output stream needs a software format conversion
+		 * to be applied after ISP processing.
+		 */
+		Needs32bitConv	= (1 << 4),
 	};
 
 	using StreamFlags = Flags<StreamFlag>;
 
 	Stream()
-		: flags_(StreamFlag::None), id_(BufferMask::MaskID)
+		: flags_(StreamFlag::None), id_(0), swDownscale_(0)
 	{
 	}
 
 	Stream(const char *name, MediaEntity *dev, StreamFlags flags = StreamFlag::None)
 		: flags_(flags), name_(name),
-		  dev_(std::make_unique<V4L2VideoDevice>(dev)), id_(BufferMask::MaskID)
+		  dev_(std::make_unique<V4L2VideoDevice>(dev)), id_(0),
+		  swDownscale_(0)
 	{
 	}
 
@@ -73,59 +105,30 @@ public:
 	const std::string &name() const;
 	void resetBuffers();
 
+	unsigned int swDownscale() const;
+	void setSwDownscale(unsigned int swDownscale);
+
 	void setExportedBuffers(std::vector<std::unique_ptr<FrameBuffer>> *buffers);
 	const BufferMap &getBuffers() const;
 	unsigned int getBufferId(FrameBuffer *buffer) const;
 
-	void setExternalBuffer(FrameBuffer *buffer);
-	void removeExternalBuffer(FrameBuffer *buffer);
+	void setExportedBuffer(FrameBuffer *buffer);
 
 	int prepareBuffers(unsigned int count);
 	int queueBuffer(FrameBuffer *buffer);
 	void returnBuffer(FrameBuffer *buffer);
 
+	const BufferObject &getBuffer(unsigned int id);
+	const BufferObject &acquireBuffer();
+
 	int queueAllBuffers();
 	void releaseBuffers();
 
+	/* For error handling. */
+	static const BufferObject errorBufferObject;
+
 private:
-	class IdGenerator
-	{
-	public:
-		IdGenerator(unsigned int max)
-			: max_(max), id_(0)
-		{
-		}
-
-		unsigned int get()
-		{
-			unsigned int id;
-			if (!recycle_.empty()) {
-				id = recycle_.front();
-				recycle_.pop();
-			} else {
-				id = ++id_;
-				ASSERT(id_ <= max_);
-			}
-			return id;
-		}
-
-		void release(unsigned int id)
-		{
-			recycle_.push(id);
-		}
-
-		void reset()
-		{
-			id_ = 0;
-			recycle_ = {};
-		}
-
-	private:
-		unsigned int max_;
-		unsigned int id_;
-		std::queue<unsigned int> recycle_;
-	};
-
+	void bufferEmplace(unsigned int id, FrameBuffer *buffer);
 	void clearBuffers();
 	int queueToDevice(FrameBuffer *buffer);
 
@@ -138,7 +141,10 @@ private:
 	std::unique_ptr<V4L2VideoDevice> dev_;
 
 	/* Tracks a unique id key for the bufferMap_ */
-	IdGenerator id_;
+	unsigned int id_;
+
+	/* Power of 2 greater than one if software downscaling will be required. */
+	unsigned int swDownscale_;
 
 	/* All frame buffers associated with this device stream. */
 	BufferMap bufferMap_;

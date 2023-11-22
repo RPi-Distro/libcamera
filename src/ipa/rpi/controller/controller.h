@@ -41,10 +41,12 @@ public:
 		libcamera::Size agcRegions;
 		libcamera::Size agcZoneWeights;
 		libcamera::Size awbRegions;
+		libcamera::Size cacRegions;
 		libcamera::Size focusRegions;
 		unsigned int numHistogramBins;
 		unsigned int numGammaPoints;
 		unsigned int pipelineWidth;
+		bool statsInline;
 	};
 
 	Controller();

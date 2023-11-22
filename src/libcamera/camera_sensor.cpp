@@ -15,6 +15,8 @@
 #include <math.h>
 #include <string.h>
 
+#include <libcamera/camera.h>
+#include <libcamera/orientation.h>
 #include <libcamera/property_ids.h>
 
 #include <libcamera/base/utils.h>
@@ -432,11 +434,11 @@ int CameraSensor::initProperties()
 
 	/* Retrieve and register properties from the kernel interface. */
 	const ControlInfoMap &controls = subdev_->controls();
-	int32_t propertyValue;
 
 	const auto &orientation = controls.find(V4L2_CID_CAMERA_ORIENTATION);
 	if (orientation != controls.end()) {
 		int32_t v4l2Orientation = orientation->second.def().get<int32_t>();
+		int32_t propertyValue;
 
 		switch (v4l2Orientation) {
 		default:
@@ -461,18 +463,27 @@ int CameraSensor::initProperties()
 
 	const auto &rotationControl = controls.find(V4L2_CID_CAMERA_SENSOR_ROTATION);
 	if (rotationControl != controls.end()) {
+		int32_t propertyValue = rotationControl->second.def().get<int32_t>();
+
 		/*
-		 * validateTransform() compensates for the mounting rotation.
-		 * However, as a camera sensor can only compensate rotations
-		 * by applying H/VFlips, only rotation of 180 degrees are
-		 * automatically compensated. The other valid rotations (Rot90
-		 * and Rot270) require transposition, which the camera sensor
-		 * cannot perform, so leave them untouched.
+		 * Cache the Transform associated with the camera mounting
+		 * rotation for later use in computeTransform().
 		 */
-		propertyValue = rotationControl->second.def().get<int32_t>();
-		if (propertyValue == 180 && supportFlips_)
-			propertyValue = 0;
+		bool success;
+		mountingOrientation_ = orientationFromRotation(propertyValue, &success);
+		if (!success) {
+			LOG(CameraSensor, Warning)
+				<< "Invalid rotation of " << propertyValue
+				<< " degrees - ignoring";
+			mountingOrientation_ = Orientation::Rotate0;
+		}
+
 		properties_.set(properties::Rotation, propertyValue);
+	} else {
+		LOG(CameraSensor, Warning)
+			<< "Rotation control not available, default to 0 degrees";
+		properties_.set(properties::Rotation, 0);
+		mountingOrientation_ = Orientation::Rotate0;
 	}
 
 	properties_.set(properties::PixelArraySize, pixelArraySize_);
@@ -823,6 +834,90 @@ int CameraSensor::tryFormat(V4L2SubdeviceFormat *format) const
 }
 
 /**
+ * \brief Apply a sensor configuration to the camera sensor
+ * \param[in] config The sensor configuration
+ * \param[in] transform The transform to be applied on the sensor.
+ * Defaults to Identity
+ * \param[out] sensorFormat Format applied to the sensor (optional)
+ *
+ * Apply to the camera sensor the configuration \a config.
+ *
+ * \todo The configuration shall be fully populated and if any of the fields
+ * specified cannot be applied exactly, an error code is returned.
+ *
+ * \return 0 if \a config is applied correctly to the camera sensor, a negative
+ * error code otherwise
+ */
+int CameraSensor::applyConfiguration(const SensorConfiguration &config,
+				     Transform transform,
+				     V4L2SubdeviceFormat *sensorFormat)
+{
+	if (!config.isValid()) {
+		LOG(CameraSensor, Error) << "Invalid sensor configuration";
+		return -EINVAL;
+	}
+
+	std::vector<unsigned int> filteredCodes;
+	std::copy_if(mbusCodes_.begin(), mbusCodes_.end(),
+		     std::back_inserter(filteredCodes),
+		     [&config](unsigned int mbusCode) {
+			     BayerFormat bayer = BayerFormat::fromMbusCode(mbusCode);
+			     if (bayer.bitDepth == config.bitDepth)
+				     return true;
+			     return false;
+		     });
+	if (filteredCodes.empty()) {
+		LOG(CameraSensor, Error)
+			<< "Cannot find any format with bit depth "
+			<< config.bitDepth;
+		return -EINVAL;
+	}
+
+	/*
+	 * Compute the sensor's data frame size by applying the cropping
+	 * rectangle, subsampling and output crop to the sensor's pixel array
+	 * size.
+	 *
+	 * \todo The actual size computation is for now ignored and only the
+	 * output size is considered. This implies that resolutions obtained
+	 * with two different cropping/subsampling will look identical and
+	 * only the first found one will be considered.
+	 */
+	V4L2SubdeviceFormat subdevFormat = {};
+	for (unsigned int code : filteredCodes) {
+		for (const Size &size : sizes(code)) {
+			if (size.width != config.outputSize.width ||
+			    size.height != config.outputSize.height)
+				continue;
+
+			subdevFormat.mbus_code = code;
+			subdevFormat.size = size;
+			break;
+		}
+	}
+	if (!subdevFormat.mbus_code) {
+		LOG(CameraSensor, Error) << "Invalid output size in sensor configuration";
+		return -EINVAL;
+	}
+
+	int ret = setFormat(&subdevFormat, transform);
+	if (ret)
+		return ret;
+
+	/*
+	 * Return to the caller the format actually applied to the sensor.
+	 * This is relevant if transform has changed the bayer pattern order.
+	 */
+	if (sensorFormat)
+		*sensorFormat = subdevFormat;
+
+	/* \todo Handle AnalogCrop. Most sensors do not support set_selection */
+	/* \todo Handle scaling in the digital domain. */
+
+	return 0;
+}
+
+/**
  * \brief Retrieve the supported V4L2 controls and their information
  *
  * Control information is updated automatically to reflect the current sensor
@@ -1015,79 +1110,62 @@ void CameraSensor::updateControlInfo()
  */
 
 /**
- * \brief Validate a transform request against the sensor capabilities
- * \param[inout] transform The requested transformation, updated to match
- * the sensor capabilities
+ * \brief Compute the Transform that gives the requested \a orientation
+ * \param[inout] orientation The desired image orientation
  *
- * The input \a transform is the transform that the caller wants, and it is
- * adjusted according to the capabilities of the sensor to represent the
- * "nearest" transform that can actually be delivered.
+ * This function computes the Transform that the pipeline handler should apply
+ * to the CameraSensor to obtain the requested \a orientation.
  *
- * The returned Transform is the transform applied to the sensor in order to
- * produce the input \a transform, It is also validated against the sensor's
- * ability to perform horizontal and vertical flips.
+ * The intended caller of this function is the validate() implementation of
+ * pipeline handlers, that pass in the application requested
+ * CameraConfiguration::orientation and obtain a Transform to apply to the
+ * camera sensor, likely at configure() time.
  *
- * For example, if the requested \a transform is Transform::Identity and the
- * sensor rotation is 180 degrees, the output transform will be
- * Transform::Rot180 to correct the images so that they appear to have
- * Transform::Identity, but only if the sensor can apply horizontal and vertical
- * flips.
+ * If the requested \a orientation cannot be obtained, the \a orientation
+ * parameter is adjusted to report the current image orientation and
+ * Transform::Identity is returned.
  *
- * \return A Transform instance that represents which transformation has been
- * applied to the camera sensor
+ * If the requested \a orientation can be obtained, the function computes a
+ * Transform and does not adjust \a orientation.
+ *
+ * Pipeline handlers are expected to verify if \a orientation has been
+ * adjusted by this function and set the CameraConfiguration::status to
+ * Adjusted accordingly.
+ *
+ * \return A Transform instance that applied to the CameraSensor produces images
+ * with \a orientation
  */
-Transform CameraSensor::validateTransform(Transform *transform) const
+Transform CameraSensor::computeTransform(Orientation *orientation) const
 {
-	/* Adjust the requested transform to compensate the sensor mounting rotation. */
-	const ControlInfoMap &controls = subdev_->controls();
-	int rotation = 0;
-
-	const auto &rotationControl = controls.find(V4L2_CID_CAMERA_SENSOR_ROTATION);
-	if (rotationControl != controls.end())
-		rotation = rotationControl->second.def().get<int32_t>();
-
-	bool success;
-	Transform rotationTransform = transformFromRotation(rotation, &success);
-	if (!success)
-		LOG(CameraSensor, Warning) << "Invalid rotation of " << rotation
-					   << " degrees - ignoring";
-
-	Transform combined = *transform * rotationTransform;
-
 	/*
-	 * We combine the platform and user transform, but must "adjust away"
-	 * any combined result that includes a transposition, as we can't do
-	 * those. In this case, flipping only the transpose bit is helpful to
-	 * applications - they either get the transform they requested, or have
-	 * to do a simple transpose themselves (they don't have to worry about
-	 * the other possible cases).
+	 * If we cannot do any flips we cannot change the native camera mounting
+	 * orientation.
 	 */
-	if (!!(combined & Transform::Transpose)) {
-		/*
-		 * Flipping the transpose bit in "transform" flips it in the
-		 * combined result too (as it's the last thing that happens),
-		 * which is of course clearing it.
-		 */
-		*transform ^= Transform::Transpose;
-		combined &= ~Transform::Transpose;
+	if (!supportFlips_) {
+		*orientation = mountingOrientation_;
+		return Transform::Identity;
 	}
 
 	/*
-	 * We also check if the sensor doesn't do h/vflips at all, in which
-	 * case we clear them, and the application will have to do everything.
+	 * Now compute the required transform to obtain 'orientation' starting
+	 * from the mounting rotation.
+	 *
+	 * As a note:
+	 * 	orientation / mountingOrientation_ = transform
+	 * 	mountingOrientation_ * transform = orientation
 	 */
-	if (!supportFlips_ && !!combined) {
-		/*
-		 * If the sensor can do no transforms, then combined must be
-		 * changed to the identity. The only user transform that gives
-		 * rise to this is the inverse of the rotation. (Recall that
-		 * combined = transform * rotationTransform.)
-		 */
-		*transform = -rotationTransform;
-		combined = Transform::Identity;
+	Transform transform = *orientation / mountingOrientation_;
+
+	/*
+	 * If transform contains any Transpose we cannot do it, so adjust
+	 * 'orientation' to report the image native orientation and return Identity.
+	 */
+	if (!!(transform & Transform::Transpose)) {
+		*orientation = mountingOrientation_;
+		return Transform::Identity;
 	}
 
-	return combined;
+	return transform;
 }
 
 std::string CameraSensor::logPrefix() const

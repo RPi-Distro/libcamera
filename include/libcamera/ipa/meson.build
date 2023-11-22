@@ -64,12 +64,10 @@ libcamera_generated_ipa_headers += custom_target('core_ipa_serializer_h',
 pipeline_ipa_mojom_mapping = {
     'ipu3': 'ipu3.mojom',
     'rkisp1': 'rkisp1.mojom',
+    'rpi/pisp': 'raspberrypi.mojom',
     'rpi/vc4': 'raspberrypi.mojom',
     'vimc': 'vimc.mojom',
 }
-
-ipa_mojom_files = []
-ipa_mojoms = []
 
 #
 # Generate headers from templates.
@@ -77,19 +75,21 @@ ipa_mojoms = []
 
 # TODO Define per-pipeline ControlInfoMap with yaml?
 
+ipa_mojoms = []
+mojoms_built = []
 foreach pipeline, file : pipeline_ipa_mojom_mapping
     name = file.split('.')[0]
 
-    # Ensure we do not build duplicate mojom modules
-    if file in ipa_mojom_files
+    # Avoid building duplicate mojom interfaces with the same interface file
+    if name in mojoms_built
         continue
     endif
-
-    ipa_mojom_files += file
 
     if pipeline not in pipelines
         continue
     endif
+
+    mojoms_built += name
 
     # {interface}.mojom-module
     mojom = custom_target(name + '_mojom_module',
@@ -155,6 +155,12 @@ foreach pipeline, file : pipeline_ipa_mojom_mapping
     libcamera_generated_ipa_headers += [header, serializer, proxy_header]
 endforeach
 
+ipa_mojom_files = []
+foreach pipeline, file : pipeline_ipa_mojom_mapping
+    if file not in ipa_mojom_files
+        ipa_mojom_files += file
+    endif
+endforeach
 ipa_mojom_files = files(ipa_mojom_files)
 
 # Pass this to the documentation generator in src/libcamera/ipa
