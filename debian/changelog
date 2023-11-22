@@ -1,3 +1,18 @@
+libcamera (0.1.0+rpt20231122-1) bookworm; urgency=medium
+
+  * New upstream version 0.1.0+rpt20231122
+  * d/gbp.conf: Update branches and use pristine-tar
+  * d/watch: Use the Raspberry Pi Github releases
+  * d/c: Update Maintainer and Vcs information
+  * Fix pycamera install path
+  * d/c: Add libpisp-dev as a build dependency on ARM platforms
+  * d/c: Add libboost-dev as a build dependency
+  * d/c: Add libcamera-ipa as a runtime dependency
+  * d/c: Replace all versions of libcamera0
+  * Revert "Cherry-pick upstream patch fixing build with sphinx 7 (Closes: #1042634)"
+
+ -- Serge Schneider <serge@raspberrypi.com>  Wed, 22 Nov 2023 17:30:50 +0000
+
 libcamera (0.1.0-3) unstable; urgency=medium
 
   * Cherry-pick upstream patch fixing build with sphinx 7 (Closes: #1042634)
