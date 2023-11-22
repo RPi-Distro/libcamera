@@ -1,10 +1,6 @@
 Source: libcamera
 Priority: optional
-Maintainer: Debian Multimedia Maintainers <debian-multimedia@lists.debian.org>
-Uploaders: Emmanuel Arias <emmanuelarias30@gmail.com>,
-           IOhannes m zmölnig (Debian/GNU) <umlaeute@debian.org>,
-           Andrej Shadura <andrewsh@debian.org>,
-           Dylan Aïssi <daissi@debian.org>
+Maintainer: Serge Schneider <serge@raspberrypi.com>
 Build-Depends: debhelper-compat (= 13),
                dh-sequence-python3,
                doxygen <!nodoc>,
@@ -39,8 +35,8 @@ Standards-Version: 4.6.2
 Rules-Requires-Root: no
 Section: libs
 Homepage: https://libcamera.org/
-Vcs-Browser: https://salsa.debian.org/multimedia-team/libcamera
-Vcs-Git: https://salsa.debian.org/multimedia-team/libcamera.git
+Vcs-Browser: https://github.com/RPi-Distro/libcamera
+Vcs-Git: https://github.com/RPi-Distro/libcamera.git
 
 Package: libcamera-dev
 Section: libdevel
