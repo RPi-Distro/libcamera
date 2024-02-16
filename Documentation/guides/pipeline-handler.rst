@@ -183,7 +183,7 @@ to the libcamera build options in the top level ``meson_options.txt``.
 
    option('pipelines',
            type : 'array',
-           choices : ['ipu3', 'rkisp1', 'rpi/vc4', 'simple', 'uvcvideo', 'vimc', 'vivid'],
+           choices : ['ipu3', 'rkisp1', 'rpi/pisp', 'rpi/vc4', 'simple', 'uvcvideo', 'vimc', 'vivid'],
            description : 'Select which pipeline handlers to include')
 
 
@@ -1422,7 +1422,7 @@ emitted triggers the execution of the connected slots.  A detailed description
 of the libcamera implementation is available in the `libcamera Signal and Slot`_
 classes documentation.
 
-.. _Qt Signals and Slots: https://doc.qt.io/qt-5/signalsandslots.html
+.. _Qt Signals and Slots: https://doc.qt.io/qt-6/signalsandslots.html
 .. _libcamera Signal and Slot: https://libcamera.org/api-html/classlibcamera_1_1Signal.html#details
 
 In order to notify applications about the availability of new frames and data,
