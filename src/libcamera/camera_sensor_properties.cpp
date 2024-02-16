@@ -137,18 +137,6 @@ const CameraSensorProperties *CameraSensorProperties::get(const std::string &sen
 				{ controls::draft::TestPatternModePn9, 4 },
 			},
 		} },
-		{ "imx708_noir", {
-			.unitCellSize = { 1400, 1400 },
-			.testPatternModes = {},
-		} },
-		{ "imx708_wide", {
-			.unitCellSize = { 1400, 1400 },
-			.testPatternModes = {},
-		} },
-		{ "imx708_wide_noir", {
-			.unitCellSize = { 1400, 1400 },
-			.testPatternModes = {},
-		} },
 		{ "ov2685", {
 			.unitCellSize = { 1750, 1750 },
 			.testPatternModes = {
@@ -217,6 +205,19 @@ const CameraSensorProperties *CameraSensorProperties::get(const std::string &sen
 				 * No corresponding test pattern mode for
 				 * 1: "Random data" and 3: "Colour Bars with
 				 * Rolling Bar".
+				 */
+			},
+		} },
+		{ "ov64a40", {
+			.unitCellSize = { 1008, 1008 },
+			.testPatternModes = {
+				{ controls::draft::TestPatternModeOff, 0 },
+				{ controls::draft::TestPatternModeColorBars, 1 },
+				{ controls::draft::TestPatternModeColorBarsFadeToGray, 2 },
+				/*
+				 * No corresponding test patter mode
+				 * 3: "Vertical Color Bar Type 3",
+				 * 4: "Vertical Color Bar Type 4"
 				 */
 			},
 		} },

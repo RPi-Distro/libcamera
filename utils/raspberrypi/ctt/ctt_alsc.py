@@ -13,9 +13,8 @@ from mpl_toolkits.mplot3d import Axes3D
 """
 preform alsc calibration on a set of images
 """
-def alsc_all(Cam, do_alsc_colour, plot, grid_size=(16, 12)):
+def alsc_all(Cam, do_alsc_colour, plot):
     imgs_alsc = Cam.imgs_alsc
-    grid_w, grid_h = grid_size
     """
     create list of colour temperatures and associated calibration tables
     """
@@ -24,7 +23,7 @@ def alsc_all(Cam, do_alsc_colour, plot, grid_size=(16, 12)):
     list_cb = []
     list_cg = []
     for Img in imgs_alsc:
-        col, cr, cb, cg, size = alsc(Cam, Img, do_alsc_colour, plot, grid_size=grid_size)
+        col, cr, cb, cg, size = alsc(Cam, Img, do_alsc_colour, plot)
         list_col.append(col)
         list_cr.append(cr)
         list_cb.append(cb)
@@ -69,12 +68,11 @@ def alsc_all(Cam, do_alsc_colour, plot, grid_size=(16, 12)):
             t_b = np.where((100*t_b) % 1 >= 0.95, t_b-0.001, t_b)
             t_r = np.round(t_r, 3)
             t_b = np.round(t_b, 3)
-            r_corners = (t_r[0], t_r[grid_w - 1], t_r[-1], t_r[-grid_w])
-            b_corners = (t_b[0], t_b[grid_w - 1], t_b[-1], t_b[-grid_w])
-            middle_pos = (grid_h // 2 - 1) * grid_w + grid_w - 1
-            r_cen = t_r[middle_pos]+t_r[middle_pos + 1]+t_r[middle_pos + grid_w]+t_r[middle_pos + grid_w + 1]
+            r_corners = (t_r[0], t_r[15], t_r[-1], t_r[-16])
+            b_corners = (t_b[0], t_b[15], t_b[-1], t_b[-16])
+            r_cen = t_r[5*16+7]+t_r[5*16+8]+t_r[6*16+7]+t_r[6*16+8]
             r_cen = round(r_cen/4, 3)
-            b_cen = t_b[middle_pos]+t_b[middle_pos + 1]+t_b[middle_pos + grid_w]+t_b[middle_pos + grid_w + 1]
+            b_cen = t_b[5*16+7]+t_b[5*16+8]+t_b[6*16+7]+t_b[6*16+8]
             b_cen = round(b_cen/4, 3)
             Cam.log += '\nRed table corners: {}'.format(r_corners)
             Cam.log += '\nRed table centre: {}'.format(r_cen)
@@ -118,9 +116,8 @@ def alsc_all(Cam, do_alsc_colour, plot, grid_size=(16, 12)):
 """
 calculate g/r and g/b for 32x32 points arranged in a grid for a single image
 """
-def alsc(Cam, Img, do_alsc_colour, plot=False, grid_size=(16, 12)):
+def alsc(Cam, Img, do_alsc_colour, plot=False):
     Cam.log += '\nProcessing image: ' + Img.name
-    grid_w, grid_h = grid_size
     """
     get channel in correct order
     """
@@ -131,24 +128,24 @@ def alsc(Cam, Img, do_alsc_colour, plot=False, grid_size=(16, 12)):
     where w is a multiple of 32.
     """
     w, h = Img.w/2, Img.h/2
-    dx, dy = int(-(-(w-1)//grid_w)), int(-(-(h-1)//grid_h))
+    dx, dy = int(-(-(w-1)//16)), int(-(-(h-1)//12))
     """
     average the green channels into one
     """
     av_ch_g = np.mean((channels[1:3]), axis=0)
     if do_alsc_colour:
         """
-        obtain grid_w x grid_h grid of intensities for each channel and subtract black level
+        obtain 16x12 grid of intensities for each channel and subtract black level
         """
-        g = get_grid(av_ch_g, dx, dy, grid_size) - Img.blacklevel_16
-        r = get_grid(channels[0], dx, dy, grid_size) - Img.blacklevel_16
-        b = get_grid(channels[3], dx, dy, grid_size) - Img.blacklevel_16
+        g = get_16x12_grid(av_ch_g, dx, dy) - Img.blacklevel_16
+        r = get_16x12_grid(channels[0], dx, dy) - Img.blacklevel_16
+        b = get_16x12_grid(channels[3], dx, dy) - Img.blacklevel_16
         """
         calculate ratios as 32 bit in order to be supported by medianBlur function
         """
-        cr = np.reshape(g/r, (grid_h, grid_w)).astype('float32')
-        cb = np.reshape(g/b, (grid_h, grid_w)).astype('float32')
-        cg = np.reshape(1/g, (grid_h, grid_w)).astype('float32')
+        cr = np.reshape(g/r, (12, 16)).astype('float32')
+        cb = np.reshape(g/b, (12, 16)).astype('float32')
+        cg = np.reshape(1/g, (12, 16)).astype('float32')
         """
         median blur to remove peaks and save as float 64
         """
@@ -167,7 +164,7 @@ def alsc(Cam, Img, do_alsc_colour, plot=False, grid_size=(16, 12)):
             """
             note Y is plotted as -Y so plot has same axes as image
             """
-            X, Y = np.meshgrid(range(grid_w), range(grid_h))
+            X, Y = np.meshgrid(range(16), range(12))
             ha.plot_surface(X, -Y, cr, cmap=cm.coolwarm, linewidth=0)
             ha.set_title('ALSC Plot\nImg: {}\n\ncr'.format(Img.str))
             hb = hf.add_subplot(312, projection='3d')
@@ -185,15 +182,15 @@ def alsc(Cam, Img, do_alsc_colour, plot=False, grid_size=(16, 12)):
         """
         only perform calculations for luminance shading
         """
-        g = get_grid(av_ch_g, dx, dy, grid_size) - Img.blacklevel_16
-        cg = np.reshape(1/g, (grid_h, grid_w)).astype('float32')
+        g = get_16x12_grid(av_ch_g, dx, dy) - Img.blacklevel_16
+        cg = np.reshape(1/g, (12, 16)).astype('float32')
         cg = cv2.medianBlur(cg, 3).astype('float64')
         cg = cg/np.min(cg)
 
         if plot:
             hf = plt.figure(figssize=(8, 8))
             ha = hf.add_subplot(1, 1, 1, projection='3d')
-            X, Y = np.meashgrid(range(grid_w), range(grid_h))
+            X, Y = np.meashgrid(range(16), range(12))
             ha.plot_surface(X, -Y, cg, cmap=cm.coolwarm, linewidth=0)
             ha.set_title('ALSC Plot (Luminance only!)\nImg: {}\n\ncg').format(Img.str)
             plt.show()
@@ -202,22 +199,21 @@ def alsc(Cam, Img, do_alsc_colour, plot=False, grid_size=(16, 12)):
 
 
 """
-Compresses channel down to a grid of the requested size
+Compresses channel down to a 16x12 grid
 """
-def get_grid(chan, dx, dy, grid_size):
-    grid_w, grid_h = grid_size
+def get_16x12_grid(chan, dx, dy):
     grid = []
     """
     since left and bottom border will not necessarily have rectangles of
     dimension dx x dy, the 32nd iteration has to be handled separately.
     """
-    for i in range(grid_h - 1):
-        for j in range(grid_w - 1):
+    for i in range(11):
+        for j in range(15):
             grid.append(np.mean(chan[dy*i:dy*(1+i), dx*j:dx*(1+j)]))
-        grid.append(np.mean(chan[dy*i:dy*(1+i), (grid_w - 1)*dx:]))
-    for j in range(grid_w - 1):
-        grid.append(np.mean(chan[(grid_h - 1)*dy:, dx*j:dx*(1+j)]))
-    grid.append(np.mean(chan[(grid_h - 1)*dy:, (grid_w - 1)*dx:]))
+        grid.append(np.mean(chan[dy*i:dy*(1+i), 15*dx:]))
+    for j in range(15):
+        grid.append(np.mean(chan[11*dy:, dx*j:dx*(1+j)]))
+    grid.append(np.mean(chan[11*dy:, 15*dx:]))
     """
     return as np.array, ready for further manipulation
     """
@@ -227,7 +223,7 @@ def get_grid(chan, dx, dy, grid_size):
 """
 obtains sigmas for red and blue, effectively a measure of the 'error'
 """
-def get_sigma(Cam, cal_cr_list, cal_cb_list, grid_size):
+def get_sigma(Cam, cal_cr_list, cal_cb_list):
     Cam.log += '\nCalculating sigmas'
     """
     provided colour alsc tables were generated for two different colour
@@ -245,8 +241,8 @@ def get_sigma(Cam, cal_cr_list, cal_cb_list, grid_size):
     sigma_rs = []
     sigma_bs = []
     for i in range(len(cts)-1):
-        sigma_rs.append(calc_sigma(cal_cr_list[i]['table'], cal_cr_list[i+1]['table'], grid_size))
-        sigma_bs.append(calc_sigma(cal_cb_list[i]['table'], cal_cb_list[i+1]['table'], grid_size))
+        sigma_rs.append(calc_sigma(cal_cr_list[i]['table'], cal_cr_list[i+1]['table']))
+        sigma_bs.append(calc_sigma(cal_cb_list[i]['table'], cal_cb_list[i+1]['table']))
         Cam.log += '\nColour temperature interval {} - {} K'.format(cts[i], cts[i+1])
         Cam.log += '\nSigma red: {}'.format(sigma_rs[-1])
         Cam.log += '\nSigma blue: {}'.format(sigma_bs[-1])
@@ -267,13 +263,12 @@ def get_sigma(Cam, cal_cr_list, cal_cb_list, grid_size):
 """
 calculate sigma from two adjacent gain tables
 """
-def calc_sigma(g1, g2, grid_size):
-    grid_w, grid_h = grid_size
+def calc_sigma(g1, g2):
     """
     reshape into 16x12 matrix
     """
-    g1 = np.reshape(g1, (grid_h, grid_w))
-    g2 = np.reshape(g2, (grid_h, grid_w))
+    g1 = np.reshape(g1, (12, 16))
+    g2 = np.reshape(g2, (12, 16))
     """
     apply gains to gain table
     """
@@ -285,8 +280,8 @@ def calc_sigma(g1, g2, grid_size):
     neighbours, then append to list
     """
     diffs = []
-    for i in range(grid_h - 2):
-        for j in range(grid_w - 2):
+    for i in range(10):
+        for j in range(14):
             """
             note indexing is incremented by 1 since all patches on borders are
             not counted

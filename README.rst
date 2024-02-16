@@ -30,7 +30,7 @@ Getting Started
 
 To fetch the sources, build and install:
 
-::
+.. code::
 
   git clone https://git.libcamera.org/libcamera/libcamera.git
   cd libcamera
@@ -47,7 +47,7 @@ A C++ toolchain: [required]
         Either {g++, clang}
 
 Meson Build system: [required]
-        meson (>= 0.57) ninja-build pkg-config
+        meson (>= 0.60) ninja-build pkg-config
 
 for the libcamera core: [required]
         libyaml-dev python3-yaml python3-ply python3-jinja2
@@ -75,6 +75,9 @@ for documentation: [optional]
 for gstreamer: [optional]
         libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
 
+for Python bindings: [optional]
+        libpython3-dev pybind11-dev
+
 for cam: [optional]
         libevent-dev is required to support cam, however the following
         optional dependencies bring more functionality to the cam test
@@ -85,7 +88,7 @@ for cam: [optional]
         - libsdl2-dev: Enables the SDL sink
 
 for qcam: [optional]
-        qtbase5-dev libqt5core5a libqt5gui5 libqt5widgets5 qttools5-dev-tools libtiff-dev
+        libtiff-dev qtbase5-dev qttools5-dev-tools
 
 for tracing with lttng: [optional]
         liblttng-ust-dev python3-jinja2 lttng-tools
@@ -94,7 +97,7 @@ for android: [optional]
         libexif-dev libjpeg-dev
 
 for lc-compliance: [optional]
-        libevent-dev
+        libevent-dev libgtest-dev
 
 for abi-compat.sh: [optional]
         abi-compliance-checker
@@ -119,6 +122,8 @@ Using GStreamer plugin
 
 To use GStreamer plugin from source tree, set the following environment so that
 GStreamer can find it. This isn't necessary when libcamera is installed.
+
+.. code::
 
   export GST_PLUGIN_PATH=$(pwd)/build/src/gstreamer
 
@@ -186,8 +191,8 @@ the build.ninja module. This is a snippet of the error message.
 
 This can be solved in two ways:
 
-1) Don't install meson again if it is already installed system-wide.
+1. Don't install meson again if it is already installed system-wide.
 
-2) If a version of meson which is different from the system-wide version is
-already installed, uninstall that meson using pip3, and install again without
-the --user argument.
+2. If a version of meson which is different from the system-wide version is
+   already installed, uninstall that meson using pip3, and install again without
+   the --user argument.
