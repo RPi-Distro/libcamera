@@ -1,1 +1,2 @@
 ppc64el-fix-ftbfs-gcc.patch
+fix_detection_libyuv.patch
