@@ -1,3 +1,9 @@
+libcamera (0.4.0+rpt20250127-3) bookworm; urgency=medium
+
+  * Disable building tests
+
+ -- Serge Schneider <serge@raspberrypi.com>  Tue, 28 Jan 2025 12:37:21 +0000
+
 libcamera (0.4.0+rpt20250127-2) bookworm; urgency=medium
 
   * Specify which pipelines to enabled (rpi/vc4,rpi/pisp,uvcvideo)
