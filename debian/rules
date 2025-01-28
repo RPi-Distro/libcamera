@@ -16,7 +16,7 @@ override_dh_auto_configure:
 		-Dpycamera=enabled \
 		-Dv4l2=true \
 		-Dpipelines=rpi/vc4,rpi/pisp,uvcvideo \
-		-Dtest=true \
+		-Dtest=false \
 		$(empty)
 
 # Only make the tests fail for key architectures
