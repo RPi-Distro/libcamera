@@ -1,3 +1,9 @@
+libcamera (0.4.0+rpt20250127-2) bookworm; urgency=medium
+
+  * Specify which pipelines to enabled (rpi/vc4,rpi/pisp,uvcvideo)
+
+ -- Serge Schneider <serge@raspberrypi.com>  Tue, 28 Jan 2025 10:46:28 +0000
+
 libcamera (0.4.0+rpt20250127-1) bookworm; urgency=medium
 
   [ Serge Schneider ]
