@@ -1,3 +1,9 @@
+libcamera (0.4.0+rpt20250213-1) bookworm; urgency=medium
+
+  * New upstream version 0.4.0+rpt20250213
+
+ -- Serge Schneider <serge@raspberrypi.com>  Thu, 13 Feb 2025 10:54:48 +0000
+
 libcamera (0.4.0+rpt20250211-1) bookworm; urgency=medium
 
   * New upstream version 0.4.0+rpt20250211
