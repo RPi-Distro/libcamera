@@ -45,7 +45,7 @@ Vcs-Git: https://github.com/RPi-Distro/libcamera.git
 Package: libcamera-dev
 Section: libdevel
 Architecture: any
-Depends: libcamera0.4 (= ${binary:Version}),
+Depends: libcamera0.5 (= ${binary:Version}),
          ${misc:Depends},
          ${shlibs:Depends}
 Multi-Arch: same
@@ -74,7 +74,7 @@ Description: complex camera support library (documentation)
  .
  This package contains the documentation developing with libcamera.
 
-Package: libcamera0.4
+Package: libcamera0.5
 Architecture: any
 Depends: libcamera-ipa,
          ${misc:Depends},
