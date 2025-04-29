@@ -1,3 +1,11 @@
+libcamera (0.5.0+rpt20250429-1) bookworm; urgency=medium
+
+  * New upstream version 0.5.0+rpt20250429
+  * Bump SONAME to libcamera0.5
+  * d/patches: Remove fix_detection_libyuv.patch
+
+ -- Serge Schneider <serge@raspberrypi.com>  Tue, 29 Apr 2025 15:32:38 +0100
+
 libcamera (0.4.0+rpt20250213-1) bookworm; urgency=medium
 
   * New upstream version 0.4.0+rpt20250213
