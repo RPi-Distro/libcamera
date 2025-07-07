@@ -1,3 +1,10 @@
+libcamera (0.5.1+rpt20250707-1~bookworm) bookworm; urgency=medium
+
+  * New upstream version 0.5.1+rpt20250707
+  * Update ipa install source
+
+ -- Serge Schneider <serge@raspberrypi.com>  Mon, 07 Jul 2025 14:18:31 +0100
+
 libcamera (0.5.0+rpt20250429-1) bookworm; urgency=medium
 
   * New upstream version 0.5.0+rpt20250429
