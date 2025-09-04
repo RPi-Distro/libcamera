@@ -37,7 +37,7 @@ Build-Depends-Indep: doxygen <!nodoc>,
                      libjs-underscore <!nodoc>,
                      python3-sphinx <!nodoc>,
                      python3-sphinxcontrib.doxylink <!nodoc>
-Standards-Version: 4.7.2
+Standards-Version: 4.6.2
 Vcs-Browser: https://github.com/RPi-Distro/libcamera
 Vcs-Git: https://github.com/RPi-Distro/libcamera.git
 Homepage: https://libcamera.org/
