@@ -1,0 +1,27 @@
+From 107ba13260fabe197e7f72826162b69596dbc858 Mon Sep 17 00:00:00 2001
+From: Serge Schneider <serge@raspberrypi.com>
+Date: Thu, 4 Sep 2025 16:52:06 +0100
+Subject: [PATCH 1/4] Revert "Documentation: Use python3 directly to check for
+ doxylink version"
+
+This reverts commit ac09782a17603c828e202edf04b60548e2ab0371.
+---
+ Documentation/meson.build | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+--- a/Documentation/meson.build
++++ b/Documentation/meson.build
+@@ -124,9 +124,12 @@ if sphinx.found()
+     # Many distributions do not provide a recent-enough version of the doxylink
+     # module. This results in a build error with a cryptic message. Check the
+     # version manually and print clear error messages.
++    py_mod = import('python')
++    py3 = py_mod.find_installation('python3')
++
+     mod = 'sphinxcontrib.doxylink'
+     min_version = '>=1.6.1'
+-    version = run_command('python3', '-c',
++    version = run_command(py3, '-c',
+                           'import @0@ ; print(@0@.__version__)'.format(mod),
+                           check : false).stdout().strip()
+ 

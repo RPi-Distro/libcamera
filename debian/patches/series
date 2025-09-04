@@ -1,3 +1,7 @@
 ppc64el-fix-ftbfs-gcc.patch
 skip_failing_tests.patch
 Disable_libunwind_integration.patch
+0001-Revert-Documentation-Use-python3-directly-to-check-f.patch
+0002-Revert-Documentation-Fix-documentation-generation-wh.patch
+0003-Revert-Documentation-Replace-links-to-Doxygen-docume.patch
+0004-Revert-Documentation-Use-Sphinx-doxylink-to-generate.patch

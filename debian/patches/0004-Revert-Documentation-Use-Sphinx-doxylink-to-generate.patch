@@ -1,0 +1,177 @@
+From 1a5e6e07e1071d57dce9bc8c6452042c373a04da Mon Sep 17 00:00:00 2001
+From: Serge Schneider <serge@raspberrypi.com>
+Date: Thu, 4 Sep 2025 17:03:38 +0100
+Subject: [PATCH 4/4] Revert "Documentation: Use Sphinx doxylink to generate
+ links to doxygen"
+
+This reverts commit 0382d215db78477d106f32d8941b13fe2462e235.
+---
+ Documentation/Doxyfile-internal.in |  2 -
+ Documentation/Doxyfile-public.in   |  2 -
+ Documentation/conf.py              | 13 +-----
+ Documentation/meson.build          | 69 ++++++++++--------------------
+ README.rst                         |  3 +-
+ 5 files changed, 24 insertions(+), 65 deletions(-)
+
+--- a/Documentation/Doxyfile-internal.in
++++ b/Documentation/Doxyfile-internal.in
+@@ -3,8 +3,6 @@
+ @INCLUDE_PATH          = @TOP_BUILDDIR@/Documentation
+ @INCLUDE               = Doxyfile-common
+ 
+-GENERATE_TAGFILE       = @TOP_BUILDDIR@/Documentation/internal-api-html/tagfile.xml
+-
+ HIDE_UNDOC_CLASSES     = NO
+ HIDE_UNDOC_MEMBERS     = NO
+ HTML_OUTPUT            = internal-api-html
+--- a/Documentation/Doxyfile-public.in
++++ b/Documentation/Doxyfile-public.in
+@@ -3,8 +3,6 @@
+ @INCLUDE_PATH          = @TOP_BUILDDIR@/Documentation
+ @INCLUDE               = Doxyfile-common
+ 
+-GENERATE_TAGFILE       = @TOP_BUILDDIR@/Documentation/api-html/tagfile.xml
+-
+ HIDE_UNDOC_CLASSES     = YES
+ HIDE_UNDOC_MEMBERS     = YES
+ HTML_OUTPUT            = api-html
+--- a/Documentation/conf.py
++++ b/Documentation/conf.py
+@@ -37,8 +37,7 @@ author = 'The libcamera documentation au
+ # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
+ # ones.
+ extensions = [
+-    'sphinx.ext.graphviz',
+-    'sphinxcontrib.doxylink',
++    'sphinx.ext.graphviz'
+ ]
+ 
+ graphviz_output_format = 'svg'
+@@ -72,16 +71,6 @@ exclude_patterns = [
+ # The name of the Pygments (syntax highlighting) style to use.
+ pygments_style = None
+ 
+-doxylink = {
+-    'doxy-pub': (
+-        'Documentation/api-html/tagfile.xml',
+-        '../api-html/',
+-    ),
+-    'doxy-int': (
+-        'Documentation/internal-api-html/tagfile.xml',
+-        '../internal-api-html/',
+-    ),
+-}
+ 
+ # -- Options for HTML output -------------------------------------------------
+ 
+--- a/Documentation/meson.build
++++ b/Documentation/meson.build
+@@ -81,16 +81,16 @@ if doxygen.found() and dot.found()
+                                  '@INPUT@',
+                              ])
+ 
+-    doxygen_public = custom_target('doxygen-public',
+-                                   input : [
+-                                       doxyfile,
+-                                       doxyfile_common,
+-                                   ],
+-                                   output : 'api-html',
+-                                   command : [doxygen, doxyfile],
+-                                   install : true,
+-                                   install_dir : doc_install_dir,
+-                                   install_tag : 'doc')
++    custom_target('doxygen-public',
++                  input : [
++                      doxyfile,
++                      doxyfile_common,
++                  ],
++                  output : 'api-html',
++                  command : [doxygen, doxyfile],
++                  install : true,
++                  install_dir : doc_install_dir,
++                  install_tag : 'doc')
+ 
+     # This is the internal documentation, which hard-codes a list of directories
+     # to parse in its doxyfile.
+@@ -99,18 +99,18 @@ if doxygen.found() and dot.found()
+                               output : 'Doxyfile-internal',
+                               configuration : cdata)
+ 
+-    doxygen_internal = custom_target('doxygen-internal',
+-                                     input : [
+-                                         doxyfile,
+-                                         doxyfile_common,
+-                                         doxygen_public_input,
+-                                         doxygen_internal_input,
+-                                     ],
+-                                     output : 'internal-api-html',
+-                                     command : [doxygen, doxyfile],
+-                                     install : true,
+-                                     install_dir : doc_install_dir,
+-                                     install_tag : 'doc-internal')
++    custom_target('doxygen-internal',
++                  input : [
++                      doxyfile,
++                      doxyfile_common,
++                      doxygen_public_input,
++                      doxygen_internal_input,
++                  ],
++                  output : 'internal-api-html',
++                  command : [doxygen, doxyfile],
++                  install : true,
++                  install_dir : doc_install_dir,
++                  install_tag : 'doc-internal')
+ endif
+ 
+ #
+@@ -121,27 +121,6 @@ sphinx = find_program('sphinx-build-3',
+                       required : get_option('documentation'))
+ 
+ if sphinx.found()
+-    # Many distributions do not provide a recent-enough version of the doxylink
+-    # module. This results in a build error with a cryptic message. Check the
+-    # version manually and print clear error messages.
+-    py_mod = import('python')
+-    py3 = py_mod.find_installation('python3')
+-
+-    mod = 'sphinxcontrib.doxylink'
+-    min_version = '>=1.6.1'
+-    version = run_command(py3, '-c',
+-                          'import @0@ ; print(@0@.__version__)'.format(mod),
+-                          check : false).stdout().strip()
+-
+-    if version == ''
+-        error('@0@ module not found'.format(mod))
+-    endif
+-
+-    if not version.version_compare(min_version)
+-        error('@0@ module v@1@ is too old, @2@ is needed'
+-              .format(mod, version, min_version))
+-    endif
+-
+     docs_sources = [
+         'camera-sensor-model.rst',
+         'code-of-conduct.rst',
+@@ -175,10 +154,6 @@ if sphinx.found()
+                   input : docs_sources,
+                   output : 'html',
+                   build_by_default : true,
+-                  depends : [
+-                      doxygen_public,
+-                      doxygen_internal,
+-                  ],
+                   install : true,
+                   install_dir : doc_install_dir,
+                   install_tag : 'doc')
+--- a/README.rst
++++ b/README.rst
+@@ -99,8 +99,7 @@ for device hotplug enumeration: [optiona
+         libudev-dev
+ 
+ for documentation: [optional]
+-        doxygen graphviz python3-sphinx python3-sphinxcontrib.doxylink (>= 1.6.1)
+-        texlive-latex-extra
++        python3-sphinx doxygen graphviz texlive-latex-extra
+ 
+ for gstreamer: [optional]
+         libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
