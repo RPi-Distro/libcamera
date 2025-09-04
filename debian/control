@@ -27,7 +27,8 @@ Build-Depends: debhelper-compat (= 13),
                python3-ply,
                python3-pybind11 <!pkg.libcamera.nopython>,
                python3-yaml,
-               qt6-base-dev [!i386] <!pkg.libcamera.noqt>
+               qt6-base-dev [!i386] <!pkg.libcamera.noqt>,
+               libqt6opengl6-dev [!i386] <!pkg.libcamera.noqt>
 Build-Depends-Indep: doxygen <!nodoc>,
                      doxygen-latex <!nodoc>,
                      graphviz <!nodoc>,
