@@ -6,17 +6,38 @@ export DEB_CXXFLAGS_MAINT_APPEND = -Wno-error
 
 include /usr/share/dpkg/architecture.mk
 
+ifeq ($(DEB_HOST_ARCH_OS),linux)
+CONFFLAGS += \
+	-Dv4l2=true
+endif
+
+ifneq (,$(filter i386,$(DEB_HOST_ARCH)))
+QCAM=disabled
+# See https://bugs.debian.org/1076986
+else
+QCAM=enabled
+endif
+
+# Only enable rpi pipelines on arm
+ifneq (,$(filter $(DEB_HOST_ARCH), arm64 armhf))
+	PIPELINES=rpi/vc4,rpi/pisp,uvcvideo
+else
+	PIPELINES=uvcvideo
+endif
+
 %:
 	dh $@
 
 override_dh_auto_configure:
 	dh_auto_configure -- \
-		--libexecdir=lib/${DEB_HOST_MULTIARCH} \
+               --libexecdir=libexec/${DEB_HOST_MULTIARCH} \
 		-Dgstreamer=enabled \
+		-Dlibunwind=disabled \
 		-Dpycamera=enabled \
-		-Dv4l2=true \
-		-Dpipelines=rpi/vc4,rpi/pisp,uvcvideo \
-		-Dtest=false \
+		-Dpipelines=${PIPELINES} \
+		-Dqcam=$(QCAM) \
+		-Dtest=true \
+		$(CONFFLAGS) \
 		$(empty)
 
 # Only make the tests fail for key architectures
@@ -27,13 +48,15 @@ else
 	-dh_auto_test
 endif
 
-override_dh_install:
+override_dh_install-indep:
 ifeq ($(filter nodoc,$(DEB_BUILD_PROFILES)),)
 	mv debian/tmp/usr/share/doc/libcamera-0.* debian/tmp/usr/share/doc/libcamera-doc
 endif
+	dh_install -X/.doctrees/
+
+execute_before_dh_install-arch:
 	cp ./obj-${DEB_HOST_GNU_TYPE}/src/apps/ipa-verify/ipa_verify \
 	   debian/tmp/usr/bin/
-	dh_install -X/.doctrees/
 
 override_dh_strip:
 	dh_strip -a
@@ -45,6 +68,9 @@ override_dh_strip:
 	  echo "Verifying signature of $${IPA_MOD}"; \
 	  ./obj-${DEB_HOST_GNU_TYPE}/src/apps/ipa-verify/ipa_verify $${IPA_MOD}; \
 	done
+
+execute_after_dh_fixperms:
+	find debian/ -name 'v4l2-compat.so' -exec chmod -x '{}' \;
 
 .PHONY: licensecheck
 licensecheck:

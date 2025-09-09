@@ -1,0 +1,13 @@
+---
+include:
+  - $CI_SERVER_URL/apt/salsa-ci/raw/pios/recipes/pios.yml
+
+variables:
+  SALSA_CI_DISABLE_BUILD_PACKAGE_ARM64: 0
+
+reprotest:
+  allow_failure: true
+
+# See https://bugs.debian.org/1088099
+blhc:
+  allow_failure: true

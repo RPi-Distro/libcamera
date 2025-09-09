@@ -1,124 +1,179 @@
-libcamera (0.5.1+rpt20250722-1) bookworm; urgency=medium
+libcamera (0.5.2+rpt20250903-1) trixie; urgency=medium
 
-  * New upstream version 0.5.1+rpt20250722
+  * New upstream version 0.5.2+rpt20250903
+  * Only enable rpi pipelines on arm
+  * d/c: Move libcamera-ipa to Depends
+  * d/salsa-cy.yml: Use internal salsa-ci instance
+  * d/python3-libcamera.install: fix python module source location
 
- -- Serge Schneider <serge@raspberrypi.com>  Tue, 22 Jul 2025 12:47:35 +0100
+ -- Serge Schneider <serge@raspberrypi.com>  Fri, 05 Sep 2025 14:50:41 +0100
 
-libcamera (0.5.1+rpt20250707-1~bookworm) bookworm; urgency=medium
+libcamera (0.5.2-2) unstable; urgency=medium
 
-  * New upstream version 0.5.1+rpt20250707
-  * Update ipa install source
+  * Adjust VCS fields in d/control and d/gbp.conf for unstable.
+  * Upload to unstable.
 
- -- Serge Schneider <serge@raspberrypi.com>  Mon, 07 Jul 2025 14:18:31 +0100
+ -- Dylan Aïssi <daissi@debian.org>  Sun, 17 Aug 2025 22:47:35 +0200
 
-libcamera (0.5.0+rpt20250429-1) bookworm; urgency=medium
+libcamera (0.5.2-1) experimental; urgency=medium
 
-  * New upstream version 0.5.0+rpt20250429
-  * Bump SONAME to libcamera0.5
-  * d/patches: Remove fix_detection_libyuv.patch
+  * New upstream version 0.5.2
+  * Add python3-sphinxcontrib.doxylink in Build-Depends-Indep
+  * Refresh debian/copyright
 
- -- Serge Schneider <serge@raspberrypi.com>  Tue, 29 Apr 2025 15:32:38 +0100
+ -- Dylan Aïssi <daissi@debian.org>  Thu, 07 Aug 2025 17:16:21 +0200
 
-libcamera (0.4.0+rpt20250213-1) bookworm; urgency=medium
+libcamera (0.5.1-1) experimental; urgency=medium
 
-  * New upstream version 0.4.0+rpt20250213
-
- -- Serge Schneider <serge@raspberrypi.com>  Thu, 13 Feb 2025 10:54:48 +0000
-
-libcamera (0.4.0+rpt20250211-1) bookworm; urgency=medium
-
-  * New upstream version 0.4.0+rpt20250211
-
- -- Serge Schneider <serge@raspberrypi.com>  Tue, 11 Feb 2025 09:35:15 +0000
-
-libcamera (0.4.0+rpt20250210-1) bookworm; urgency=medium
-
-  * New upstream version 0.4.0+rpt20250210
-
- -- Serge Schneider <serge@raspberrypi.com>  Mon, 10 Feb 2025 09:24:46 +0000
-
-libcamera (0.4.0+rpt20250127-3) bookworm; urgency=medium
-
-  * Disable building tests
-
- -- Serge Schneider <serge@raspberrypi.com>  Tue, 28 Jan 2025 12:37:21 +0000
-
-libcamera (0.4.0+rpt20250127-2) bookworm; urgency=medium
-
-  * Specify which pipelines to enabled (rpi/vc4,rpi/pisp,uvcvideo)
-
- -- Serge Schneider <serge@raspberrypi.com>  Tue, 28 Jan 2025 10:46:28 +0000
-
-libcamera (0.4.0+rpt20250127-1) bookworm; urgency=medium
-
-  [ Serge Schneider ]
-  * New upstream version 0.4.0+rpt20250127
-  * Bump SONAME to libcamera0.4
+  * New upstream version 0.5.1
   * Refresh patches
+  * Install IPA modules in usr/lib/*/libcamera/ipa
+  * Adjust VCS field in d/control for experimental
+
+ -- Dylan Aïssi <daissi@debian.org>  Tue, 03 Jun 2025 21:16:11 +0200
+
+libcamera (0.5.0-1) experimental; urgency=medium
+
+  * New upstream version 0.5.0
+     - Fix FTBFS with GCC-15 (Closes: #1097167)
+  * Bump SONAME to libcamera0.5
+  * Add new Build-Deps for ARM required to support RPi5: libpisp-dev
+  * debian/gbp.conf: Set debian-branch to debian/experimental
+  * Refresh patches and drop those included in upstream release
+
+ -- Dylan Aïssi <daissi@debian.org>  Tue, 08 Apr 2025 13:30:03 +0200
+
+libcamera (0.4.0-7) unstable; urgency=medium
+
+  * Add superficial test for gstreamer1.0-libcamera
+  * Add superficial test for python3-libcamera
+  * Standards-Version: 4.7.2 (no changes needed)
+
+ -- Dylan Aïssi <daissi@debian.org>  Sun, 23 Mar 2025 12:06:04 +0100
+
+libcamera (0.4.0-6) unstable; urgency=medium
+
+  * Make libcamera-tools depends on libcamera-ipa because libcamerify
+    requires v4l2-compat.so to work.
+  * Use libexec/${DEB_HOST_MULTIARCH} to override --libexecdir,
+    otherwise v4l2-compat.so ends up in the same folder as IPA modules
+    and IPA manager tries to parse it leading to errors.
+
+ -- Dylan Aïssi <daissi@debian.org>  Tue, 25 Feb 2025 11:48:40 +0100
+
+libcamera (0.4.0-5) unstable; urgency=medium
+
+  * Cherry-pick upstream patches demoting error messages (Closes: #1091966)
+
+ -- Dylan Aïssi <daissi@debian.org>  Thu, 30 Jan 2025 12:07:44 +0100
+
+libcamera (0.4.0-4) unstable; urgency=medium
+
+  * Add patch disabling libunwind integration (Closes: #1093688)
+  * Add Forwarded field for fix_detection_libyuv.patch
+
+ -- Dylan Aïssi <daissi@debian.org>  Mon, 27 Jan 2025 10:42:24 +0100
+
+libcamera (0.4.0-3) unstable; urgency=medium
+
+  * Fix install location of the python module
+  * Drop "Multi-Arch: same" for python3-libcamera
+
+ -- Dylan Aïssi <daissi@debian.org>  Thu, 09 Jan 2025 12:45:19 +0100
+
+libcamera (0.4.0-2) unstable; urgency=medium
+
+  * Upload to unstable
+
+ -- Dylan Aïssi <daissi@debian.org>  Tue, 31 Dec 2024 17:12:58 +0100
+
+libcamera (0.4.0-1) experimental; urgency=medium
+
+  * New upstream version 0.4.0
+  * Bump SONAME to libcamera0.4
   * Add new Build-Deps: libyuv-dev
+  * Add patch fixing detection of system libyuv
+  * Skip memory_lifetime_test, it fails now when it was just skipped before.
+  * Drop workaround for doxygen-latex on sh4, no longer required since all
+    these build-deps moved to Build-Depends-Indep.
+  * Allow reprotest and blhc to fail in salsa-ci
+
+ -- Dylan Aïssi <daissi@debian.org>  Fri, 27 Dec 2024 12:52:33 +0100
+
+libcamera (0.3.2-2) unstable; urgency=medium
+
+  [ Helmut Grohne ]
+  * Move documentation Build-Depends to Build-Depends-Indep. (Closes: #1083173)
+
+ -- Dylan Aïssi <daissi@debian.org>  Mon, 21 Oct 2024 14:19:51 +0200
+
+libcamera (0.3.2-1) unstable; urgency=medium
+
+  * New upstream version 0.3.2
+  * Drop patch included in upstream release
+  * Update debian/copyright
+
+ -- Dylan Aïssi <daissi@debian.org>  Tue, 24 Sep 2024 21:35:43 +0200
+
+libcamera (0.3.1-2) unstable; urgency=medium
 
   [ Dylan Aïssi ]
-  * Add patch fixing detection of system libyuv
+  * Refer to the i386 FTBFS bug
 
- -- Serge Schneider <serge@raspberrypi.com>  Mon, 27 Jan 2025 22:18:26 +0000
+  [ Jeremy Bícha ]
+  * Don't require qt6 on i386
 
-libcamera (0.3.2+rpt20241119-1) bookworm; urgency=medium
+  [ Joel Stanley ]
+  * Enable simple pipeline on all arches
 
-  * New upstream version 0.3.2+rpt20241119
+ -- Dylan Aïssi <daissi@debian.org>  Fri, 16 Aug 2024 14:46:49 +0200
 
- -- Serge Schneider <serge@raspberrypi.com>  Tue, 19 Nov 2024 12:28:13 +0000
+libcamera (0.3.1-1) unstable; urgency=medium
 
-libcamera (0.3.2+rpt20241112-1) bookworm; urgency=medium
+  * New upstream version 0.3.1
+  * Switch from qtbase5-dev to qt6-base-dev in Build-Depends
+  * Bump minimum meson to 0.63
+  * Disable qcam on i386 for now because it fails to build with errors
+      due to missing SSE2.
 
-  * New upstream version 0.3.2+rpt20241112
+ -- Dylan Aïssi <daissi@debian.org>  Fri, 26 Jul 2024 10:55:50 +0200
 
- -- Serge Schneider <serge@raspberrypi.com>  Wed, 13 Nov 2024 13:47:45 +0000
+libcamera (0.3.0-2) unstable; urgency=medium
 
-libcamera (0.3.2+rpt20240927-1) bookworm; urgency=medium
+  * Upload to unstable
 
-  * New upstream version 0.3.2+rpt20240927
+ -- Dylan Aïssi <daissi@debian.org>  Wed, 22 May 2024 10:11:30 +0200
 
- -- Serge Schneider <serge@raspberrypi.com>  Fri, 27 Sep 2024 12:43:18 +0100
+libcamera (0.3.0-1) experimental; urgency=medium
 
-libcamera (0.3.1+rpt20240906-1) bookworm; urgency=medium
-
-  * New upstream version 0.3.1+rpt20240906
-
- -- Serge Schneider <serge@raspberrypi.com>  Fri, 06 Sep 2024 15:09:51 +0100
-
-libcamera (0.3.1+rpt20240829-1) bookworm; urgency=medium
-
-  * New upstream version 0.3.1+rpt20240829
-
- -- Serge Schneider <serge@raspberrypi.com>  Thu, 29 Aug 2024 17:40:18 +0100
-
-libcamera (0.3.0+rpt20240617-1) bookworm; urgency=medium
-
-  * New upstream version 0.3.0+rpt20240617
+  * New upstream version 0.3.0
   * Bump SONAME to libcamera0.3
+  * Set architecture to linux-any
+  * Promote libcamera-ipa in Recommends of libcamera0.3 and ensure the
+      binary version matches
+  * Update debian/watch to use upstream recommended tarball
+  * Standards-Version: 4.7.0 (no changes needed)
+  * Drop obsolete pkg-config from Build-Deps
+  * Refresh patches
 
- -- Serge Schneider <serge@raspberrypi.com>  Mon, 17 Jun 2024 11:44:51 +0100
+ -- Dylan Aïssi <daissi@debian.org>  Mon, 20 May 2024 10:53:34 +0200
 
-libcamera (0.2.0+rpt20240418-1) bookworm; urgency=medium
+libcamera (0.2.0-3) unstable; urgency=medium
 
-  * New upstream version 0.2.0+rpt20240418
+  [ Jeremy Bícha ]
+  * Update debian/gbp.conf
+  * Don't use liblltng-ust-dev on i386
+  * Disable v4l2 on non-Linux
+  * autopkgtest: Run the upstream tests
 
- -- Serge Schneider <serge@raspberrypi.com>  Thu, 18 Apr 2024 14:26:21 +0100
+  [ Steve Langasek ]
+  * Add patch for 64-bit time_t compatibility (Closes: #1066836)
 
-libcamera (0.2.0+rpt20240215-1) bookworm; urgency=medium
+  [ Dylan Aïssi ]
+  * Refresh patches
+  * Drop 'Multi-Arch: same' for libcamera-dev due to file conflict
 
-  * New upstream version 0.2.0+rpt20240215
-  * d/gbp.conf: Update branches and use pristine-tar
-  * d/watch: Use the Raspberry Pi Github releases
-  * d/c: Update Maintainer and Vcs information
-  * d/c: Add libpisp-dev as a build dependency on ARM platforms
-  * d/c: Add libboost-dev as a build dependency
-  * d/c: Add libcamera-ipa as a runtime dependency
-  * d/c: Replace all versions of libcamera0
-  * d/p: remove skip_failing_tests.patch
-  * Fix pycamera install path
-
- -- Serge Schneider <serge@raspberrypi.com>  Fri, 16 Feb 2024 16:04:17 +0000
+ -- Dylan Aïssi <daissi@debian.org>  Thu, 14 Mar 2024 11:58:17 +0100
 
 libcamera (0.2.0-2) unstable; urgency=medium
 
