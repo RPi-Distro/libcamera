@@ -16,10 +16,10 @@
 
 #include <libcamera/base/signal.h>
 
+#include <libcamera/framebuffer.h>
 #include <libcamera/geometry.h>
 
 #include "libcamera/internal/bayer_format.h"
-#include "libcamera/internal/framebuffer.h"
 #include "libcamera/internal/shared_mem_object.h"
 #include "libcamera/internal/software_isp/swisp_stats.h"
 
@@ -56,7 +56,7 @@ public:
 	void setWindow(const Rectangle &window);
 	void startFrame(uint32_t frame);
 	void finishFrame(uint32_t frame, uint32_t bufferId);
-	void processFrame(uint32_t frame, uint32_t bufferId, FrameBuffer *input);
+	void processFrame(uint32_t frame, uint32_t bufferId, MappedFrameBuffer &input);
 
 	void processLine0(uint32_t frame, unsigned int y, const uint8_t *src[], unsigned int statsBufferIndex = 0)
 	{
@@ -98,6 +98,9 @@ private:
 	/* Bayer 10 bpp packed */
 	void statsBGGR10PLine0(const uint8_t *src[], SwIspStats &stats);
 	void statsGBRG10PLine0(const uint8_t *src[], SwIspStats &stats);
+	/* Bayer 12 bpp packed */
+	void statsBGGR12PLine0(const uint8_t *src[], SwIspStats &stats);
+	void statsGBRG12PLine0(const uint8_t *src[], SwIspStats &stats);
 
 	void processBayerFrame2(MappedFrameBuffer &in);
 
@@ -116,6 +119,7 @@ private:
 
 	unsigned int xShift_;
 	unsigned int stride_;
+	unsigned int sumShift_;
 
 	std::vector<SwIspStats> stats_;
 	SharedMemObject<SwIspStats> sharedStats_;

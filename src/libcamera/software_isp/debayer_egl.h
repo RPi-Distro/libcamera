@@ -11,15 +11,14 @@
 
 #include <memory>
 #include <stdint.h>
+#include <tuple>
 #include <vector>
 
 #define GL_GLEXT_PROTOTYPES
 #define EGL_EGLEXT_PROTOTYPES
 #include <libcamera/base/object.h>
 
-#include "libcamera/internal/bayer_format.h"
 #include "libcamera/internal/egl.h"
-#include "libcamera/internal/framebuffer.h"
 #include "libcamera/internal/mapped_framebuffer.h"
 #include "libcamera/internal/software_isp/benchmark.h"
 #include "libcamera/internal/software_isp/swstats_cpu.h"
@@ -66,7 +65,7 @@ private:
 	int initBayerShaders(PixelFormat inputFormat, PixelFormat outputFormat);
 	int getShaderVariableLocations();
 	void setShaderVariableValues(const DebayerParams &params);
-	int debayerGPU(MappedFrameBuffer &in, int out_fd, const DebayerParams &params);
+	int debayerGPU(FrameBuffer *input, FrameBuffer *output, const DebayerParams &params, std::optional<MappedFrameBuffer> *mappedInputBuffer, std::optional<DmaSyncer> *inputBufferDmaSyncer);
 
 	/* Shader program identifiers */
 	GLuint vertexShaderId_ = 0;

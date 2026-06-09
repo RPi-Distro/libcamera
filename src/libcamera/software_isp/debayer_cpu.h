@@ -18,8 +18,9 @@
 #include <libcamera/base/mutex.h>
 #include <libcamera/base/object.h>
 
+#include <libcamera/camera_manager.h>
+
 #include "libcamera/internal/bayer_format.h"
-#include "libcamera/internal/camera_manager.h"
 #include "libcamera/internal/software_isp/debayer_params.h"
 #include "libcamera/internal/software_isp/swstats_cpu.h"
 
@@ -109,6 +110,15 @@ private:
 	void debayer10P_GBGB_BGR888(uint8_t *dst, const uint8_t *src[]);
 	template<bool addAlphaByte, bool ccmEnabled>
 	void debayer10P_RGRG_BGR888(uint8_t *dst, const uint8_t *src[]);
+	/* CSI-2 packed 12-bit raw bayer format (all the 4 orders) */
+	template<bool addAlphaByte, bool ccmEnabled>
+	void debayer12P_BGBG_BGR888(uint8_t *dst, const uint8_t *src[]);
+	template<bool addAlphaByte, bool ccmEnabled>
+	void debayer12P_GRGR_BGR888(uint8_t *dst, const uint8_t *src[]);
+	template<bool addAlphaByte, bool ccmEnabled>
+	void debayer12P_GBGB_BGR888(uint8_t *dst, const uint8_t *src[]);
+	template<bool addAlphaByte, bool ccmEnabled>
+	void debayer12P_RGRG_BGR888(uint8_t *dst, const uint8_t *src[]);
 
 	static int getInputConfig(PixelFormat inputFormat, DebayerInputConfig &config);
 	static int getOutputConfig(PixelFormat outputFormat, DebayerOutputConfig &config);

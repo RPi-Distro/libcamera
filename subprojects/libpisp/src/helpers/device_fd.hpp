@@ -20,8 +20,11 @@ public:
 	DeviceFd(DeviceFd const &) = delete;
 	void operator=(DeviceFd const &) = delete;
 
-	DeviceFd(const std::string &file, mode_t mode)
-		: deviceFd_(-1)
+	DeviceFd() : deviceFd_(-1)
+	{
+	}
+
+	DeviceFd(const std::string &file, mode_t mode) : deviceFd_(-1)
 	{
 		int DeviceFd = ::open(file.c_str(), mode);
 		if (DeviceFd >= 0)
@@ -50,7 +53,7 @@ public:
 		return *this;
 	}
 
-	int Get()
+	int Get() const
 	{
 		return deviceFd_;
 	}
@@ -63,7 +66,7 @@ public:
 		deviceFd_ = -1;
 	}
 
-	bool Valid()
+	bool Valid() const
 	{
 		return deviceFd_ >= 0;
 	}
@@ -72,4 +75,4 @@ private:
 	int deviceFd_;
 };
 
-} // namespace libpisp
+} // namespace libpisp::helpers
