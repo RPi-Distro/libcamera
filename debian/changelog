@@ -1,3 +1,9 @@
+libcamera (0.7.1+rpt20260609-1) trixie; urgency=medium
+
+  * New upstream version 0.7.1+rpt20260609
+
+ -- Serge Schneider <serge@raspberrypi.com>  Tue, 09 Jun 2026 10:15:34 +0100
+
 libcamera (0.7.1+rpt20260429-1) trixie; urgency=medium
 
   * New upstream version 0.7.1+rpt20260429
