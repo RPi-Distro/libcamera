@@ -342,12 +342,12 @@ bool PipelineHandlerBase::updateStreamConfig(StreamConfiguration *stream,
 	}
 
 	if (stream->colorSpace != format.colorSpace) {
-		stream->colorSpace = format.colorSpace;
-		adjusted = true;
 		LOG(RPI, Debug)
 			<< "Color space changed from "
 			<< ColorSpace::toString(stream->colorSpace) << " to "
 			<< ColorSpace::toString(format.colorSpace);
+		stream->colorSpace = format.colorSpace;
+		adjusted = true;
 	}
 
 	stream->stride = format.planes[0].bpl;
@@ -878,6 +878,16 @@ int PipelineHandlerBase::registerCamera(std::unique_ptr<RPi::CameraData> &camera
 	data->ipa_->setLensControls.connect(data, &CameraData::setLensControls);
 	data->ipa_->metadataReady.connect(data, &CameraData::metadataReady);
 
+	/*
+	 * Disable the IPA signal to control timeout, when there is a
+	 * user-requested value. We do this here now that the IPA and
+	 * front end device are both initialized.
+	 */
+	if (data->config_.cameraTimeoutValue) {
+		data->ipa_->setCameraTimeout.disconnect();
+		data->frontendDevice()->setDequeueTimeout(data->config_.cameraTimeoutValue * 1ms);
+	}
+
 	return 0;
 }
 
@@ -1144,12 +1154,6 @@ int CameraData::loadPipelineConfiguration()
 
 	config_.cameraTimeoutValue =
 		phConfig["camera_timeout_value_ms"].get<unsigned int>(config_.cameraTimeoutValue);
-
-	if (config_.cameraTimeoutValue) {
-		/* Disable the IPA signal to control timeout and set the user requested value. */
-		ipa_->setCameraTimeout.disconnect();
-		frontendDevice()->setDequeueTimeout(config_.cameraTimeoutValue * 1ms);
-	}
 
 	config_.controllerMinFrameDurationUs =
 		phConfig["controller_min_frame_duration_us"].get<double>(config_.controllerMinFrameDurationUs);
@@ -1525,6 +1529,55 @@ void CameraData::fillRequestMetadata(const ControlList &bufferControls, Request 
 						      Span<const Rectangle>(crops.data(),
 									    crops.size()));
 		}
+	}
+}
+
+static bool isControlDelayed(unsigned int id)
+{
+	return id == controls::ExposureTime ||
+	       id == controls::AnalogueGain ||
+	       id == controls::FrameDurationLimits ||
+	       id == controls::AeEnable ||
+	       id == controls::ExposureTimeMode ||
+	       id == controls::AnalogueGainMode;
+}
+
+void CameraData::handleControlLists(uint32_t delayContext, ControlList &paramControls)
+{
+	/*
+	 * The delayContext is the sequence number after it's gone through the various
+	 * pipeline delays, so that's what gets reported as the "ControlListSequence"
+	 * in the metadata, being the sequence number of the request whose ControlList
+	 * has just been applied.
+	 */
+	Request *request = requestQueue_.front();
+	request->_d()->metadata().set(controls::rpi::ControlListSequence, delayContext);
+
+	/*
+	 * Controls that take effect immediately (typically ISP controls) have to be
+	 * delayed so as to synchronise with those controls that do get delayed. So we
+	 * must remove them from the current request, and push them onto a queue so
+	 * that they can be used later.
+	 *
+	 * Note that we are given a separate control list (paramControls) so that
+	 * we can pass back the controls that really need to happen now, without
+	 * disturbing the controls that were submitted with the request.
+	 */
+	ASSERT(paramControls.empty());
+	immediateControls_.push({ request->sequence(), {} });
+	for (const auto &ctrl : request->controls()) {
+		if (isControlDelayed(ctrl.first))
+			paramControls.set(ctrl.first, ctrl.second);
+		else
+			immediateControls_.back().controls.set(ctrl.first, ctrl.second);
+	}
+
+	/* "Immediate" controls that have become due are now merged back into this request. */
+	while (!immediateControls_.empty() &&
+	       immediateControls_.front().controlListId <= delayContext) {
+		paramControls.merge(immediateControls_.front().controls,
+				    ControlList::MergePolicy::OverwriteExisting);
+		immediateControls_.pop();
 	}
 }
 

@@ -9,7 +9,6 @@
 
 #include <map>
 #include <string>
-#include <vector>
 
 #include <linux/media.h>
 
@@ -44,4 +43,4 @@ private:
 	const MediaEnumerator *media_enumerator_;
 };
 
-} // namespace libpisp
+} // namespace libpisp::helpers

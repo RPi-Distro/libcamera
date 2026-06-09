@@ -9,13 +9,19 @@
 
 #include "debayer_egl.h"
 
-#include <cmath>
+#include <algorithm>
+#include <assert.h>
+#include <memory>
 #include <stdlib.h>
-#include <time.h>
+#include <string>
+#include <tuple>
+#include <vector>
 
 #include <libcamera/base/utils.h>
 
 #include <libcamera/formats.h>
+
+#include "libcamera/internal/framebuffer.h"
 
 #include "../glsl_shaders.h"
 
@@ -47,16 +53,18 @@ int DebayerEGL::getInputConfig(PixelFormat inputFormat, DebayerInputConfig &conf
 	BayerFormat bayerFormat =
 		BayerFormat::fromPixelFormat(inputFormat);
 
+	std::vector<PixelFormat> outputFormats = { formats::XRGB8888,
+						   formats::ARGB8888,
+						   formats::XBGR8888,
+						   formats::ABGR8888 };
+
 	if ((bayerFormat.bitDepth == 8 || bayerFormat.bitDepth == 10) &&
 	    bayerFormat.packing == BayerFormat::Packing::None &&
 	    isStandardBayerOrder(bayerFormat.order)) {
 		config.bpp = (bayerFormat.bitDepth + 7) & ~7;
 		config.patternSize.width = 2;
 		config.patternSize.height = 2;
-		config.outputFormats = std::vector<PixelFormat>({ formats::XRGB8888,
-								  formats::ARGB8888,
-								  formats::XBGR8888,
-								  formats::ABGR8888 });
+		config.outputFormats = outputFormats;
 		return 0;
 	}
 
@@ -66,14 +74,21 @@ int DebayerEGL::getInputConfig(PixelFormat inputFormat, DebayerInputConfig &conf
 		config.bpp = 10;
 		config.patternSize.width = 4; /* 5 bytes per *4* pixels */
 		config.patternSize.height = 2;
-		config.outputFormats = std::vector<PixelFormat>({ formats::XRGB8888,
-								  formats::ARGB8888,
-								  formats::XBGR8888,
-								  formats::ABGR8888 });
+		config.outputFormats = outputFormats;
 		return 0;
 	}
 
-	LOG(Debayer, Error)
+	if (bayerFormat.bitDepth == 12 &&
+	    bayerFormat.packing == BayerFormat::Packing::CSI2 &&
+	    isStandardBayerOrder(bayerFormat.order)) {
+		config.bpp = 12;
+		config.patternSize.width = 2; /* 3 bytes per *2* pixels */
+		config.patternSize.height = 2;
+		config.outputFormats = outputFormats;
+		return 0;
+	}
+
+	LOG(Debayer, Info)
 		<< "Unsupported input format " << inputFormat;
 
 	return -EINVAL;
@@ -87,7 +102,7 @@ int DebayerEGL::getOutputConfig(PixelFormat outputFormat, DebayerOutputConfig &c
 		return 0;
 	}
 
-	LOG(Debayer, Error)
+	LOG(Debayer, Info)
 		<< "Unsupported output format " << outputFormat;
 
 	return -EINVAL;
@@ -495,16 +510,34 @@ void DebayerEGL::setShaderVariableValues(const DebayerParams &params)
 	return;
 }
 
-int DebayerEGL::debayerGPU(MappedFrameBuffer &in, int out_fd, const DebayerParams &params)
+int DebayerEGL::debayerGPU(FrameBuffer *input, FrameBuffer *output, const DebayerParams &params, std::optional<MappedFrameBuffer> *inMapped, std::optional<DmaSyncer> *inDmaSyncer)
 {
+	bool dmabuf_import_succeeded = false;
+
 	/* eGL context switch */
 	egl_.makeCurrent();
 
-	/* Create a standard texture input */
-	egl_.createTexture2D(*eglImageBayerIn_, glFormat_, inputConfig_.stride / bytesPerPixel_, height_, in.planes()[0].data());
+	/* Try to create texture for input buffer via dmabuf import */
+	if (!eglImageBayerIn_->dmabuf_import_failed_) {
+		if (egl_.createInputDMABufTexture2D(*eglImageBayerIn_, input->planes()[0].fd.get()) == 0)
+			dmabuf_import_succeeded = true;
+		else
+			LOG(Debayer, Info) << "Importing input buffer with DMABuf import failed, falling back to upload";
+	}
+
+	/* Otherwise create texture for input buffer via upload from CPU */
+	if (!dmabuf_import_succeeded) {
+		inDmaSyncer->emplace(input->planes()[0].fd, DmaSyncer::SyncType::Read);
+		inMapped->emplace(input, MappedFrameBuffer::MapFlag::Read);
+		if (!inMapped->value().isValid()) {
+			LOG(Debayer, Error) << "mmap-ing buffer(s) failed";
+			return -ENODEV;
+		}
+		egl_.createTexture2D(*eglImageBayerIn_, inMapped->value().planes()[0].data());
+	}
 
 	/* Generate the output render framebuffer as render to texture */
-	egl_.createOutputDMABufTexture2D(*eglImageBayerOut_, out_fd);
+	egl_.createOutputDMABufTexture2D(*eglImageBayerOut_, output->planes()[0].fd.get());
 
 	setShaderVariableValues(params);
 	glViewport(0, 0, width_, height_);
@@ -516,7 +549,7 @@ int DebayerEGL::debayerGPU(MappedFrameBuffer &in, int out_fd, const DebayerParam
 		LOG(eGL, Error) << "Drawing scene fail " << err;
 		return -ENODEV;
 	} else {
-		egl_.syncOutput();
+		egl_.flushOutput();
 	}
 
 	return 0;
@@ -526,34 +559,42 @@ void DebayerEGL::process(uint32_t frame, FrameBuffer *input, FrameBuffer *output
 {
 	bench_.startFrame();
 
-	std::vector<DmaSyncer> dmaSyncers;
-
-	dmaSyncBegin(dmaSyncers, input, nullptr);
-
 	/* Copy metadata from the input buffer */
 	FrameMetadata &metadata = output->_d()->metadata();
 	metadata.status = input->metadata().status;
 	metadata.sequence = input->metadata().sequence;
 	metadata.timestamp = input->metadata().timestamp;
 
-	MappedFrameBuffer in(input, MappedFrameBuffer::MapFlag::Read);
-	if (!in.isValid()) {
-		LOG(Debayer, Error) << "mmap-ing buffer(s) failed";
-		goto error;
-	}
+	std::optional<MappedFrameBuffer> inMapped;
+	std::optional<DmaSyncer> inDmaSyncer;
 
-	if (debayerGPU(in, output->planes()[0].fd.get(), params)) {
+	if (debayerGPU(input, output, params, &inMapped, &inDmaSyncer)) {
 		LOG(Debayer, Error) << "debayerGPU failed";
 		goto error;
 	}
 
-	bench_.finishFrame();
-
 	metadata.planes()[0].bytesused = output->planes()[0].length;
 
 	/* Calculate stats for the whole frame */
-	stats_->processFrame(frame, 0, input);
-	dmaSyncers.clear();
+	if (frame % SwStatsCpu::kStatPerNumFrames) {
+		stats_->finishFrame(frame, 0);
+	} else {
+		if (!inMapped) {
+			/*
+			 * The buffer was directly imported into EGL and thus
+			 * not mapped for texture upload. Do it now for the
+			 * CPU-based stats calculation.
+			 */
+			assert(!inDmaSyncer);
+			inDmaSyncer.emplace(input->planes()[0].fd, DmaSyncer::SyncType::Read);
+			inMapped.emplace(input, MappedFrameBuffer::MapFlag::Read);
+		}
+		stats_->processFrame(frame, 0, inMapped.value());
+	}
+	inDmaSyncer.reset();
+
+	egl_.syncOutput();
+	bench_.finishFrame();
 
 	outputBufferReady.emit(output);
 	inputBufferReady.emit(input);
@@ -577,14 +618,14 @@ int DebayerEGL::start()
 
 	LOG(Debayer, Debug) << "Available fragment shader texture units " << maxTextureImageUnits;
 
-	/* Raw bayer input as texture */
-	eglImageBayerIn_ = std::make_unique<eGLImage>(width_, height_, inputConfig_.stride, GL_TEXTURE0, 0);
-
-	/* Texture we will render to */
-	eglImageBayerOut_ = std::make_unique<eGLImage>(outputSize_.width, outputSize_.height, outputConfig_.stride, GL_TEXTURE1, 1);
-
 	if (initBayerShaders(inputPixelFormat_, outputPixelFormat_))
 		return -EINVAL;
+
+	/* Raw bayer input as texture */
+	eglImageBayerIn_ = std::make_unique<eGLImage>(glFormat_, inputConfig_.stride / bytesPerPixel_, height_, inputConfig_.stride, GL_TEXTURE0, 0);
+
+	/* Texture we will render to */
+	eglImageBayerOut_ = std::make_unique<eGLImage>(GL_RGBA, outputSize_.width, outputSize_.height, outputConfig_.stride, GL_TEXTURE1, 1);
 
 	return 0;
 }
